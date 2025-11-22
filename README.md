@@ -11,6 +11,7 @@ Das Primärziel ist die zuverlässige Klassifizierung verschiedener heimischer S
 
 **2. Quantitative Bestandsanalyse**
 Das System soll nicht nur erkennen, *welche* Vögel da sind, sondern auch *wie oft* diese akustisch aktiv sind. Anhand der Gesangsaktivität sollen statistische Modelle erstellt werden, die eine Abschätzung der relativen Häufigkeit einer Art in einem bestimmten Gebiet ermöglichen ("Relative Abundanz").
+Dafür evtl Event Clustering mit Refractory Period
 
 **3. Statistische Auswertung und Biodiversitäts-Monitoring**
 Die gesammelten Daten sollen genutzt werden, um detaillierte Statistiken zu erstellen:

@@ -40,151 +40,14 @@ The content is organized as follows:
 </file_summary>
 
 <directory_structure>
-data/
-  raw/
-    Amsel/
-      1029081.mp3
-      1034072.mp3
-      1050351.mp3
-      1050352.mp3
-      1050353.mp3
-      133426.mp3
-      172669.mp3
-      304729.mp3
-      308754.mp3
-      313750.mp3
-      342640.mp3
-      342644.mp3
-      353527.mp3
-      362245.mp3
-      362265.mp3
-      362266.mp3
-      363293.mp3
-      376155.mp3
-      377228.mp3
-      378644.mp3
-      378647.mp3
-      387447.mp3
-      420648.mp3
-      434442.mp3
-      434444.mp3
-      434446.mp3
-      434471.mp3
-      434696.mp3
-      487551.mp3
-      656231.mp3
-      677924.mp3
-      731985.mp3
-      735381.mp3
-      735382.mp3
-      735387.mp3
-      735389.mp3
-      735391.mp3
-      735399.mp3
-      750372.mp3
-      764740.mp3
-      789465.mp3
-    Buchfink/
-      123517.mp3
-      125515.mp3
-      126779.mp3
-      127091.mp3
-      133309.mp3
-      237287.mp3
-      254944.mp3
-      287122.mp3
-      308103.mp3
-      308106.mp3
-      308110.mp3
-      308134.mp3
-      315675.mp3
-      360787.mp3
-      363755.mp3
-      367023.mp3
-      415106.mp3
-      463146.mp3
-      463401.mp3
-      57273.mp3
-      642338.mp3
-      642441.mp3
-      715875.mp3
-      912731.mp3
-      97036.mp3
-      97784.mp3
-      98345.mp3
-    Haussperling/
-      325709.mp3
-      380358.mp3
-      383538.mp3
-      384488.mp3
-      384567.mp3
-      400941.mp3
-      471520.mp3
-      514021.mp3
-      530808.mp3
-      591496.mp3
-      632363.mp3
-      76013.mp3
-      771710.mp3
-      79055.mp3
-      791243.mp3
-    Kohlmeise/
-      128697.mp3
-      131611.mp3
-      212916.mp3
-      214637.mp3
-      303312.mp3
-      303316.mp3
-      303395.mp3
-      309742.mp3
-      309824.mp3
-      309830.mp3
-      315677.mp3
-      371424.mp3
-      371452.mp3
-      384622.mp3
-      384625.mp3
-      402993.mp3
-      402994.mp3
-      641368.mp3
-      694890.mp3
-      729993.mp3
-      741377.mp3
-      76364.mp3
-      798517.mp3
-      845019.mp3
-      95788.mp3
-    Rotkehlchen/
-      128706.mp3
-      133407.mp3
-      138369.mp3
-      167916.mp3
-      298703.mp3
-      298712.mp3
-      298724.mp3
-      299253.mp3
-      306198.mp3
-      308172.mp3
-      351035.mp3
-      376746.mp3
-      376749.mp3
-      376751.mp3
-      376752.mp3
-      377238.mp3
-      377432.mp3
-      377448.mp3
-      377455.mp3
-      377466.mp3
-      377470.mp3
-      380343.mp3
-      399632.mp3
-      420326.mp3
-      442630.mp3
-      442781.mp3
-      444480.mp3
-      527905.mp3
 src/
+  visuals/
+    comparison_linear_vs_mel.png
+    comparison_species.png
+    visualize_speciesSpectograms_SpectogramsMELvsLIN.py
   download.py
+  process.py
+.gitignore
 docker-compose-cpu.yml
 docker-compose.yml
 Dockerfile
@@ -195,6 +58,112 @@ WRITEUP_INSPERATION.md
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="src/visuals/visualize_speciesSpectograms_SpectogramsMELvsLIN.py">
+import matplotlib.pyplot as plt
+import librosa
+import librosa.display
+import numpy as np
+import os
+import glob
+
+# --- Configuration ---
+DATA_DIR = "data/raw"
+SPECIES_LIST = ["Amsel", "Buchfink", "Haussperling", "Kohlmeise", "Rotkehlchen"]
+SAMPLE_RATE = 32000
+DURATION = 20  # Seconds to load
+
+def get_first_file(species_name):
+    """Finds the first mp3 file for a specific species."""
+    search_path = os.path.join(DATA_DIR, species_name, "*.mp3")
+    files = glob.glob(search_path)
+    if files:
+        return files[0]
+    else:
+        print(f"Warning: No files found for {species_name}")
+        return None
+
+def plot_five_birds():
+    """
+    Plot 1: Creates a 5-row figure comparing the 5 different birds.
+    """
+    print("Generating Plot 1: 5-Bird Comparison...")
+    
+    fig, axes = plt.subplots(nrows=1, ncols=5, figsize=(20, 4), sharey=True)
+    fig.suptitle('Spectrogram Comparison: 5 Different Species', fontsize=16)
+
+    for i, species in enumerate(SPECIES_LIST):
+        file_path = get_first_file(species)
+        if not file_path:
+            continue
+
+        # Load Audio
+        y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=DURATION)
+        
+        # Compute Mel Spectrogram
+        S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=16000)
+        S_dB = librosa.power_to_db(S, ref=np.max)
+
+        # Plot
+        img = librosa.display.specshow(S_dB, x_axis='time', y_axis='mel', 
+                                     sr=sr, fmax=16000, ax=axes[i], cmap='magma')
+        axes[i].set_title(species)
+        axes[i].set_xlabel('Time')
+        
+        # Only show Y label for the first plot to clean up look
+        if i > 0:
+            axes[i].set_ylabel('')
+
+    plt.tight_layout()
+    plt.savefig("src/visuals/comparison_species.png", dpi=300)
+    print("Saved to src/visuals/comparison_species.png")
+    plt.show()
+
+def plot_linear_vs_mel():
+    """
+    Plot 2: Compares Linear Spectrogram (STFT) vs Mel Spectrogram.
+    Uses 'Amsel' as the example.
+    """
+    print("\nGenerating Plot 2: Linear vs Mel Comparison...")
+    
+    file_path = get_first_file("Amsel") # Using Blackbird as example
+    if not file_path:
+        return
+
+    y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=DURATION)
+
+    fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(10, 8))
+    
+    # --- 1. Linear Frequency Spectrogram (STFT) ---
+    D = librosa.stft(y)  # Short-time Fourier transform
+    S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
+    
+    librosa.display.specshow(S_db, y_axis='log', x_axis='time', sr=sr, ax=ax[0], cmap='magma')
+    ax[0].set_title('Linear Spectrogram (Standard STFT)')
+    ax[0].set_ylabel('Frequency (Hz)')
+    ax[0].label_outer()
+
+    # --- 2. Mel Spectrogram ---
+    M = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=16000)
+    M_db = librosa.power_to_db(M, ref=np.max)
+    
+    librosa.display.specshow(M_db, y_axis='mel', x_axis='time', sr=sr, fmax=16000, ax=ax[1], cmap='magma')
+    ax[1].set_title('Mel Spectrogram (Biologically Inspired)')
+    ax[1].set_ylabel('Frequency (Hz)')
+
+    plt.tight_layout()
+    plt.savefig("src/visuals/comparison_linear_vs_mel.png", dpi=300)
+    print("Saved to src/visuals/comparison_linear_vs_mel.png")
+    plt.show()
+
+if __name__ == "__main__":
+    # Ensure we are in the project root or can find the data
+    if not os.path.exists(DATA_DIR):
+        print(f"Error: Could not find {DATA_DIR}. Run this from the project root.")
+    else:
+        plot_five_birds()
+        plot_linear_vs_mel()
+</file>
 
 <file path="src/download.py">
 import os
@@ -326,6 +295,128 @@ if __name__ == "__main__":
     asyncio.run(main())
 </file>
 
+<file path="src/process.py">
+import os
+import glob
+import argparse
+import numpy as np
+import librosa
+from PIL import Image
+from tqdm import tqdm
+
+# --- Configuration ---
+SAMPLE_RATE = 32000    # Standard for BirdCLEF models
+CHUNK_DURATION = 5     # 5 second chunks
+OVERLAP_DURATION = 2.5 # 2.5 second overlap
+N_MELS = 128           # Height of the image
+FMIN = 20
+FMAX = 16000
+N_FFT = 2048
+HOP_LENGTH_SPEC = 512
+
+def normalize_to_image(spec):
+    """
+    Normalizes a dB spectrogram to 0-255 uint8 for PNG saving.
+    """
+    eps = 1e-6
+    min_val = spec.min()
+    max_val = spec.max()
+    
+    # Normalize to 0.0 - 1.0
+    norm = (spec - min_val) / (max_val - min_val + eps)
+    
+    # Flip Y-axis so low freq is at the bottom
+    norm = np.flipud(norm)
+    
+    # Convert to 0-255
+    img_data = (norm * 255).astype(np.uint8)
+    return Image.fromarray(img_data)
+
+def process_file(file_path, output_root, input_root):
+    try:
+        # 1. Load Audio
+        # librosa handles mp3, wav, ogg automatically
+        y, sr = librosa.load(file_path, sr=SAMPLE_RATE)
+    except Exception as e:
+        print(f"\nError loading {file_path}: {e}")
+        return
+
+    # 2. Segmentation Math
+    frame_length = int(CHUNK_DURATION * sr)
+    hop_length_segment = int((CHUNK_DURATION - OVERLAP_DURATION) * sr)
+
+    # 3. Padding Logic (Handle short files or uneven ends)
+    if len(y) < frame_length:
+        y = np.pad(y, (0, frame_length - len(y)), mode='constant')
+    elif (len(y) - frame_length) % hop_length_segment != 0:
+        n_steps = np.ceil((len(y) - frame_length) / hop_length_segment)
+        target_len = int(n_steps * hop_length_segment + frame_length)
+        padding = target_len - len(y)
+        y = np.pad(y, (0, padding), mode='constant')
+
+    # 4. Fast Segmentation (The Librosa Shortcut)
+    chunks = librosa.util.frame(y, frame_length=frame_length, hop_length=hop_length_segment).T
+
+    # 5. Determine Output Path
+    # mirrors the 'Amsel', 'Buchfink' structure automatically
+    rel_path = os.path.relpath(os.path.dirname(file_path), input_root)
+    save_dir = os.path.join(output_root, rel_path)
+    os.makedirs(save_dir, exist_ok=True)
+
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+
+    # 6. Loop through chunks -> Spectrogram -> Image
+    for i, chunk in enumerate(chunks):
+        chunk_contiguous = np.ascontiguousarray(chunk)
+        
+        # Mel Spectrogram
+        melspec = librosa.feature.melspectrogram(
+            y=chunk_contiguous, sr=sr, n_mels=N_MELS,
+            fmin=FMIN, fmax=FMAX, n_fft=N_FFT, hop_length=HOP_LENGTH_SPEC
+        )
+        
+        # Logarithmic scale (dB)
+        log_melspec = librosa.power_to_db(melspec, ref=np.max)
+        
+        # Save Image
+        img = normalize_to_image(log_melspec)
+        save_path = os.path.join(save_dir, f"{base_name}_{i}.png")
+        img.save(save_path)
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", required=True, help="Input raw data folder")
+    parser.add_argument("--output", required=True, help="Output folder for spectrograms")
+    args = parser.parse_args()
+
+    # Find all audio files (mp3, ogg, wav)
+    extensions = ['*.mp3', '*.ogg', '*.wav']
+    files = []
+    for ext in extensions:
+        files.extend(glob.glob(os.path.join(args.input, '**', ext), recursive=True))
+    
+    if not files:
+        print(f"No audio files found in {args.input}")
+        return
+
+    print(f"Found {len(files)} audio files.")
+    print(f"Processing from '{args.input}' to '{args.output}'...")
+
+    for file_path in tqdm(files):
+        process_file(file_path, args.output, args.input)
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path=".gitignore">
+data/
+__pycache__/
+*.DS_Store
+.env
+.venv
+</file>
+
 <file path="docker-compose-cpu.yml">
 services:
   bird-ai:
@@ -414,6 +505,7 @@ Das Primärziel ist die zuverlässige Klassifizierung verschiedener heimischer S
 
 **2. Quantitative Bestandsanalyse**
 Das System soll nicht nur erkennen, *welche* Vögel da sind, sondern auch *wie oft* diese akustisch aktiv sind. Anhand der Gesangsaktivität sollen statistische Modelle erstellt werden, die eine Abschätzung der relativen Häufigkeit einer Art in einem bestimmten Gebiet ermöglichen ("Relative Abundanz").
+Dafür evtl Event Clustering mit Refractory Period
 
 **3. Statistische Auswertung und Biodiversitäts-Monitoring**
 Die gesammelten Daten sollen genutzt werden, um detaillierte Statistiken zu erstellen:
