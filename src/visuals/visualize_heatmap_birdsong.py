@@ -18,7 +18,7 @@ CLASSES = sorted(SPECIES_LIST)
 SAMPLE_RATE = 32000
 CHUNK_DURATION = 5
 TOTAL_DURATION = 20
-STRIDE = 2.5  # Slide the window every 1 second (High resolution!)
+STRIDE = 0.01  # Slide the window every 1 second (High resolution!)
 N_MELS = 128
 FMAX = 16000
 

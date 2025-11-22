@@ -43,13 +43,22 @@ The content is organized as follows:
 src/
   visuals/
     comparison_linear_vs_mel.png
+    comparison_model_performance.png
     comparison_species.png
+    confusion_matrix_15epoch_resnet18pre.png
+    loss_curve_15epoch_resnet18pre.png
+    sliding_window_attention_0.1.png
+    sliding_window_attention_2.5.png
+    visualize_heatmap_birdsong.py
+    visualize_model_comparison.py
     visualize_speciesSpectograms_SpectogramsMELvsLIN.py
   download.py
+  predict.py
   process.py
   split_data.py
+  train_fromScratch.py
+  train.py
 .gitignore
-docker-compose-cpu.yml
 docker-compose.yml
 Dockerfile
 README.md
@@ -59,6 +68,281 @@ WRITEUP_INSPERATION.md
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="src/visuals/visualize_heatmap_birdsong.py">
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torchvision import models, transforms
+from PIL import Image
+import librosa
+import librosa.display
+import cv2
+import os
+import glob
+
+# --- Configuration ---
+MODEL_PATH = "data/models/bird_classifier_resnet18.pth"
+DATA_DIR = "data/raw"
+SPECIES_LIST = ["Amsel", "Buchfink", "Haussperling", "Kohlmeise", "Rotkehlchen"]
+CLASSES = sorted(SPECIES_LIST)
+SAMPLE_RATE = 32000
+CHUNK_DURATION = 5
+TOTAL_DURATION = 20
+STRIDE = 0.01  # Slide the window every 1 second (High resolution!)
+N_MELS = 128
+FMAX = 16000
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# --- Grad-CAM Class ---
+class GradCAM:
+    def __init__(self, model, target_layer):
+        self.model = model
+        self.gradients = None
+        self.activations = None
+        target_layer.register_forward_hook(self.save_activation)
+        target_layer.register_full_backward_hook(self.save_gradient)
+
+    def save_activation(self, module, input, output):
+        self.activations = output
+
+    def save_gradient(self, module, grad_input, grad_output):
+        self.gradients = grad_output[0]
+
+    def generate_cam(self, input_tensor, target_class_idx):
+        output = self.model(input_tensor)
+        self.model.zero_grad()
+        target = output[:, target_class_idx]
+        target.backward()
+
+        weights = torch.mean(self.gradients, dim=(2, 3))[0]
+        cam = torch.zeros(self.activations.shape[2:], dtype=torch.float32).to(device)
+        for i, w in enumerate(weights):
+            cam += w * self.activations[0, i, :, :]
+            
+        cam = F.relu(cam)
+        cam = cam.cpu().detach().numpy()
+        cam = (cam - np.min(cam)) / (np.max(cam) - np.min(cam) + 1e-8)
+        return cam
+
+def main():
+    print("Loading Model...")
+    model = models.resnet18()
+    model.fc = torch.nn.Linear(model.fc.in_features, len(CLASSES))
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.to(device)
+    model.eval()
+
+    grad_cam = GradCAM(model, model.layer4[-1])
+
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+
+    fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(15, 12))
+    fig.suptitle(f'Continuous AI Attention (Sliding Window Stride: {STRIDE}s)', fontsize=16)
+
+    for i, species in enumerate(SPECIES_LIST):
+        print(f"Processing {species}...")
+        search_path = os.path.join(DATA_DIR, species, "*.mp3")
+        files = glob.glob(search_path)
+        if not files: continue
+        file_path = files[0]
+
+        # 1. Load full 20s Audio
+        y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=TOTAL_DURATION)
+        target_len = TOTAL_DURATION * SAMPLE_RATE
+        if len(y) < target_len:
+            y = np.pad(y, (0, target_len - len(y)))
+        else:
+            y = y[:target_len]
+
+        # 2. Compute Full Spectrogram (Background)
+        full_melspec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=N_MELS, fmax=FMAX)
+        full_melspec_db = librosa.power_to_db(full_melspec, ref=np.max)
+        
+        # Normalize Full Spectrogram for display (0-1)
+        spec_min, spec_max = full_melspec_db.min(), full_melspec_db.max()
+        display_spec = (full_melspec_db - spec_min) / (spec_max - spec_min + 1e-6)
+
+        # 3. Create Accumulator Buffers
+        # shape is (n_mels, time_steps)
+        heatmap_sum = np.zeros_like(display_spec)
+        heatmap_count = np.zeros_like(display_spec)
+
+        # 4. Sliding Window Logic
+        samples_per_chunk = int(CHUNK_DURATION * sr)
+        samples_stride = int(STRIDE * sr)
+        
+        # Calculate how many pixels correspond to one chunk in the spectrogram
+        # librosa stft behavior: time_steps = samples / hop_length
+        # We need to map time -> pixels accurately
+        pixels_per_sec = display_spec.shape[1] / TOTAL_DURATION
+
+        current_sample = 0
+        while current_sample + samples_per_chunk <= len(y):
+            # Extract Audio Chunk
+            y_chunk = y[current_sample : current_sample + samples_per_chunk]
+            
+            # Create Mel Spec for Model (Match training preprocessing exactly)
+            chunk_melspec = librosa.feature.melspectrogram(y=y_chunk, sr=sr, n_mels=N_MELS, fmax=FMAX)
+            chunk_db = librosa.power_to_db(chunk_melspec, ref=np.max)
+            
+            # Normalize 0-255 uint8 for PIL
+            c_min, c_max = chunk_db.min(), chunk_db.max()
+            chunk_norm = (chunk_db - c_min) / (c_max - c_min + 1e-6)
+            chunk_img_data = (np.flipud(chunk_norm) * 255).astype(np.uint8)
+            pil_img = Image.fromarray(chunk_img_data).convert("RGB") # FIX APPLIED HERE
+
+            # Get GradCAM
+            input_tensor = transform(pil_img).unsqueeze(0).to(device)
+            target_idx = CLASSES.index(species)
+            cam = grad_cam.generate_cam(input_tensor, target_idx) # returns 224x224 typically
+
+            # Mapping back to the global spectrogram canvas
+            # Start and End time of this window
+            t_start = current_sample / sr
+            t_end = (current_sample + samples_per_chunk) / sr
+            
+            # Convert time to spectrogram pixel indices
+            px_start = int(t_start * pixels_per_sec)
+            px_end = int(t_end * pixels_per_sec)
+            
+            # Safety check for dimensions
+            if px_end > display_spec.shape[1]: px_end = display_spec.shape[1]
+            width = px_end - px_start
+            if width <= 0: break
+
+            # Resize CAM to fit this specific slice of the spectrogram
+            # We resize to (width, 128)
+            cam_resized = cv2.resize(cam, (width, N_MELS))
+            cam_resized = np.flipud(cam_resized) # Flip back to match librosa orientation
+
+            # Add to accumulators
+            heatmap_sum[:, px_start:px_end] += cam_resized
+            heatmap_count[:, px_start:px_end] += 1.0
+
+            # Slide
+            current_sample += samples_stride
+
+        # 5. Average and Normalize Heatmap
+        # Avoid division by zero
+        heatmap_count[heatmap_count == 0] = 1.0
+        final_heatmap = heatmap_sum / heatmap_count
+        
+        # Normalize final 0-1
+        if final_heatmap.max() > 0:
+            final_heatmap = final_heatmap / final_heatmap.max()
+
+        # 6. Plotting
+        ax = axes[i]
+        
+        # Background: Spectrogram (Grayscale)
+        ax.imshow(display_spec, aspect='auto', origin='lower', cmap='gray', extent=[0, 20, 0, FMAX])
+        
+        # Foreground: Heatmap (Jet, Alpha blended)
+        # We need to map 0-1 values to RGB color map manually for overlay
+        colored_map = plt.cm.jet(final_heatmap) # Returns RGBA
+        # Set alpha channel based on intensity (so low attention is transparent)
+        colored_map[:, :, 3] = final_heatmap * 0.6 
+        
+        ax.imshow(colored_map, aspect='auto', origin='lower', extent=[0, 20, 0, FMAX])
+
+        ax.set_title(f"{species}")
+        ax.set_ylabel("Freq (Hz)")
+        if i < 4:
+            ax.set_xticks([])
+        else:
+            ax.set_xlabel("Time (seconds)")
+
+    plt.tight_layout()
+    save_path = "src/visuals/sliding_window_attention.png"
+    plt.savefig(save_path, dpi=300)
+    print(f"\nSaved to {save_path}")
+    plt.show()
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/visuals/visualize_model_comparison.py">
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+
+# --- Data from your experiments ---
+# We take the values you just generated:
+# Custom CNN: Memorized training data (99.3%) but failed on test (80.9%)
+# ResNet18:   Good training data (93.0%) and generalized well (89.3%)
+
+models = ['Custom CNN\n(From Scratch)', 'ResNet18\n(Transfer Learning)']
+train_acc = [99.3, 93.0]  # Accuracy on Training Data
+test_acc =  [80.9, 89.3]  # Accuracy on Test Data (Real world performance)
+
+# Setup the bar chart
+x = np.arange(len(models))  # label locations
+width = 0.35  # width of the bars
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Create bars
+rects1 = ax.bar(x - width/2, train_acc, width, label='Training Accuracy', color='#A7C7E7') # Light Blue
+rects2 = ax.bar(x + width/2, test_acc, width, label='Test Accuracy', color='#0047AB')    # Dark Blue
+
+# Add textual layout
+ax.set_ylabel('Accuracy (%)')
+ax.set_title('Comparison: Training from Scratch vs. Transfer Learning')
+ax.set_xticks(x)
+ax.set_xticklabels(models)
+ax.set_ylim(0, 110) # Make room for labels
+ax.legend(loc='lower right')
+
+# Add grid for easier reading
+ax.yaxis.grid(True, linestyle='--', alpha=0.7)
+
+# Function to add labels on top of bars
+def autolabel(rects):
+    for rect in rects:
+        height = rect.get_height()
+        ax.annotate(f'{height}%',
+                    xy=(rect.get_x() + rect.get_width() / 2, height),
+                    xytext=(0, 3),  # 3 points vertical offset
+                    textcoords="offset points",
+                    ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+autolabel(rects1)
+autolabel(rects2)
+
+# --- Highlight the Overfitting Gap ---
+# We draw a red bracket or line to show the gap for Custom CNN
+gap_custom = train_acc[0] - test_acc[0]
+gap_resnet = train_acc[1] - test_acc[1]
+
+# Annotation for Custom CNN
+ax.annotate(f'High Overfitting\nGap: {gap_custom:.1f}%',
+            xy=(x[0], (train_acc[0] + test_acc[0])/2),
+            xytext=(x[0], 40),
+            arrowprops=dict(facecolor='red', shrink=0.05),
+            ha='center', color='red', fontweight='bold')
+
+# Annotation for ResNet
+ax.annotate(f'Robust Generalization\nGap: {gap_resnet:.1f}%',
+            xy=(x[1], (train_acc[1] + test_acc[1])/2),
+            xytext=(x[1], 40),
+            arrowprops=dict(facecolor='green', shrink=0.05),
+            ha='center', color='green', fontweight='bold')
+
+# Save
+output_path = "src/visuals/comparison_model_performance.png"
+plt.tight_layout()
+plt.savefig(output_path, dpi=300)
+print(f"Comparison chart saved to {output_path}")
+plt.show()
+</file>
 
 <file path="src/visuals/visualize_speciesSpectograms_SpectogramsMELvsLIN.py">
 import matplotlib.pyplot as plt
@@ -296,6 +580,138 @@ if __name__ == "__main__":
     asyncio.run(main())
 </file>
 
+<file path="src/predict.py">
+import argparse
+import os
+import torch
+import numpy as np
+import librosa
+from torchvision import transforms, models
+from PIL import Image
+import torch.nn.functional as F
+
+# --- Config matches Training ---
+MODEL_PATH = "data/models/bird_classifier_resnet18.pth"
+# ALPHABETICAL ORDER IS CRITICAL (Must match ImageFolder order)
+CLASSES = ['Amsel', 'Buchfink', 'Haussperling', 'Kohlmeise', 'Rotkehlchen']
+SAMPLE_RATE = 32000
+CHUNK_DURATION = 5
+N_MELS = 128
+FMAX = 16000
+
+# Detect Device
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+def get_transforms():
+    """Must match the 'test' transforms from train.py exactly."""
+    return transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+
+def audio_to_images(audio_path):
+    """
+    Loads audio, splits into chunks, converts to Spectrogram PIL Images.
+    (This replicates logic from process.py but in-memory)
+    """
+    y, sr = librosa.load(audio_path, sr=SAMPLE_RATE)
+    
+    # Calculate dimensions
+    frame_length = int(CHUNK_DURATION * sr)
+    hop_length = int(frame_length) # Non-overlapping for inference speed
+    
+    # Pad if too short
+    if len(y) < frame_length:
+        y = np.pad(y, (0, frame_length - len(y)), mode='constant')
+
+    # Split into chunks
+    chunks = librosa.util.frame(y, frame_length=frame_length, hop_length=hop_length).T
+    
+    images = []
+    for chunk in chunks:
+        chunk = np.ascontiguousarray(chunk)
+        
+        # Generate Mel Spec
+        melspec = librosa.feature.melspectrogram(
+            y=chunk, sr=sr, n_mels=N_MELS, fmax=FMAX
+        )
+        log_melspec = librosa.power_to_db(melspec, ref=np.max)
+        
+        # Normalize to 0-255 (Same math as process.py)
+        min_val = log_melspec.min()
+        max_val = log_melspec.max()
+        norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+        norm = np.flipud(norm) # Flip Y
+        img_data = (norm * 255).astype(np.uint8)
+        
+        # Convert to PIL
+        img = Image.fromarray(img_data)
+        # Convert to RGB (ResNet expects 3 channels)
+        img = img.convert("RGB")
+        images.append(img)
+        
+    return images
+
+def predict_file(audio_path):
+    print(f"Processing: {os.path.basename(audio_path)}...")
+    
+    # 1. Prepare Model
+    model = models.resnet18()
+    num_ftrs = model.fc.in_features
+    model.fc = torch.nn.Linear(num_ftrs, len(CLASSES))
+    
+    # Load weights
+    if not os.path.exists(MODEL_PATH):
+        print(f"Error: Model not found at {MODEL_PATH}")
+        return
+
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.to(device)
+    model.eval()
+    
+    # 2. Prepare Data
+    try:
+        pil_images = audio_to_images(audio_path)
+    except Exception as e:
+        print(f"Error loading audio: {e}")
+        return
+
+    transform = get_transforms()
+    # Stack images into a batch tensor
+    batch = torch.stack([transform(img) for img in pil_images]).to(device)
+    
+    # 3. Inference
+    with torch.no_grad():
+        outputs = model(batch)
+        # Convert logits to probabilities (0.0 to 1.0)
+        probs = F.softmax(outputs, dim=1)
+        
+    # 4. Aggregation (Average probability across all chunks)
+    avg_probs = torch.mean(probs, dim=0).cpu().numpy()
+    
+    # 5. Result
+    best_idx = np.argmax(avg_probs)
+    confidence = avg_probs[best_idx]
+    predicted_class = CLASSES[best_idx]
+    
+    print("\n--- Results ---")
+    print(f"Prediction: {predicted_class.upper()}")
+    print(f"Confidence: {confidence:.2%}")
+    print("-" * 20)
+    print("Details:")
+    for i, cls in enumerate(CLASSES):
+        print(f"{cls}: {avg_probs[i]:.2%}")
+    print("-" * 20)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--file", required=True, help="Path to audio file")
+    args = parser.parse_args()
+    
+    predict_file(args.file)
+</file>
+
 <file path="src/process.py">
 import os
 import glob
@@ -491,59 +907,337 @@ if __name__ == "__main__":
         split_dataset(args.input, args.output, args.ratio)
 </file>
 
+<file path="src/train_fromScratch.py">
+# src/train_custom.py
+# Use this ONLY to prove that ResNet is better!
+
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+import matplotlib.pyplot as plt
+
+# --- Simple Custom CNN ---
+class SimpleBirdNet(nn.Module):
+    def __init__(self, num_classes):
+        super(SimpleBirdNet, self).__init__()
+        # Layer 1
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
+        self.pool = nn.MaxPool2d(2, 2)
+        # Layer 2
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        # Layer 3
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        
+        self.flatten = nn.Flatten()
+        # Calculate size after 3 pooling layers (224 -> 112 -> 56 -> 28)
+        self.fc1 = nn.Linear(128 * 28 * 28, 512)
+        self.fc2 = nn.Linear(512, num_classes)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.5)
+
+    def forward(self, x):
+        x = self.pool(self.relu(self.conv1(x)))
+        x = self.pool(self.relu(self.conv2(x)))
+        x = self.pool(self.relu(self.conv3(x)))
+        x = self.flatten(x)
+        x = self.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = self.fc2(x)
+        return x
+
+def main():
+    # Use same settings as ResNet
+    BATCH_SIZE = 32
+    EPOCHS = 15
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]) # Simple norm
+    ])
+    
+    # Load Data
+    train_data = datasets.ImageFolder('data/processed/train', transform=transform)
+    test_data = datasets.ImageFolder('data/processed/test', transform=transform)
+    
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+    
+    # Initialize Model
+    model = SimpleBirdNet(num_classes=len(train_data.classes)).to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    
+    print("Training Custom CNN from scratch...")
+    
+    for epoch in range(EPOCHS):
+        model.train()
+        running_loss = 0.0
+        correct = 0
+        total = 0
+        
+        for inputs, labels in train_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            running_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            
+        print(f"Epoch {epoch+1}: Loss {running_loss/len(train_loader):.3f} | Acc: {100 * correct / total:.2f}%")
+
+    # Final Test
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            
+    print(f"\nFinal Custom CNN Test Accuracy: {100 * correct / total:.2f}%")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/train.py">
+import os
+import time
+import copy
+import argparse
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, models, transforms
+from sklearn.metrics import confusion_matrix, classification_report
+import seaborn as sns
+
+# --- Configuration ---
+DEFAULT_DATA_DIR = "data/processed"
+MODEL_SAVE_PATH = "data/models"
+BATCH_SIZE = 32
+NUM_EPOCHS = 15
+LEARNING_RATE = 0.001
+IMG_SIZE = 224  # ResNet standard input size
+
+# Detect Device (GPU if available)
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+def get_data_transforms():
+    """
+    Define transformations for the images.
+    ResNet expects 224x224.
+    """
+    data_transforms = {
+        'train': transforms.Compose([
+            transforms.Resize((IMG_SIZE, IMG_SIZE)),
+            # Simple augmentation: Randomly crop to make model robust to slight shifts
+            transforms.RandomResizedCrop(IMG_SIZE, scale=(0.8, 1.0)),
+            transforms.ToTensor(),
+            # Normalize with ImageNet mean/std (since we use transfer learning)
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+        'test': transforms.Compose([
+            transforms.Resize((IMG_SIZE, IMG_SIZE)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+    }
+    return data_transforms
+
+def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, num_epochs=25):
+    since = time.time()
+
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_acc = 0.0
+    
+    train_loss_history = []
+    val_loss_history = []
+
+    for epoch in range(num_epochs):
+        print(f'Epoch {epoch+1}/{num_epochs}')
+        print('-' * 10)
+
+        # Each epoch has a training and validation phase
+        for phase in ['train', 'test']:
+            if phase == 'train':
+                model.train()  # Set model to training mode
+            else:
+                model.eval()   # Set model to evaluate mode
+
+            running_loss = 0.0
+            running_corrects = 0
+
+            # Iterate over data.
+            for inputs, labels in dataloaders[phase]:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+
+                # Zero the parameter gradients
+                optimizer.zero_grad()
+
+                # Forward
+                # Track history if only in train
+                with torch.set_grad_enabled(phase == 'train'):
+                    outputs = model(inputs)
+                    _, preds = torch.max(outputs, 1)
+                    loss = criterion(outputs, labels)
+
+                    # Backward + optimize only if in training phase
+                    if phase == 'train':
+                        loss.backward()
+                        optimizer.step()
+
+                # Statistics
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels.data)
+
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_corrects.double() / dataset_sizes[phase]
+
+            if phase == 'train':
+                train_loss_history.append(epoch_loss)
+            else:
+                val_loss_history.append(epoch_loss)
+
+            print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+
+            # Deep copy the model if it's the best one so far
+            if phase == 'test' and epoch_acc > best_acc:
+                best_acc = epoch_acc
+                best_model_wts = copy.deepcopy(model.state_dict())
+
+        print()
+
+    time_elapsed = time.time() - since
+    print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
+    print(f'Best val Acc: {best_acc:4f}')
+
+    # Load best model weights
+    model.load_state_dict(best_model_wts)
+    return model, train_loss_history, val_loss_history
+
+def evaluate_model(model, dataloaders, class_names):
+    """
+    Generate detailed metrics and confusion matrix.
+    """
+    model.eval()
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for inputs, labels in dataloaders['test']:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    # Classification Report
+    print("\n--- Classification Report ---")
+    print(classification_report(all_labels, all_preds, target_names=class_names))
+
+    # Confusion Matrix Plot
+    cm = confusion_matrix(all_labels, all_preds)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=class_names, yticklabels=class_names)
+    plt.ylabel('Actual')
+    plt.xlabel('Predicted')
+    plt.title('Confusion Matrix')
+    plt.tight_layout()
+    plt.savefig(os.path.join(MODEL_SAVE_PATH, 'confusion_matrix.png'))
+    print(f"Confusion Matrix saved to {MODEL_SAVE_PATH}/confusion_matrix.png")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", default=DEFAULT_DATA_DIR, help="Path to processed data (containing train/test folders)")
+    parser.add_argument("--epochs", type=int, default=NUM_EPOCHS, help="Number of training epochs")
+    args = parser.parse_args()
+
+    # Create model output directory
+    os.makedirs(MODEL_SAVE_PATH, exist_ok=True)
+
+    # 1. Load Data
+    data_transforms = get_data_transforms()
+    
+    image_datasets = {x: datasets.ImageFolder(os.path.join(args.data, x), data_transforms[x]) 
+                      for x in ['train', 'test']}
+    
+    dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=BATCH_SIZE, 
+                                                  shuffle=True, num_workers=4)
+                   for x in ['train', 'test']}
+    
+    dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'test']}
+    class_names = image_datasets['train'].classes
+    
+    print(f"Classes found: {class_names}")
+    print(f"Training on {dataset_sizes['train']} images, Validating on {dataset_sizes['test']} images.")
+    print(f"Using device: {device}")
+
+    # 2. Setup Model (Transfer Learning: ResNet18)
+    # We use ResNet18 because it's lightweight and efficient
+    print("Loading ResNet18 pre-trained model...")
+    weights = models.ResNet18_Weights.DEFAULT
+    model_ft = models.resnet18(weights=weights)
+
+    # Modify the last layer to match our number of bird species
+    num_ftrs = model_ft.fc.in_features
+    model_ft.fc = nn.Linear(num_ftrs, len(class_names))
+
+    model_ft = model_ft.to(device)
+
+    # 3. Loss and Optimizer
+    criterion = nn.CrossEntropyLoss()
+    
+    # We optimize all parameters
+    optimizer_ft = optim.Adam(model_ft.parameters(), lr=LEARNING_RATE)
+
+    # 4. Train
+    model_ft, t_hist, v_hist = train_model(model_ft, dataloaders, dataset_sizes, criterion, optimizer_ft, num_epochs=args.epochs)
+
+    # 5. Save Model
+    save_path = os.path.join(MODEL_SAVE_PATH, "bird_classifier_resnet18.pth")
+    torch.save(model_ft.state_dict(), save_path)
+    print(f"Model saved to {save_path}")
+
+    # 6. Evaluation
+    evaluate_model(model_ft, dataloaders, class_names)
+
+    # 7. Plot Loss Curves
+    plt.figure()
+    plt.plot(t_hist, label='Train Loss')
+    plt.plot(v_hist, label='Val Loss')
+    plt.title('Training Metrics')
+    plt.legend()
+    plt.savefig(os.path.join(MODEL_SAVE_PATH, 'loss_curve.png'))
+
+if __name__ == "__main__":
+    main()
+</file>
+
 <file path=".gitignore">
 data/
 __pycache__/
 *.DS_Store
 .env
 .venv
-</file>
-
-<file path="docker-compose-cpu.yml">
-services:
-  bird-ai:
-    build: .
-    container_name: bird_container
-    # Hier spiegeln wir deine Festplatte in den Container
-    volumes:
-      - ./src:/app/src      # Dein Code
-      - ./data:/app/data    # Deine Audio-Daten
-    env_file:
-      - .env
-    # Ports freigeben (falls du Jupyter Notebooks nutzen willst)
-    ports:
-      - "8888:8888"
-    # Hält den Container am Leben, damit wir Befehle eingeben können
-    command: tail -f /dev/null
-    # Nutzt GPU falls vorhanden (nur unter Linux/WSL2 mit NVIDIA Toolkit)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-</file>
-
-<file path="docker-compose.yml">
-services:
-  bird-ai:
-    build: .
-    container_name: bird_container_gpu
-    volumes:
-      - ./src:/app/src
-      - ./data:/app/data
-    env_file:
-      - .env
-    command: tail -f /dev/null
-    # Das hier ist neu für CUDA:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 </file>
 
 <file path="Dockerfile">
@@ -571,28 +1265,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 4. Standard-Befehl (hält den Container am Leben)
 CMD ["bash"]
-</file>
-
-<file path="requirements.txt">
-# KI & Mathe
-#torch (cpu)
-#torchaudio (cpu)
-#torchvision (cpu)
-numpy<2.0
-pandas
-scikit-learn
-
-# Audio Verarbeitung
-librosa
-soundfile
-audiomentations
-
-# Visualisierung (für Jupyter/Plots)
-matplotlib
-jupyterlab
-
-## Daten 
-aiohttp
 </file>
 
 <file path="WRITEUP_INSPERATION.md">
@@ -1648,7 +2320,54 @@ Posted 5 months ago
 thanks alot….
 </file>
 
+<file path="docker-compose.yml">
+services:
+  bird-ai:
+    build: .
+    container_name: bird_container_gpu
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+    env_file:
+      - .env
+    command: tail -f /dev/null
+    shm_size: '6gb'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+</file>
+
+<file path="requirements.txt">
+# KI & Mathe
+#torch (cpu)
+#torchaudio (cpu)
+#torchvision (cpu)
+numpy<2.0
+pandas
+scikit-learn
+
+# Audio Verarbeitung
+librosa
+soundfile
+audiomentations
+
+# Visualisierung (für Jupyter/Plots)
+matplotlib
+jupyterlab
+seaborn
+opencv-python-headless<4.10
+
+## Daten 
+aiohttp
+</file>
+
 <file path="README.md">
+## Jugend Forscht Projekt: Piepmatz Polizei
+
 ### Projektübersicht
 
 Das Ziel dieses Projektes ist die Entwicklung eines automatisierten Systems zur akustischen Erfassung und Bestimmung heimischer Vogelarten. Während herkömmliche Methoden der Vogelzählung oft auf manueller Beobachtung basieren und somit zeitintensiv und lückenhaft sind, verfolgen wir einen Ansatz des dauerhaften, passiven Monitorings.
