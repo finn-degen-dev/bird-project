@@ -1,3 +1,5 @@
+## Jugend Forscht Projekt: Piepmatz Polizei
+
 ### Projektübersicht
 
 Das Ziel dieses Projektes ist die Entwicklung eines automatisierten Systems zur akustischen Erfassung und Bestimmung heimischer Vogelarten. Während herkömmliche Methoden der Vogelzählung oft auf manueller Beobachtung basieren und somit zeitintensiv und lückenhaft sind, verfolgen wir einen Ansatz des dauerhaften, passiven Monitorings.
