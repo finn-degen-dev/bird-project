@@ -170,13 +170,23 @@ def main():
     print(f"Training on {len(train_dataset)} audio files. Validation on {len(test_dataset)} files.")
 
     # 3. Model Setup (Robust Load)
-    print("Loading EfficientNet-B0...")
-    try:
-        weights = models.EfficientNet_B0_Weights.DEFAULT
-        model = models.efficientnet_b0(weights=weights)
-    except:
-        model = models.efficientnet_b0(weights=None)
-        
+    #print("Loading EfficientNet-B0...")
+#try:
+    #    weights = models.EfficientNet_B0_Weights.DEFAULT
+    #    model = models.efficientnet_b0(weights=weights)
+    #except:
+    #    model = models.efficientnet_b0(weights=None)
+    #fine tuning 
+
+    print("Loading previous Pro Model for Fine-Tuning...")
+    model = models.efficientnet_b0(weights=None)
+    # Setup head to match
+    num_ftrs = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(num_ftrs, len(class_names))
+    # Load your 96% weights
+    model.load_state_dict(torch.load("data/models/bird_classifier_pro.pth"))
+    model = model.to(device)
+
     num_ftrs = model.classifier[1].in_features
     model.classifier[1] = nn.Linear(num_ftrs, len(class_names))
     model = model.to(device)
