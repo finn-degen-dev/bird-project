@@ -1,0 +1,19 @@
+# KI & Mathe
+#torch (cpu)
+#torchaudio (cpu)
+#torchvision (cpu)
+numpy<2.0
+pandas
+scikit-learn
+
+# Audio Verarbeitung
+librosa
+soundfile
+audiomentations
+
+# Visualisierung (für Jupyter/Plots)
+matplotlib
+jupyterlab
+
+## Daten 
+aiohttp

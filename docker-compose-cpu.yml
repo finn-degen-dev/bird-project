@@ -1,0 +1,23 @@
+services:
+  bird-ai:
+    build: .
+    container_name: bird_container
+    # Hier spiegeln wir deine Festplatte in den Container
+    volumes:
+      - ./src:/app/src      # Dein Code
+      - ./data:/app/data    # Deine Audio-Daten
+    env_file:
+      - .env
+    # Ports freigeben (falls du Jupyter Notebooks nutzen willst)
+    ports:
+      - "8888:8888"
+    # Hält den Container am Leben, damit wir Befehle eingeben können
+    command: tail -f /dev/null
+    # Nutzt GPU falls vorhanden (nur unter Linux/WSL2 mit NVIDIA Toolkit)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]

@@ -1,0 +1,18 @@
+services:
+  bird-ai:
+    build: .
+    container_name: bird_container_gpu
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+    env_file:
+      - .env
+    command: tail -f /dev/null
+    # Das hier ist neu für CUDA:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

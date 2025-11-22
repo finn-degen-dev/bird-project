@@ -1,0 +1,1503 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+data/
+  raw/
+    Amsel/
+      1029081.mp3
+      1034072.mp3
+      1050351.mp3
+      1050352.mp3
+      1050353.mp3
+      133426.mp3
+      172669.mp3
+      304729.mp3
+      308754.mp3
+      313750.mp3
+      342640.mp3
+      342644.mp3
+      353527.mp3
+      362245.mp3
+      362265.mp3
+      362266.mp3
+      363293.mp3
+      376155.mp3
+      377228.mp3
+      378644.mp3
+      378647.mp3
+      387447.mp3
+      420648.mp3
+      434442.mp3
+      434444.mp3
+      434446.mp3
+      434471.mp3
+      434696.mp3
+      487551.mp3
+      656231.mp3
+      677924.mp3
+      731985.mp3
+      735381.mp3
+      735382.mp3
+      735387.mp3
+      735389.mp3
+      735391.mp3
+      735399.mp3
+      750372.mp3
+      764740.mp3
+      789465.mp3
+    Buchfink/
+      123517.mp3
+      125515.mp3
+      126779.mp3
+      127091.mp3
+      133309.mp3
+      237287.mp3
+      254944.mp3
+      287122.mp3
+      308103.mp3
+      308106.mp3
+      308110.mp3
+      308134.mp3
+      315675.mp3
+      360787.mp3
+      363755.mp3
+      367023.mp3
+      415106.mp3
+      463146.mp3
+      463401.mp3
+      57273.mp3
+      642338.mp3
+      642441.mp3
+      715875.mp3
+      912731.mp3
+      97036.mp3
+      97784.mp3
+      98345.mp3
+    Haussperling/
+      325709.mp3
+      380358.mp3
+      383538.mp3
+      384488.mp3
+      384567.mp3
+      400941.mp3
+      471520.mp3
+      514021.mp3
+      530808.mp3
+      591496.mp3
+      632363.mp3
+      76013.mp3
+      771710.mp3
+      79055.mp3
+      791243.mp3
+    Kohlmeise/
+      128697.mp3
+      131611.mp3
+      212916.mp3
+      214637.mp3
+      303312.mp3
+      303316.mp3
+      303395.mp3
+      309742.mp3
+      309824.mp3
+      309830.mp3
+      315677.mp3
+      371424.mp3
+      371452.mp3
+      384622.mp3
+      384625.mp3
+      402993.mp3
+      402994.mp3
+      641368.mp3
+      694890.mp3
+      729993.mp3
+      741377.mp3
+      76364.mp3
+      798517.mp3
+      845019.mp3
+      95788.mp3
+    Rotkehlchen/
+      128706.mp3
+      133407.mp3
+      138369.mp3
+      167916.mp3
+      298703.mp3
+      298712.mp3
+      298724.mp3
+      299253.mp3
+      306198.mp3
+      308172.mp3
+      351035.mp3
+      376746.mp3
+      376749.mp3
+      376751.mp3
+      376752.mp3
+      377238.mp3
+      377432.mp3
+      377448.mp3
+      377455.mp3
+      377466.mp3
+      377470.mp3
+      380343.mp3
+      399632.mp3
+      420326.mp3
+      442630.mp3
+      442781.mp3
+      444480.mp3
+      527905.mp3
+src/
+  download.py
+docker-compose-cpu.yml
+docker-compose.yml
+Dockerfile
+README.md
+requirements.txt
+WRITEUP_INSPERATION.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="src/download.py">
+import os
+import asyncio
+import aiohttp
+import shutil
+
+# --- KONFIGURATION ---
+DATA_DIR = "/app/data/raw"
+MAX_FILES = 60
+
+# Wir holen den Key aus der Umgebungsvariable
+API_KEY = os.getenv("XENOCANTO_API_KEY")
+
+# Prüfung: Ist der Key da?
+if not API_KEY:
+    print("❌ FEHLER: Kein API-Key gefunden!")
+    print("   Bitte setze 'XENOCANTO_API_KEY' in deiner .env Datei")
+    print("   und starte den Container neu.")
+    exit(1)
+
+API_VERSION = "3"  # Jetzt nutzen wir explizit v3
+
+# Unsere Vögel
+birds = {
+    "Turdus merula": "Amsel",
+    "Parus major": "Kohlmeise",
+    "Erithacus rubecula": "Rotkehlchen",
+    "Fringilla coelebs": "Buchfink",
+    "Passer domesticus": "Haussperling"
+}
+
+async def download_file(session, url, filepath):
+    # ... (Code bleibt gleich wie vorher) ...
+    try:
+        async with session.get(url) as response:
+            if response.status == 200:
+                with open(filepath, 'wb') as f:
+                    while True:
+                        chunk = await response.content.read(4096)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                return True
+            else:
+                print(f"❌ Download fehlgeschlagen (Status {response.status}): {url}")
+                return False
+    except Exception as e:
+        print(f"⚠️ Fehler beim Download von {url}: {e}")
+        return False
+
+async def process_bird(session, latin_name, german_name):
+    print(f"\n--- Suche nach: {german_name} ({latin_name}) ---")
+    
+    target_folder = os.path.join(DATA_DIR, german_name)
+    if not os.path.exists(target_folder):
+        os.makedirs(target_folder)
+        
+    existing_files = len([f for f in os.listdir(target_folder) if f.endswith('.mp3')])
+    if existing_files >= MAX_FILES:
+        print(f"✅ Bereits {existing_files} Dateien vorhanden. Überspringe...")
+        return
+
+    # --- Query Aufbauen ---
+    query = f'sp:"{latin_name}" cnt:germany q:A len:10-60 type:song'
+    
+    # API v3 URL
+    api_url = f"https://xeno-canto.org/api/{API_VERSION}/recordings"
+    
+    # Parameter für v3 (Query + Key sind jetzt separate Felder, nicht alles im Query-String)
+    params = {
+        'query': query,
+        'key': API_KEY  # Hier wird der Key sicher übergeben
+    }
+
+    try:
+        async with session.get(api_url, params=params) as response:
+            if response.status != 200:
+                print(f"❌ API Fehler für {german_name}: Status {response.status}")
+                error_text = await response.text()
+                print(f"   Server Antwort: {error_text}")
+                return
+            
+            data = await response.json()
+            recordings = data.get('recordings', [])
+            print(f"-> {len(recordings)} Aufnahmen gefunden. Starte Download...")
+
+            if not recordings:
+                print("   ⚠️ Keine Aufnahmen gefunden. Überprüfe die Suchparameter.")
+                return
+
+    except Exception as e:
+        print(f"❌ Verbindungsfehler zur API: {e}")
+        return
+
+    # --- Downloads ---
+    count = existing_files
+    for rec in recordings:
+        if count >= MAX_FILES:
+            break
+            
+        file_url = rec.get('file')
+        file_name = f"{rec.get('id')}.mp3"
+        file_path = os.path.join(target_folder, file_name)
+
+        if not os.path.exists(file_path):
+            success = await download_file(session, file_url, file_path)
+            if success:
+                count += 1
+                if count % 5 == 0:
+                    print(f"   ... {count}/{MAX_FILES} geladen")
+        else:
+            count += 1
+    
+    print(f"✅ {german_name}: {count} Dateien bereit.")
+
+async def main():
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+
+    async with aiohttp.ClientSession() as session:
+        for latin, german in birds.items():
+            await process_bird(session, latin, german)
+
+    print("\n\n🎉 Alle Downloads abgeschlossen!")
+    print(f"Daten liegen in: {DATA_DIR}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+</file>
+
+<file path="docker-compose-cpu.yml">
+services:
+  bird-ai:
+    build: .
+    container_name: bird_container
+    # Hier spiegeln wir deine Festplatte in den Container
+    volumes:
+      - ./src:/app/src      # Dein Code
+      - ./data:/app/data    # Deine Audio-Daten
+    env_file:
+      - .env
+    # Ports freigeben (falls du Jupyter Notebooks nutzen willst)
+    ports:
+      - "8888:8888"
+    # Hält den Container am Leben, damit wir Befehle eingeben können
+    command: tail -f /dev/null
+    # Nutzt GPU falls vorhanden (nur unter Linux/WSL2 mit NVIDIA Toolkit)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+</file>
+
+<file path="docker-compose.yml">
+services:
+  bird-ai:
+    build: .
+    container_name: bird_container_gpu
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+    env_file:
+      - .env
+    command: tail -f /dev/null
+    # Das hier ist neu für CUDA:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+</file>
+
+<file path="Dockerfile">
+# Wir starten mit einem schlanken Python 3.10
+#FROM python:3.10-slim (cpu)
+FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# 1. System-Updates und Audio-Bibliotheken installieren
+# (Ohne libsndfile1 stürzt librosa sofort ab!)
+RUN apt-get update && apt-get install -y \
+    libsndfile1 \
+    ffmpeg \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Arbeitsverzeichnis im Container setzen
+WORKDIR /app
+
+# 3. Requirements kopieren und installieren
+# (Wir machen das VOR dem Code-Kopieren, damit Docker cachen kann)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 4. Standard-Befehl (hält den Container am Leben)
+CMD ["bash"]
+</file>
+
+<file path="README.md">
+### Projektübersicht
+
+Das Ziel dieses Projektes ist die Entwicklung eines automatisierten Systems zur akustischen Erfassung und Bestimmung heimischer Vogelarten. Während herkömmliche Methoden der Vogelzählung oft auf manueller Beobachtung basieren und somit zeitintensiv und lückenhaft sind, verfolgen wir einen Ansatz des dauerhaften, passiven Monitorings.
+
+Unser System soll in der Lage sein, Gesänge und Rufe in der Umgebung kontinuierlich aufzuzeichnen und durch Algorithmen des maschinellen Lernens der korrekten Art zuzuordnen. Über die reine Identifikation hinaus liegt der Schwerpunkt des Projekts auf der statistischen Auswertung dieser Daten. Durch die Analyse der Häufigkeit und der zeitlichen Verteilung der Gesänge sollen Rückschlüsse auf die lokale Populationsdichte und die Artenvielfalt (Biodiversität) gezogen werden. Das Ergebnis ist ein kostengünstiges Werkzeug, das im Naturschutz zur Bestandsüberwachung eingesetzt werden kann.
+
+### Projektziele
+
+**1. Automatisierte Artenerkennung**
+Das Primärziel ist die zuverlässige Klassifizierung verschiedener heimischer Singvogelarten. Das System soll in der Lage sein, relevante Vogellaute von Umgebungsgeräuschen (wie Wind oder Verkehrslärm) zu unterscheiden und die spezifische Art korrekt zu benennen.
+
+**2. Quantitative Bestandsanalyse**
+Das System soll nicht nur erkennen, *welche* Vögel da sind, sondern auch *wie oft* diese akustisch aktiv sind. Anhand der Gesangsaktivität sollen statistische Modelle erstellt werden, die eine Abschätzung der relativen Häufigkeit einer Art in einem bestimmten Gebiet ermöglichen ("Relative Abundanz").
+
+**3. Statistische Auswertung und Biodiversitäts-Monitoring**
+Die gesammelten Daten sollen genutzt werden, um detaillierte Statistiken zu erstellen:
+*   **Tageszeitliche Aktivitätsmuster:** Wann sind welche Arten besonders aktiv (z.B. Morgendämmerungschor)?
+*   **Artenspektrum:** Wie hoch ist die Diversität der Arten an einem Standort im Vergleich zu einem anderen?
+*   **Veränderungen über die Zeit:** Erkennung von Schwankungen in der Gesangsaktivität über mehrere Tage oder Wochen.
+
+**4. Entwicklung eines autonomen Messsystems**
+Das Endziel ist ein eigenständiges Gerät, das über längere Zeiträume ohne menschliches Eingreifen Daten im Feld sammeln und auswerten kann, um so eine nicht-invasive Langzeitbeobachtung der lokalen Fauna zu ermöglichen.
+</file>
+
+<file path="requirements.txt">
+# KI & Mathe
+#torch (cpu)
+#torchaudio (cpu)
+#torchvision (cpu)
+numpy<2.0
+pandas
+scikit-learn
+
+# Audio Verarbeitung
+librosa
+soundfile
+audiomentations
+
+# Visualisierung (für Jupyter/Plots)
+matplotlib
+jupyterlab
+
+## Daten 
+aiohttp
+</file>
+
+<file path="WRITEUP_INSPERATION.md">
+Skip to
+content
+Kaggle
+
+Create
+Home
+
+Competitions
+
+Datasets
+
+Models
+
+Benchmarks
+
+Game Arena
+
+Code
+
+Discussions
+
+Learn
+
+More
+
+
+View Active Events
+
+Skip to
+content
+Kaggle
+
+Sign In
+
+Register
+1st Place Solution: Multi-Iterative Noisy Student Is All You Need — BirdCLEF+ 2025
+1st Place Solution: Multi-Iterative Noisy Student Is All You Need
+
+BirdCLEF+ 2025
+
+Solution Writeup · 1st place · Jun 15, 2025
+
+I know that Kagglers are aware of what’s happening in Ukraine, and you’re here to take a look at my solution, but let me share a small glimpse from the competition’s deadline day that reflects our current reality: I had to make my final submissions from a shelter while we had a stable connection, as Ukraine was under another devastating attack with many civilian casualties, some of them from my neighborhood.
+I would like to thank the Armed Forces of Ukraine, Security Service of Ukraine, Defence Intelligence of Ukraine, and the State Emergency Service of Ukraine for providing safety and security to participate in this great competition, complete this work, and help science, technology, and business not to stop but to move forward.
+
+TLDR
+SED models on 20-second input chunks.
+A Multi-Iterative Noisy Student is used as a self-training approach via MixUp between focal training data and pseudo-labeled soundscapes.
+Power transform applied to pseudo-labels to reduce noise.
+Pseudo-label sampler assigns weights equal to the sum of the maximum of labels within each soundscape.
+A separate model for Amphibia and Insecta label groups using extended species data from Xeno-Canto.
+A final ensemble with models from different training iterations.
+Inference is performed by averaging overlapping framewise predictions from neighboring chunks, followed by smoothing and delta shift inference.
+Solution Overview
+
+
+Data
+Additional Xeno-Canto Data
+Target species
+Num samples: 5489
+Samples per species groups: Aves(birds)=5480, Amphibia=6, Mammalia=3
+Max samples per species: 500
+Comment: It usually worsened results, so only one model saw that data.
+Extra species
+Num samples: 17197
+Samples per species groups: Insecta=16218(544 extra species), Amphibia=979(113 extra species)
+Max samples per species: 200
+Additional filters: duration less than 60 sec
+Comment: This data was used to train a separate dedicated model for the Insecta and Amphibia groups.
+Interesting note about Insecta
+The Insecta group included labels at the family level, such as Cicadidae, Gryllidae, and Tettigoniidae, while the rest of the Insecta labels were species from the Tettigoniidae family. But the following experiments showed that the family-level labels were probably related to the specific species or at least to a narrow set of species that inhabit the Middle Magdalena Valley:
+
+Including the Tettigoniidae label in secondary labels of species from the Tettigoniidae family worsened results.
+Including extra Xeno-Canto data for Gryllidae and Tettigoniidae (i.e., family-level labels) in training on target species also worsened results.
+Using additional Gryllidae and Tettigoniidae samples from Xeno-Canto, assigning them unique new labels based on the species of each sample instead of assigning the family-level labels, and training a dedicated model improved results. It means that Tettigoniidae and Gryllidae target labels are related to the specific species that can be separated from other species within these families that are present as other Insecta target labels or extra species from these families that were downloaded.
+Data preparation
+5 folds
+Each fold includes at least 1 sample for each label
+20-second audio chunks normalized by absmax
+All secondary labels = 1
+From the start, I came to the thought that the presence of Amphibia and Insecta groups would make models favor longer input durations over shorter ones, since the long duration and repetitiveness of their calls are distinctive features for species from these groups.
+To find the most optimal duration, I conducted multiple experiments with different durations and figured that 20-second chunks work best for me, and any longer duration did not improve results but took more time to infer, so I continued with that chunk duration.
+Here are the Public scores that I obtained by experimenting with different durations while training(supervised with train data only) an ensemble of 5 SED efficientnetb0 models and adjusting proportionally spectrogram hop length(more detailed information on the models and inference is provided in the next sections):
+
+Chunk duration	Public LB
+5 sec	0.842
+10 sec	0.864
+15 sec	0.87
+20 sec	0.872
+30 sec	0.872
+Models
+Architectures
+Across different training stages, I used various CNNs, gradually incorporating more complex models at each stage. All models included the SED head (adaptation from the 4th place 2021 ), which consistently provided a significant boost over other head variations.
+
+SED
+Gem frequency pooling
+Repeated 3 Mel Spectrograms as input
+1 stage backbones:
+tf_efficientnet_b0.ns_jft_in1k
+regnety_008.pycls_in1k
+1 pseudo-labeling iteration backbones:
+tf_efficientnet_b0.ns_jft_in1k
+regnety_008.pycls_in1k
+tf_efficientnet_b3.ns_jft_in1k
+regnety_016.tv2_in1k
+2-4 pseudo-labeling iteration backbones:
+tf_efficientnet_b3.ns_jft_in1k
+tf_efficientnet_b4.ns_jft_in1k
+regnety_016.tv2_in1k
+eca_nfnet_l0.ra2_in1k
+Amphibia/Insecta model backbone:
+tf_efficientnet_b0.ns_jft_in1k
+Mel spectrogram parameters
+20 sec -> Image size = (3, 224, 512)
+MelSpectrogram (sample_rate: 32000, mel_bins: 224, fmin: 0, fmax: 16000, n_fft: 4096, hop_size: 1252, top_db=80.0)
+0-1 normalization
+Thoughts on mel parameters tuning
+Because long input chunks were used, I had to set a larger hop length value, otherwise, inference would take too long, and I wouldn’t have the capacity to prepare a good ensemble.
+The important thing was setting a larger number of n_mels. I suspect this is because some species (especially from the Amphibia and Insecta groups) have calls within narrow frequency ranges, so showing more mel bands to models was important to distinguish species well.
+Validation
+I did not find a good CV/ LB correlation, so considering the Host's words that public/private distributions are very similar and the knowledge from last year's solutions, I validated ideas using only the public LB.
+A single model’s LB score varied a lot for different seeds, so usually I trained the same setup on different folds(2-5, depending on the remaining time that I had) and ensembled them to obtain a more reliable response from the LB.
+As it turned out, the Hosts were absolutely honest with us(did not have any doubt), and most Public results correlated pretty well with the private LB.
+
+1 Stage (Supervised Learning)
+Training Details
+Epochs: 15
+Loss: CrossEntropy
+LR: 5e-4 - 1e-6(same for all models)
+Optimizer: AdamW with 1e-4 weight decay
+Scheduler: CosineAnnealingWarmRestarts with restart after each 5 epochs. Applying warm restarts, I could train longer than with one cycle
+BS: 64
+Augmentations:
+Mixup: p = 0.5, on normalized by absmax raw audio with an equal sampling weight for each species
+Padding: To keep samples of different lengths overlapping after mixup, the left part of it was filled with 0, so on the right, there is always an overlap that ensures train samples are always actually mixed up
+Models: efficientnet0, regnety8. An ensemble of small models on the 1st stage gave almost the same results as ensembling deeper ones
+Loss choice
+I noticed that the choice of loss got a lot of attention in the discussions. So I conducted some experiments and found that both CE and BCE/Focal losses could give me similar results when the learning rate and the number of epochs were well-tuned. However, CE gave me a bit better results, so I settled on it.
+I connect better results with CE (I might be wrong) with the following interconnected assumptions:
+
+The magnitude of updates with CE for each label depends on how well the positive labels (probability > 0) are classified. This means that if a rare positive label A gets a low probability, then the negative overrepresented label B(that has a higher probability than other negative labels) is pushed to zero with a stronger update.
+CE handles imbalanced labels better and avoids overfitting to overrepresented classes by punishing them when Softmax can not give a higher score for A because the overrepresented label B already got too high logits as a result of the previous numerous imbalanced updates when label B was positive.
+Also, I didn’t normalize sample labels to sum to one, motivated by the idea that more difficult samples (those with more positive labels) should have a greater impact on the loss.
+
+Inference
+
+
+I am showing my inference flow first to give more context before going to the next sections, where I explain how I used pseudo-labels, which were generated with that inference. I hope my diagram does not look too overloaded.
+The core idea was to fully leverage all framewise predictions produced by the SED head by averaging the overlapping framewise predictions from neighboring audio chunks, rather than taking max only from the central 5 sec and throwing away precious predictions.
+
+It can be seen as a 1D analogue of 2D sliding-window segmentation of large images, rather than treating each audio chunk as a completely separate sample.
+It can be seen as a form of test-time augmentation (TTA) because each framewise prediction is averaged over multiple chunks that present the same time frame to the model with slightly different surrounding context.
+Consistently boosted my LB score (by 0.002-0.003).
+Helped to get more generalizable predictions.
+Other inference/postprocessing tricks
+Padded the left and right sides of the signal to ensure that the first and last 5-second chunks are centered after splitting. Framewise predictions related to the padding were then removed.
+Smoothing [0.1, 0.2, 0.4, 0.2, 0.1].
+Delta shift TTA (from the 2nd solution 2023).
+Self-training
+After hitting the ceiling with the supervised approach, it became clear that further improvements would come with the usage of the unlabeled soundscapes.
+I pseudo-labeled the unlabeled data using the best LB ensemble from the 1 stage with the described above inference flow, and began experimenting with the ways to incorporate pseudo-labeled data in the training.
+Initial attempts to concatenate the pseudo-labeled data into training batches separately didn’t succeed.
+
+MixUps (finally working)
+Then I tried mixing up the pseudo-labeled raw data with the training raw data, following the approach from the 2nd place solution 2024. At first, it didn’t work because I had set the Beta distribution’s parameters to be too low(used to sample blending weights). But after switching to a constant blending weight of 0.5(Beta’s parameters = inf), the magic started to happen, and the LB score began to rise. I suspect that is related to the fact that blending weights far from 0.5 sometimes suppress the meaningful signals, especially when mixing relatively clear train data with much noisier train soundscapes.
+
+Stochastic Depth
+Reading the paper on the Noisy Student approach [1], I found certain similarities with the self-training approach I was using.
+So, I started experimenting with the techniques that showed a positive impact on self-training in the mentioned paper and found that adding Stochastic Depth [3] (i.e., dropout applied to the entire residual blocks) worked for me as well.
+
+Applying drop_path_rate = 0.15 (which turned out to be optimal for all the models I trained), I consistently saw a boost in the LB score, up to 0.005 for some models.
+Applying Stochastic Depth during supervised training didn’t lead to any improvement, which supports the idea that the current self-training approach is a form of Noisy Student self-training.
+Why Noisy Student? (my understanding)
+After reading [1], I finally understood why mixup works while simple concatenation doesn’t. Since it closely matched my approach, I considered it a form of Noisy Student self-training and named my solution accordingly.
+Putting simply - showing to the model the same input and asking for the same output does not teach the student anything new, so in the best case it converges to the same results, in the worst case it accumulates error and the LB score drops (what I experienced). But when we inject noise(augmentations like mixup, drop paths) and ask to provide the same output as for the clean input, it starts learning more robust features instead of accumulating error.
+I imagined the following scenario: we have a pseudo-labeled sample where A is the true label, and B is the negative one. The teacher model predicts A ≈ 1 and B ≈ 0, but not exactly zero. If we repeatedly train on this same input, the model may start learning irrelevant features associated with B, simply because its score isn’t exactly zero. It may also overfit to some noise because of thinking that it is related to A. At the same time, it doesn’t offer anything new beyond what the teacher model has already seen and learned, so it doesn’t lead to any improvement.
+However, if we augment that sample, the student model must work harder to understand why the teacher gave a high score to A(an unaugmented input for the teacher). As a result, through this noisy student training, we force the model to focus on the most consistent, generalizable features relevant to A rather than memorizing noise associated with A and B.
+Also, Noisy Student methodology involves including labeled samples in training (as I did), whose signals help guide the model toward better optima, especially during the early epochs.
+And MixUps with pseudo-labeled data serve as a great augmentation for labeled samples, providing target domain backgrounds with soft-labels for possible species in that background.
+
+Pseudo-labels preparation
+Pseudo-labels were generated using the best ensemble of models from the previous stage.
+Pseudo-labels were generated before self-training and stored as max label probabilities for 5-second segments, or framewise predictions were stored as they are without pooling(4 frames per 5-second segment).
+Framewise predictions provided more splits of soundscapes into chunks(9 splits for 20-second chunks when save for each 5 sec, and 45 splits when save framewise predictions), but more splits usually did not provide better results
+Pseudo-labeled data sampling
+Soundscapes with a higher sum of maximum label probabilities were usually pseudo-labeled more accurately. This is because most soundscapes were overloaded with various species calls, and a low sum often indicated that the models struggled to recognize and distinguish those species.
+WeightedRandomSampler was used with weights equal to the sum of maximum label probabilities within each soundscape. This ensured that samples with more accurate pseudo-labels were sampled more frequently. Idea to use a sampler for pseudo-labels, I found in that paper [2].
+A random 20-second interval was selected from the training soundscape that was sampled by WeightedRandomSampler.
+For that interval, the maximum probability for each label was taken across the 4 segments (or 16 frames), and then that soft labels were used in self-training.
+WeightedRandomSampler stabilized training and boosted the LB score.
+This approach was especially relevant after I reduced label noise (described in Multi-Iterative pseudo-labeling section) and ended up with many samples that had low label sums (less than 0.5 summing 206 labels), which was the same as using unlabeled data, so it was beneficial to give lower weights in sampling for such "almost" unlabeled samples.
+Training Details:
+More epochs = 25-35.
+Drop path rate = 0.15.
+Random padding. Samples shorter than 20 sec were placed at random positions within 20 sec.
+Other training parameters are the same as in supervised learning.
+Ratio of pseudo-labeled mixups
+The ratio of labeled train samples that I mixed up with pseudo-labeled chunks in each batch(bs=64) was very important and significantly impacted the LB score.
+To find the optimal ratio, I was gradually increasing it by 0.25, retraining an ensemble of 5 SED efficientnetb0 folds with the self-training setup described above, and checking the LB to find the best ratio.
+Ratio of mixed samples	Public LB
+0 (labeled training data only)	0.872
+0.25	0.883
+0.5	0.887
+0.75	0.89
+1.0	0.898
+Turned out that mixing every training sample with a random pseudo-labeled sample showed the best score.
+Multi-Iterative pseudo-labeling
+Inspired by the 2nd place solution 2024 and papers on self-training [1, 2], I tried to pseudo-label the unlabeled soundscapes again, using models that were already trained on the pseudo-labels from the previous iteration. However, this approach didn’t work out of the box, and I spent some time investigating why until I found the correct preprocessing of the pseudo-labels that allowed me to keep training models on the next pseudo-labeling iterations.
+
+Multi-Iterative labels preprocessing
+The reason the models failed to converge in later iterations was that the pseudo-labels had become too noisy, obscuring any meaningful signal.
+Here is the method that worked best for me and allowed me to move forward:
+
+The trick was to apply a power greater than 1 to the probabilities (similar to temperature scaling, but applied to probabilities instead of logits). This worked because applying temperature to logits increases probabilities above 0.5, which was deteriorating.
+Applying the power to the probabilities, I was able to preserve the important signals while preventing the amplification of confident noise.
+In the image below, you can see that the power transform is a real power in the fight against label noise. After the transformation, labels become much cleaner, and only initially confident labels survive, having still pronounced values to train models.
+
+
+Knowing how to train a multi-iterative noisy student, I ran 4 iterations, adjusting the pseudo-label power at each stage by validating results on the LB and consistently got the LB boost.
+That self-training magic stopped working on the 5th pseudo-labeling iteration. I could not achieve any further improvement, so I stopped with the attempts to make new iterations work.
+
+Iteration	Power value	Public LB
+1	1	0.909
+2	1 / 0.65	0.918
+3	1 / 0.55	0.927
+4	1 / 0.6	0.93
+Training Details
+Besides extending the training ensemble with eca_nfnet_l0, efficientnet4, and applying power to labels, all training details remained unchanged since the 1st iteration.
+Separate model for Amphibia and Insecta
+Knowing that species groups like Amphibia and Insecta are very underrepresented, and that Xeno-Canto provides data for multiple species from those groups that are not present in the train, I decided to try training a separate model that would see samples only from those groups, with a much higher diversity of species. The motivation was that the model would learn more representative features relevant to those groups, which would be a great supplement to the models that are trained only on a restricted number of samples/species from the training data.
+
+Data details
+Species groups: amphibia, insecta
+Total number of species: 700
+Total number of samples: 17844
+Data sources: train, xeno-canto samples that are shorter than 1 minute
+Minimum number of samples per species: 1 (raising that value to 5 dropped scores a lot)
+Training Details
+Epochs: 40
+BS: 128 (with lower value scores dropped)
+Model: efficient net 0 ns (deeper models and ensembles did not work much)
+Other parameters are the same as for other models from my solution
+Inference Details
+Run inference for all species
+Insert predictions for target species into a zero matrix, only their columns are non-zero, for ensembling with other models
+After finding the optimal working parameters, I achieved a 0.002–0.003 LB boost.
+
+Final Ensemble
+I found that ensembling models from different training stages was beneficial not only for slightly improving the LB score, but also for giving me a little confidence that my solution is not overfitted by doing more and more self-training iterations.
+
+The final ensemble consisted of the following 7 models trained on the specific data and different self-training iterations:
+
+1 efficientnetb4 from 3rd self-training iteration
+1 efficientnetb3 from 3rd self-training iteration
+2 regnety016 from 4th self-training iteration
+1 ecanfnetl0 from 3rd self-training iteration(with additional Xeno-Canto data for target species)
+1 regnety008 from 1 stage(supervised training)
+1 efficientnetb0 (supervised training on the extended Amphibia/Insecta species)
+In my best solution, I tweaked the ensembling weights a bit, giving to efficientnetb3 and ecanfnetl0 slightly higher weights since they performed better as single models. However, the best private submission, with a score of 0.935, was achieved when I assigned equal weights to all models.
+
+I believe that the ensembling of multi-stage models, diverse backbone architectures, and the dedicated model to certain species groups were crucial parts of my solution to withstanding the shake-up.
+As a result, my best public LB score dropped only slightly on the private LB from 0.933 to 0.930.
+
+Inference optimization
+OpenVINO inference engine without quantization
+Multiprocess loading of the test soundscapes
+Spectrograms were generated once and then reused across all models
+Closing words
+I apologize that my write-up turned out to be a bit long. I did not want to skip anything important.
+My Google Sheet accumulated during the competition over 320+ rows of ideas to check (95% of which were eventually marked red). So I decided not to include the What did not work block, otherwise it would significantly increase the length of the already long write-up.
+Please feel free to ask me any questions about my solution in the comments. I will do my best to answer them.
+
+I also want to thank all the participants of the previous BirdCLEF iterations who shared their ideas.
+Without your brilliant ideas, I would not have been able to achieve that result.
+
+Special thanks to the organizers, hosts, and everyone involved in conducting BirdCLEF. It is very appreciated that you put so much effort into conducting BirdCLEF each year, that you constantly stay in touch, and make each new iteration special(which is reflected in this year's number of participants).
+
+References
+[1] Self-training with Noisy Student improves ImageNet classification
+[2] Design Choices for Enhancing Noisy Student Self-Training
+[3] Deep Networks with Stochastic Depth
+
+Resources
+Inference notebook: https://www.kaggle.com/code/nikitababich/birdclef2025-1st-place-inference
+Datasets: Extra Xeno-Canto data used in the solution
+
+Author
+Nikita Babych
+nikitababich
+
+
+Share
+19
+18
+14
+35 Comments
+6 appreciation comments
+Hotness
+Sarah Arshad
+Posted 5 months ago
+
+Great… what a remarkable work!
+
+
+Reply
+Devendra Bhaginath Jadhav (B21AI013)
+Posted 5 months ago
+
+Amazing Bro!
+
+
+Reply
+aaaditya56
+Posted 5 months ago
+
+Congrats! It's great to see a winning solution, as someone who had recently started with Kaggle. It provides more motivation to grow, and learn from this community.
+
+
+Reply
+Ten-Mergen Gandavaa
+Posted 5 months ago
+
+Congrats!!That was really helpful
+
+
+Reply
+zhuzhu521
+Posted 5 months ago
+
+Awesome! what a remarkable work！
+
+
+Reply
+Aniket Potabatti
+Posted 5 months ago
+
+Congratulations on an incredible 1st place solution, Nikita! This is truly impressive work and a fantastic write-up. Thank you for sharing such a detailed approach.
+
+
+Reply
+Khushi Yadav
+Posted 5 months ago
+
+Congratulations👏 for the amazing feat winning this competition!✨
+
+
+Reply
+Yassine Alouini
+Posted 5 months ago
+
+· 372nd in this Competition
+
+Well done and thanks for sharing those insights! The iterative steps are very interesting.
+
+
+Reply
+Lyndon Reid
+Posted 5 months ago
+
+Congratulations and thank you for sharing Nikita, did you experiment with fmin and fmax at all?
+
+
+Reply
+Nikita Babych
+Topic Author
+Posted 5 months ago
+
+· 1st in this Competition
+
+Thank you @lyndonreidd
+It is a good question.
+Initially, I began with more "usual" mel parameters like MelSpectrogram(sample_rate: 32000, mel_bins: 128, fmin: 40, fmax: 15000, n_fft: 2048, hop_size: 512, top_db=80.0) and then step-by-step I tuned them based on the responses from the Public LB.
+Talking specifically about fmin, fmax - adjusting them from (40, 15000) to (0, 16000) showed a very minor impact on the LB, so I did not play much with them after that.
+I experienced a much more significant impact on the score by adjusting the following parameters: mel_bins, n_fft, hop_size ( you can check my explanation on why these adjustments were important in Thoughts on mel parameters tuning of my write-up).
+
+
+Reply
+Matheus Parracho
+Posted 5 months ago
+
+· 1171st in this Competition
+
+amazing! congratulations!
+
+
+Reply
+Kurise
+Posted 5 months ago
+
+· 525th in this Competition
+
+Hoping good luck with you and your country. I looked your solution on EEDI, hoping world to be peace.
+
+
+Reply
+Glin
+Posted 5 months ago
+
+· 504th in this Competition
+
+@nikitababich Thank you again for your fantastic BirdCLEF 2025 solution write-up! I'm trying to replicate parts of it and have a few very specific questions about your Stage 1 (Supervised Learning):
+
+Question 1: Gradient Clipping (max_grad_norm)
+
+During Stage 1 training, did you use gradient clipping (i.e., set a max_grad_norm value)?
+If yes, what value did you use for max_grad_norm?
+Question 2: Loss Function Structure (Stage 1)
+
+You mentioned using CrossEntropy (CE) loss for Stage 1. My current understanding for implementing a combined loss for an SED model is as follows. Could you please let me know if this aligns with your approach for Stage 1, or how your CE loss structure differed?
+
+def compute_loss(self,outputs,labels):
+    losses = {}
+    losses["loss_clip"] = self.criterions["classification_clip"](
+        torch.logit(outputs["clipwise_prob"]),labels
+    )
+    losses["loss_frame"] = self.criterions["classification_frame"](
+        outputs["segmentwise_logit"].max(2)[0], labels
+    )
+    losses["loss"] = 0.5*losses["loss_clip"] + losses["loss_frame"] * 0.5
+    return losses
+Question 3: Stage 1 MixUp Padding Code
+
+For the MixUp augmentation in Stage 1, you mentioned: "Padding: To keep samples of different lengths overlapping after mixup, the left part of it was filled with 0, so on the right, there is always an overlap that ensures train samples are always actually mixed up."
+Could you please share the code that specifically implements this left-padding strategy for samples of varying lengths before the MixUp operation during Stage 1 training?
+Your clarification on these specific points for Stage 1 would be extremely helpful.
+Thank you for your time and willingness to share!
+
+
+Reply
+Nikita Babych
+Topic Author
+Posted 5 months ago
+
+· 1st in this Competition
+
+Hi @lhr124578
+1) Regarding Gradient Clipping - I was checking gradient norms during training and did not see any dangerous fluctuations, so I stepped back from using it.
+2) Your loss implementation is the one that I used.
+3) Here is my padding function:
+
+def pad_wave(wave, expected_len, pad_type="random"):
+        wave_init_len = wave.shape[0]
+
+        if wave_init_len >= expected_len:
+            return wave[:expected_len]
+
+        pad_len = expected_len - wave_init_len
+
+        if pad_type == "random":
+            padded_wave = np.zeros(expected_len, dtype=wave.dtype)
+            insert_wave_start = np.random.randint(0, pad_len + 1)
+            padded_wave[insert_wave_start: insert_wave_start + wave_init_len] = wave
+            return padded_wave
+
+        if pad_type == "left":
+            return np.pad(wave, ((pad_len, 0)))
+
+        elif pad_type == "repeat":
+            reps = int(np.ceil(expected_len / wave_init_len))
+            repeated = np.tile(wave, reps)
+            return repeated[:expected_len]
+
+        else:
+            raise ValueError(f"Unsupported pad_type: {pad_type}")
+
+Reply
+Glin
+Posted 5 months ago
+
+· 504th in this Competition
+
+@nikitababich
+Thank you so much for taking the time to reply and for your incredibly helpful clarifications on my previous questions regarding gradient clipping, the loss function structure, and the MixUp padding in your Stage 1 setup! Your detailed explanations are invaluable.
+
+I have a couple of quick follow-up questions based on re-reading your solution and general data processing considerations:
+
+Human Voice Removal: Regarding the audio data (both the focal training data and the soundscapes used for pseudo-labeling, which you mentioned were normalized by absmax before MixUp), I noticed there wasn't a specific mention of further pre-processing steps like human voice removal .Could you perhaps share your thoughts or experience on this?
+
+MixUp Target Handling: When applying MixUp to the absmax normalized audio waves (as mentioned for Stage 1), how were the corresponding target labels handled?
+
+Were the target labels also mixed using the same lambda sampling weight? For example:
+mixed_target = lambda * target1 + (1 - lambda) * target2
+Or was there a different strategy for combining the targets after mixing the audio?
+
+Reply
+Nikita Babych
+Topic Author
+Posted 5 months ago
+
+· 1st in this Competition
+
+@lhr124578
+1) I did not succeed with the preprocessing of CSA, and any attempt to remove human voice deteriorated the results. I hypothesize that most of the underrepresented species, whose samples are extremely noisy, are not present in the hidden data. So, when we filter out noise (human voice) from the samples of those species (which make up most of the duration of those samples), we are left with very short single calls that lack much of the surrounding context. These short calls are indistinguishable from parts of calls of other, more represented CSA species, making the preprocessing detrimental to training on those other species.
+
+2) The maximum between targets was taken in all MixUps, whether it was train + train or train + pseudo.
+
+
+Reply
+Victor Caquilpan
+Posted 5 months ago
+
+· 719th in this Competition
+
+Thanks @nikitababich, a full engineering work!
+
+
+Reply
+Harsh Gupta
+Posted 5 months ago
+
+This thing is really helpful and thanks for sharing this.
+
+
+Reply
+1
+Bilal A. Chaudhry
+Posted 5 months ago
+
+· 1622nd in this Competition
+
+Congratulations on this well deserved win, the quality of work on display is remarkable. Nailing a win with this wide a margin especially while under extreme duress took a level of courage and fortitude that is rarely seen.
+
+
+Reply
+SeshuRaju 🧘‍♂️
+Posted 5 months ago
+
+· 175th in this Competition
+
+@nikitababich Congrats and you lead the Leaderboard in top almost 95% of the 3 months. New learnings from your solution - will try with late submissions.
+
+Is it possible to share your experiments, which help as learning lesson to approach this competition of your My Google Sheet accumulated during the competition over 320+ rows of ideas to check (95% of which were eventually marked red).
+
+Waiting for you Github, Congrats once again with stable CV.
+
+
+Reply
+Nikita Babych
+Topic Author
+Posted 5 months ago
+
+· 1st in this Competition
+
+Thank you @seshurajup
+That table is very messy, I do not think it can be understood as it is now:) But if you think that the chronology and progression of those ideas might be useful, I'll consider polishing and sharing that sheet.
+
+
+Reply
+SeshuRaju 🧘‍♂️
+Posted 3 months ago
+
+· 175th in this Competition
+
+Hi @nikitababich, any plans for release the github with your experiments?
+
+
+Reply
+Corentin Lobet
+Posted 5 months ago
+
+· 1672nd in this Competition
+
+Awesome! what a remarkable work. Be safe 💙
+
+
+Reply
+1
+Aayush Kumar Singha
+Posted 5 months ago
+
+· 313th in this Competition
+
+Congratulations for the amazing feat winning this competition!!
+Not to forget, winning in such adverse situation makes the win even more grand.
+My constant prayers for yours' and your families' safety.
+
+
+Reply
+2
+Tom Madden
+Posted 5 months ago
+
+Thanks so much for sharing. My first time digging into competitive architectures in one of these competitions and I learned a ton!
+
+
+Reply
+Shashi1024
+Posted 5 months ago
+
+· 1768th in this Competition
+
+Congratulations and thanks for sharing your work
+
+
+Reply
+Dasun Weerakoon
+Posted 5 months ago
+
+Amazing Work!!
+
+
+Reply
+Hamza Bashir
+Posted 5 months ago
+
+Amazing Work!!
+
+
+Reply
+Pablo Yelloworld
+Posted 5 months ago
+
+· 1269th in this Competition
+
+Huge congrats on your first-place win! What you pulled off is even more amazing given the incredibly tough situation you were in.
+
+Thanks for sharing how you did it. Your insights are super valuable to the community and will definitely help everyone learn and grow.
+
+I was really moved by what you shared about your reality during the competition. Finishing your final submissions from a shelter during an attack? That shows incredible grit and determination. It's a powerful reminder of how resilient people can be, pushing for excellence even when things are incredibly hard.
+
+Your shout-out to the Armed Forces of Ukraine, Security Service, Defence Intelligence, and State Emergency Service really highlights the crucial support that made your participation possible. Their work keeping people safe and secure didn't just protect lives; it also let you contribute to science and tech progress despite the ongoing conflict.
+
+Your story is a powerful testament to simply not giving up. Thanks for not only sharing your technical know-how but also for giving us this important look at your journey to victory.
+
+
+Reply
+102203848_Krish_Kumar
+Posted 5 months ago
+
+Amazing Work!!
+
+
+Reply
+This comment has been deleted.
+
+
+
+Skip to
+content
+Kaggle
+
+Create
+Home
+
+Competitions
+
+Datasets
+
+Models
+
+Benchmarks
+
+Game Arena
+
+Code
+
+Discussions
+
+Learn
+
+More
+
+
+View Active Events
+
+Skip to
+content
+Kaggle
+
+Sign In
+
+Register
+5th place solution: Self-Distillation is All You Need — BirdCLEF+ 2025
+5th place solution: Self-Distillation is All You Need
+
+BirdCLEF+ 2025
+
+Solution Writeup · 5th place · Jun 16, 2025
+
+We would like to thank Kaggle, the organizers, our teammates, and all participants. It was a great experience to take part in this competition. Below is a brief overview of our solution.
+
+Data
+We used only the 2025 dataset.
+First, we used Silero VAD to detect audio files that contain human voices from the train_audio set. Next, using a Streamlit tool developed by @zuoliao11 , we manually listened to those files and removed the segments with human voices.
+
+For underrepresented classes (n < ~30), we manually selected segments that contained bird calls.
+For cleaned files, we used the first 60 seconds; for the others, we used the first 30 seconds. To balance the dataset, we duplicated files in classes with fewer than 20 samples.
+
+Model
+We used a Sound Event Detection (SED) model.
+Backbones:
+• 4x tf_efficientnetv2_s
+• 3x tf_efficientnetv2_b3
+• 4x tf_efficient_b3_ns
+• 2x tf_efficient_b0_ns
+
+Training
+We trained our models in three stages.
+
+
+Input features:
+• Random 10-second segments
+• Mel spectrogram:
+
+  sample_rate: 32000 
+  mel_bins: 192 
+  fmin: 20 
+  fmax: 15000 
+  window_size: 2048 
+  hop_size: 768
+We convert the mel-spectrogram to a logarithmic scale by computing log(melspec+1e-6).
+• Augmentations:
+　　• Resampling
+　　• Gain
+　　• FilterAugment
+　　• FrequencyMasking, TimeMasking
+　　• Sumix on mel domain
+
+• Optimizer: Adam + Cosine Annealing with warmup
+• Loss: FocalLoss (gamma=2)
+• Epochs: 10
+• Target labels: Both primary and secondary labels
+
+1st Stage:
+We trained 5-fold models using only train_audio.
+
+2nd Stage - Self-distillation with train_audio only:
+While listening to the audio as described in the Data section, we found that many bird calls were present in the training data even though they were not labeled. This was expected, as the recorders were mainly focused on their target species, so other bird calls were often left unlabeled.
+From this observation, we believed that the core challenge of the competition was accurately assigning secondary labels. To address this, we used self-distillation to enrich train_audio with more secondary labels. We used predictions from a model trained in the 1st stage as teacher labels and mixed them with the original labels. The teacher model’s predictions may have included true secondary labels that were missing from the original annotations.
+We repeated self-distillation 4–5 times. From the 2nd round onward, we used the previously distilled model as the new teacher in an iterative manner. The model’s weights are re-initialized each time. This approach closely resembles the method proposed in this paper.
+
+3rd Stage - Self-distillation with train_audio + train_soundscapes:
+We added data from train_soundscapes to the training set and continued self-distillation two more times. We mixed train_audio and train_soundscapes at a 1:1 ratio in each batch (no folds). We further trained several models using different random seeds.
+
+LB Score (Public) 1st ~3rd stage（Ensemble of 5 models）
+Model	Stage 1	Stage 2 (Distill x2)	Distill x4	Distill x5	Stage 3 (Distill x1)	Distill x2
+tf_efficientnetv2_s	0.839	0.863	0.880	0.884	0.915	0.921
+tf_efficientnetv2_b3	0.842	N/A	0.872	-	N/A	0.918
+tf_efficient_b3_ns	N/A	N/A	N/A	-	N/A	0.921
+tf_efficient_b0_ns	0.836	0.871	0.879	0.883	0.905	0.912
+*N/A = not submitted to LB
+
+The following figure shows the results of self-distillation across various models.
+
+
+Inference
+We divided the stage 3 models into two groups, assigning different random seeds to each group when possible.
+
+Model Group A:
+4x tf_efficientnetv2_s (seed= 0, 1, 2, 3)
+3x tf_efficientnetv2_b3 (seed= 2, 3, 4)
+4x tf_efficient_b3_ns (seed= 0, 1, 2, 3)
+2x tf_efficient_b0_ns (seed= 0, 1)
+
+Model Group B:
+4x tf_efficientnetv2_s (seed= 1, 2, 3, 4)
+3x tf_efficientnetv2_b3 (seed=0, 1, 2)
+4x tf_efficient_b3_ns (seed= 0, 1, 2, 3) *By mistakes, we ended up using the same seed as Group A.
+2x tf_efficient_b0_ns (seed= 2, 3)
+
+Post-Proccesing/TTA
+Inference is done with 2.5-second overlap.
+Scores are weighted and combined (similar to the 4th place solution from last year).
+Alpha = 0.5
+
+
+Smoothing:
+We applied smoothing using neighboring frames with a window of [0.1, 0.8, 0.1].
+
+Power Adjustment for Low-Ranked Classes:
+The post-processing method shared in our public notebook improved the LB score, but we eventually decided not to use it due to the risk of overfitting.
+
+Speed-up:
+• OpenVINO
+• Concurrent.futures.ThreadPoolExecutor
+
+Final Ensemble LB Scores
+Setting	Raw Score (Group A only)	2.5-second overlap	Smoothing + overlap
+Public LB	0.919	0.928	0.928
+Private LB	0.917	0.924	0.924
+What didn’t work
+CNN-based models.
+1D models.
+Too many data augmentations.
+
+Training, Inference Notebooks & Model Dataset
+Training code
+Github
+Models
+PyTorch
+OpenVINO
+Inference Notebooks
+Convert PyTorch models to OpenVINO
+Inference
+Authors
+Zuoli
+zuoliao11
+
+MYSO
+myso1987
+
+youknow
+yuukiyuno
+
+
+Share
+5
+22 Comments
+2 appreciation comments
+Hotness
+vineet dairashri
+Posted 5 months ago
+
+· 230th in this Competition
+
+Hello MYSO,
+Thanks for sharing this incredible project insights. Can you also share little bit about the training of the model that you didn’t use which is low power adjustment ecanet model?
+
+Thanks alot!
+
+Best,
+Vineet
+
+
+Reply
+MYSO
+Topic Author
+Posted 5 months ago
+
+· 5th in this Competition
+
+The EcaNet model in the public notebook was trained with essentially the same pipeline as our other models. I’ve posted the full training code on GitHub—please feel free to check it out and put it to use!
+
+
+Reply
+Overvalue Awareness
+Posted 6 months ago
+
+Congrats!
+Would you explain how many hours it take to train 1st, 2nd and 3rd stage, respectively?
+What GPU did you use? Do you own it or rent?
+If own how much did you buy it? Did you put the GPU inside your computer by yourself or from maker?
+If rent where do you rent? How much it cost?
+
+Thank you.
+
+
+Reply
+MYSO
+Topic Author
+Posted 5 months ago
+
+· 5th in this Competition
+
+We used an RTX 3090. Depending on the model architecture, one epoch took approximately 5–10 minutes in stage 1, 7–15 minutes in stage 2, and 12–18 minutes in stage 3.
+The GPU was included in a pre-built PC from the manufacturer.
+Since GPU prices fluctuate a lot, we recommend checking with the manufacturer for current pricing.
+
+
+Reply
+pensukesan
+Posted 5 months ago
+
+· 292nd in this Competition
+
+Thank you for sharing your solution.
+I have two questions regarding self-distillation:
+
+In the first stage, the model is trained using 5-fold cross-validation. In the second and third stages, are you also training using 5-fold models? If so, how are the teacher models from the first stage assigned to each fold?
+
+How are the pseudo labels and original labels mixed?
+
+
+Reply
+MYSO
+Topic Author
+Posted 5 months ago
+
+· 5th in this Competition
+
+In the second stage, we trained using 5-fold cross-validation. In the third stage, we trained without folds, using different random seeds instead.
+
+For self-distillation, we used the five models from the previous stage and averaged their predictions to create the teacher labels.
+As for mixing pseudo labels with the original labels, we generally used the following approach:
+
+alpha=0.7
+pseudo_labels = pseudo_labels * (pseudo_labels > 0.3) + pseudo_labels**2
+pseudo_labels = torch.clamp(pseudo_labels, min=-0.0, max=1.0)
+labels = alpha*pseudo_labels + (1-alpha)*labels
+
+Reply
+1
+Ty-Yuki
+Posted 6 months ago
+
+· 754th in this Competition
+
+Thanks for sharing your 5th place solution, especially the iterative self-distillation!
+
+I'm curious about the manual audio cleaning. How much data did you manually process, and how critical do you think this step was for your final score?
+
+
+Reply
+MYSO
+Topic Author
+Posted 5 months ago
+
+· 5th in this Competition
+
+Thank you! We manually cleaned about 2,000 audio files.
+Sorry, we haven't specifically measured how much this step affected the final score.
+But doing it early allowed us to focus more on model building and self-distillation, so we believe it was an important step.
+
+
+Reply
+1
+EMMANUEL OKELLO
+Posted 6 months ago
+
+· 1723rd in this Competition
+
+Congrats.on making it 5th and thanks for sharing your solution. I have learned a lot from it and hope to try it out on my other model trainings.
+
+
+Reply
+MYSO
+Topic Author
+Posted 5 months ago
+
+· 5th in this Competition
+
+Thanks a lot!
+Happy to hear it was helpful. Good luck with your next training — hope it goes well!
+
+
+Reply
+1
+Benchan
+Posted 6 months ago
+
+· 1353rd in this Competition
+
+Congratulations on achieving fifth place, and thank you sincerely for sharing the details of your work.
+
+"While listening to the audio as described in the Data section, we found that many bird calls were present in the training data even though they were not labelled."
+
+I had suspected that many of the provided recordings contained unlabeled secondary bird calls, but your diligent and meticulous manual screening brought this issue to light. I believe this insight significantly contributed to your impressive result.
+
+Your openness in sharing your approach has been immensely instructive. I am truly grateful.
+
+
+Reply
+MYSO
+Topic Author
+Posted 5 months ago
+
+· 5th in this Competition
+
+I truly appreciate your encouragement.
+
+
+Reply
+Aman Rajesh Kapoor
+Posted 6 months ago
+
+· 567th in this Competition
+
+congrats on the 5th place . I have one question about the self distillation did you use the same model for teacher & student and repeat the process n times , with different data for teacher but with constant data for student or the student data changes as the distillation progresses
+
+
+Reply
+MYSO
+Topic Author
+Posted 5 months ago
+
+· 5th in this Competition
+
+Thank you! We used the same model for both teacher and student every time, and the data stayed the same throughout the self-distillation process.
+
+
+Reply
+Aman Rajesh Kapoor
+Posted 5 months ago
+
+· 567th in this Competition
+
+thanks for the reply 😄
+
+
+Reply
+1
+Rose Beltran
+Posted 6 months ago
+
+Manually listening to and editing the files shows incredible dedication. Nice to see that the effort was rewarded with insight about self-distillation, leading to this exceptional result. Thank you for sharing your solution and congratulations!
+
+
+Reply
+MYSO
+Topic Author
+Posted 5 months ago
+
+· 5th in this Competition
+
+Thanks a lot! We really appreciate your comment.
+
+
+Reply
+thacrobatheskis
+Posted 6 months ago
+
+· 710th in this Competition
+
+Thanks for sharing! The distillation technique you used sounds quite interesting. Did you use the fine or coarse grain outputs from the SED teacher model to train the student? Also, was the teacher given the augmented training data, or only the student? I’m looking forward to checking out your train notebook when it’s available!
+
+
+Reply
+MYSO
+Topic Author
+Posted 5 months ago
+
+· 5th in this Competition
+
+We also used the augmented data for the teacher model, which produced coarse-grain outputs.
+
+
+Reply
+Tarun Pahade222
+Posted 5 months ago
+
+Really intresting
+
+
+Reply
+1
+This comment has been deleted.
+
+
+Appreciation (2)
+Athar Sayed
+Posted 6 months ago
+
+· 564th in this Competition
+
+Amazing solution thanks for sharing
+
+Sarah Arshad
+Posted 5 months ago
+
+thanks alot….
+</file>
+
+</files>
