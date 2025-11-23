@@ -83,6 +83,340 @@ WRITEUP_INSPERATION.md
 <files>
 This section contains the contents of the repository's files.
 
+<file path="src/visuals/visualize_model_comparison.py">
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+
+# --- Data from your experiments ---
+# We take the values you just generated:
+# Custom CNN: Memorized training data (99.3%) but failed on test (80.9%)
+# ResNet18:   Good training data (93.0%) and generalized well (89.3%)
+
+models = ['Custom CNN\n(From Scratch)', 'ResNet18\n(Transfer Learning)']
+train_acc = [99.3, 93.0]  # Accuracy on Training Data
+test_acc =  [80.9, 89.3]  # Accuracy on Test Data (Real world performance)
+
+# Setup the bar chart
+x = np.arange(len(models))  # label locations
+width = 0.35  # width of the bars
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Create bars
+rects1 = ax.bar(x - width/2, train_acc, width, label='Training Accuracy', color='#A7C7E7') # Light Blue
+rects2 = ax.bar(x + width/2, test_acc, width, label='Test Accuracy', color='#0047AB')    # Dark Blue
+
+# Add textual layout
+ax.set_ylabel('Accuracy (%)')
+ax.set_title('Comparison: Training from Scratch vs. Transfer Learning')
+ax.set_xticks(x)
+ax.set_xticklabels(models)
+ax.set_ylim(0, 110) # Make room for labels
+ax.legend(loc='lower right')
+
+# Add grid for easier reading
+ax.yaxis.grid(True, linestyle='--', alpha=0.7)
+
+# Function to add labels on top of bars
+def autolabel(rects):
+    for rect in rects:
+        height = rect.get_height()
+        ax.annotate(f'{height}%',
+                    xy=(rect.get_x() + rect.get_width() / 2, height),
+                    xytext=(0, 3),  # 3 points vertical offset
+                    textcoords="offset points",
+                    ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+autolabel(rects1)
+autolabel(rects2)
+
+# --- Highlight the Overfitting Gap ---
+# We draw a red bracket or line to show the gap for Custom CNN
+gap_custom = train_acc[0] - test_acc[0]
+gap_resnet = train_acc[1] - test_acc[1]
+
+# Annotation for Custom CNN
+ax.annotate(f'High Overfitting\nGap: {gap_custom:.1f}%',
+            xy=(x[0], (train_acc[0] + test_acc[0])/2),
+            xytext=(x[0], 40),
+            arrowprops=dict(facecolor='red', shrink=0.05),
+            ha='center', color='red', fontweight='bold')
+
+# Annotation for ResNet
+ax.annotate(f'Robust Generalization\nGap: {gap_resnet:.1f}%',
+            xy=(x[1], (train_acc[1] + test_acc[1])/2),
+            xytext=(x[1], 40),
+            arrowprops=dict(facecolor='green', shrink=0.05),
+            ha='center', color='green', fontweight='bold')
+
+# Save
+output_path = "src/visuals/comparison_model_performance.png"
+plt.tight_layout()
+plt.savefig(output_path, dpi=300)
+print(f"Comparison chart saved to {output_path}")
+plt.show()
+</file>
+
+<file path="src/visuals/visualize_quality.py">
+import sys
+import os
+
+# --- PATH FIX ---
+# Add the parent directory ('src') to Python's path so we can import dataset.py
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_dir = os.path.dirname(current_dir) # Go up one level from visuals/ to src/
+sys.path.append(src_dir)
+# ----------------
+
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from torchvision import models
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import numpy as np
+
+# Now this import will work
+from dataset import BirdRawDataset
+
+# --- Configuration ---
+TEST_DIR = "data/dataset/test"
+MODEL_PATH = "data/models/bird_classifier_pro.pth"
+BATCH_SIZE = 1 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def get_quality_from_filename(filepath):
+    """
+    Extracts quality tag from filenames like 'XC12345_qA.mp3'.
+    Returns 'A', 'B', 'C', etc., or 'Unknown' if not found.
+    """
+    filename = os.path.basename(filepath)
+    if '_q' in filename:
+        try:
+            # Split by '_q' and take the first character after it
+            parts = filename.split('_q')
+            if len(parts) > 1:
+                quality_char = parts[1][0] # "A" from "A.mp3" or "A_..."
+                return quality_char.upper()
+        except:
+            pass
+    return "Unknown"
+
+def main():
+    if not os.path.exists(TEST_DIR):
+        print(f"Error: {TEST_DIR} not found.")
+        return
+
+    print("Initializing Dataset...")
+    # Mode='test' ensures no augmentation
+    try:
+        dataset = BirdRawDataset(TEST_DIR, mode='test')
+    except FileNotFoundError:
+        print("Could not load dataset. Check if data/dataset/test exists.")
+        return
+
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+    print("Loading Model...")
+    try:
+        model = models.efficientnet_b0(weights=None)
+        model.classifier[1] = nn.Linear(model.classifier[1].in_features, len(dataset.classes))
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+        model.to(DEVICE)
+        model.eval()
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        return
+
+    results = []
+
+    print(f"Evaluating {len(dataset)} files by Quality...")
+    
+    with torch.no_grad():
+        for i, (inputs, labels) in enumerate(loader):
+            inputs = inputs.to(DEVICE)
+            labels = labels.to(DEVICE)
+
+            # Inference
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            
+            is_correct = (preds == labels).item()
+            
+            # Get Filename to determine Quality
+            file_path = dataset.files[i][0]
+            quality = get_quality_from_filename(file_path)
+            
+            results.append({
+                "Quality": quality,
+                "Correct": is_correct
+            })
+
+    # Convert to DataFrame
+    df = pd.DataFrame(results)
+    
+    if df.empty:
+        print("No results generated.")
+        return
+
+    # Calculate Accuracy per Quality
+    summary = df.groupby("Quality")["Correct"].mean().reset_index()
+    summary["Accuracy"] = summary["Correct"] * 100
+    
+    # Add counts to labels
+    counts = df["Quality"].value_counts().to_dict()
+    summary["Label"] = summary["Quality"].apply(lambda x: f"{x}\n(n={counts[x]})")
+
+    # Filter to standard qualities
+    summary = summary[summary["Quality"].isin(['A', 'B', 'C', 'D', 'E'])]
+
+    print("\n--- Results Summary ---")
+    print(summary[["Quality", "Accuracy"]])
+
+    # --- Plotting ---
+    plt.figure(figsize=(10, 6))
+    sns.set_style("whitegrid")
+    
+    # Create bar plot
+    if not summary.empty:
+        palette = sns.color_palette("Blues_d", n_colors=len(summary))
+        ax = sns.barplot(x="Label", y="Accuracy", data=summary, palette=palette)
+        
+        # Add numbers on top
+        for p in ax.patches:
+            if p.get_height() > 0:
+                ax.annotate(f'{p.get_height():.1f}%', 
+                           (p.get_x() + p.get_width() / 2., p.get_height()), 
+                           ha = 'center', va = 'center', 
+                           xytext = (0, 9), 
+                           textcoords = 'offset points',
+                           fontweight='bold')
+    else:
+        print("Warning: No A-E quality tags found. Did you download new data with the quality tags?")
+
+    plt.title("Model Performance by Audio Quality", fontsize=16)
+    plt.ylabel("Accuracy (%)", fontsize=12)
+    plt.xlabel("Xeno-Canto Quality Rating", fontsize=12)
+    plt.ylim(0, 110)
+    
+    # Ensure output directory exists
+    os.makedirs("data/visuals", exist_ok=True)
+    output_path = "data/visuals/performance_by_quality.png"
+    plt.savefig(output_path, dpi=300)
+    print(f"\nChart saved to {output_path}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/visuals/visualize_speciesSpectograms_SpectogramsMELvsLIN.py">
+import matplotlib.pyplot as plt
+import librosa
+import librosa.display
+import numpy as np
+import os
+import glob
+
+# --- Configuration ---
+DATA_DIR = "data/raw"
+SPECIES_LIST = ["Amsel", "Buchfink", "Haussperling", "Kohlmeise", "Rotkehlchen"]
+SAMPLE_RATE = 32000
+DURATION = 20  # Seconds to load
+
+def get_first_file(species_name):
+    """Finds the first mp3 file for a specific species."""
+    search_path = os.path.join(DATA_DIR, species_name, "*.mp3")
+    files = glob.glob(search_path)
+    if files:
+        return files[0]
+    else:
+        print(f"Warning: No files found for {species_name}")
+        return None
+
+def plot_five_birds():
+    """
+    Plot 1: Creates a 5-row figure comparing the 5 different birds.
+    """
+    print("Generating Plot 1: 5-Bird Comparison...")
+    
+    fig, axes = plt.subplots(nrows=1, ncols=5, figsize=(20, 4), sharey=True)
+    fig.suptitle('Spectrogram Comparison: 5 Different Species', fontsize=16)
+
+    for i, species in enumerate(SPECIES_LIST):
+        file_path = get_first_file(species)
+        if not file_path:
+            continue
+
+        # Load Audio
+        y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=DURATION)
+        
+        # Compute Mel Spectrogram
+        S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=16000)
+        S_dB = librosa.power_to_db(S, ref=np.max)
+
+        # Plot
+        img = librosa.display.specshow(S_dB, x_axis='time', y_axis='mel', 
+                                     sr=sr, fmax=16000, ax=axes[i], cmap='magma')
+        axes[i].set_title(species)
+        axes[i].set_xlabel('Time')
+        
+        # Only show Y label for the first plot to clean up look
+        if i > 0:
+            axes[i].set_ylabel('')
+
+    plt.tight_layout()
+    plt.savefig("src/visuals/comparison_species.png", dpi=300)
+    print("Saved to src/visuals/comparison_species.png")
+    plt.show()
+
+def plot_linear_vs_mel():
+    """
+    Plot 2: Compares Linear Spectrogram (STFT) vs Mel Spectrogram.
+    Uses 'Amsel' as the example.
+    """
+    print("\nGenerating Plot 2: Linear vs Mel Comparison...")
+    
+    file_path = get_first_file("Amsel") # Using Blackbird as example
+    if not file_path:
+        return
+
+    y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=DURATION)
+
+    fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(10, 8))
+    
+    # --- 1. Linear Frequency Spectrogram (STFT) ---
+    D = librosa.stft(y)  # Short-time Fourier transform
+    S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
+    
+    librosa.display.specshow(S_db, y_axis='log', x_axis='time', sr=sr, ax=ax[0], cmap='magma')
+    ax[0].set_title('Linear Spectrogram (Standard STFT)')
+    ax[0].set_ylabel('Frequency (Hz)')
+    ax[0].label_outer()
+
+    # --- 2. Mel Spectrogram ---
+    M = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=16000)
+    M_db = librosa.power_to_db(M, ref=np.max)
+    
+    librosa.display.specshow(M_db, y_axis='mel', x_axis='time', sr=sr, fmax=16000, ax=ax[1], cmap='magma')
+    ax[1].set_title('Mel Spectrogram (Biologically Inspired)')
+    ax[1].set_ylabel('Frequency (Hz)')
+
+    plt.tight_layout()
+    plt.savefig("src/visuals/comparison_linear_vs_mel.png", dpi=300)
+    print("Saved to src/visuals/comparison_linear_vs_mel.png")
+    plt.show()
+
+if __name__ == "__main__":
+    # Ensure we are in the project root or can find the data
+    if not os.path.exists(DATA_DIR):
+        print(f"Error: Could not find {DATA_DIR}. Run this from the project root.")
+    else:
+        plot_five_birds()
+        plot_linear_vs_mel()
+</file>
+
 <file path="src/create_mock_stream.py">
 import os
 import random
@@ -128,6 +462,206 @@ def main():
     full_audio = np.array(full_audio)
     sf.write(OUTPUT_FILE, full_audio, SAMPLE_RATE)
     print(f"\nCreated {OUTPUT_FILE} ({len(full_audio)/SAMPLE_RATE:.1f} seconds)")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/dataset.py">
+import os
+import glob
+import numpy as np
+import librosa
+import torch
+from torch.utils.data import Dataset
+from audiomentations import Compose, AddGaussianNoise, TimeStretch, PitchShift, Shift, Gain
+
+# --- Configuration (Must match your Process.py logic) ---
+SAMPLE_RATE = 32000
+CHUNK_DURATION = 5  # Seconds
+N_MELS = 128
+FMAX = 16000
+
+class BirdRawDataset(Dataset):
+    def __init__(self, root_dir, mode='train'):
+        """
+        Args:
+            root_dir (str): Path to 'data/dataset/train' or 'data/dataset/test'
+            mode (str): 'train' or 'test'. 
+                        'train' enables Audio Augmentation and random cropping.
+                        'test' disables augmentation and takes the center crop.
+        """
+        self.root_dir = root_dir
+        self.mode = mode
+        self.classes = sorted([d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))])
+        self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
+        
+        # Collect all files
+        self.files = []
+        for cls_name in self.classes:
+            cls_folder = os.path.join(root_dir, cls_name)
+            cls_files = glob.glob(os.path.join(cls_folder, "*.mp3"))
+            cls_files += glob.glob(os.path.join(cls_folder, "*.wav"))
+            for f in cls_files:
+                self.files.append((f, self.class_to_idx[cls_name]))
+
+        # --- Audio Augmentation Pipeline ---
+        # Only applied if mode == 'train'
+        self.augment = Compose([
+            # Add static noise (wind/mic hiss)
+            AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
+            # Make the bird sound slightly different (age/size variation)
+            PitchShift(min_semitones=-2, max_semitones=2, p=0.5),
+            # Make the bird sing faster or slower
+            TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
+            # Simulates distance
+            Gain(min_gain_db=-12, max_gain_db=6, p=0.5),
+            # Shift the audio in time (so the chirp isn't always in the center)
+            Shift(min_shift=-0.5, max_shift=0.5, shift_unit="fraction", p=0.5),
+        ])
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        file_path, label = self.files[idx]
+        
+        # 1. Load Audio
+        # We load up to chunk_duration * 2 to give us room to shift/crop
+        try:
+            y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=15)
+        except Exception as e:
+            # Fallback for corrupted files: return silence
+            print(f"Error loading {file_path}: {e}")
+            y = np.zeros(int(SAMPLE_RATE * CHUNK_DURATION))
+            sr = SAMPLE_RATE
+
+        # 2. Pad if too short
+        target_len = int(SAMPLE_RATE * CHUNK_DURATION)
+        if len(y) < target_len:
+            y = np.pad(y, (0, target_len - len(y)), mode='constant')
+
+        # 3. Crop / Select Segment
+        if len(y) > target_len:
+            if self.mode == 'train':
+                # Random Crop
+                start = np.random.randint(0, len(y) - target_len)
+            else:
+                # Center Crop for validation
+                start = (len(y) - target_len) // 2
+            y = y[start : start + target_len]
+
+        # 4. Apply Augmentation (Raw Waveform)
+        if self.mode == 'train':
+            try:
+                y = self.augment(samples=y, sample_rate=sr)
+            except Exception as e:
+                pass # Skip augmentation if it fails (rare size mismatch)
+
+        # 5. Convert to Mel Spectrogram (Matches process.py math)
+        melspec = librosa.feature.melspectrogram(
+            y=y, sr=sr, n_mels=N_MELS, fmax=FMAX
+        )
+        log_melspec = librosa.power_to_db(melspec, ref=np.max)
+
+        # 6. Normalize (Min-Max to 0.0 - 1.0)
+        min_val = log_melspec.min()
+        max_val = log_melspec.max()
+        spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+        
+        # Flip (Low freq at bottom) AND COPY to fix negative stride error
+        spec_norm = np.flipud(spec_norm).copy()
+
+        # 7. Convert to Tensor
+        # Shape becomes (1, 128, time_steps)
+        # We repeat to 3 channels because EfficientNet expects RGB
+        tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0)
+        tensor = tensor.repeat(3, 1, 1)
+
+        # Resize to 224x224 (Model Input Size)
+        # We use torch.nn.functional.interpolate for this
+        tensor = torch.nn.functional.interpolate(tensor.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False)
+        tensor = tensor.squeeze(0)
+
+        return tensor, label
+</file>
+
+<file path="src/evaluate_efficientNet_specAugment_mixUp_cosAnneal.py">
+import torch
+import torch.nn as nn
+from torchvision import datasets, models, transforms
+from torch.utils.data import DataLoader
+from sklearn.metrics import classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+
+# --- Config ---
+DATA_DIR = "data/processed/test"
+MODEL_PATH = "data/models/bird_classifier_efficientnet_advanced.pth"
+IMG_SIZE = 224
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def main():
+    # 1. Setup Data
+    test_transform = transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+    
+    test_dataset = datasets.ImageFolder(DATA_DIR, transform=test_transform)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    class_names = test_dataset.classes
+    print(f"Classes: {class_names}")
+
+    # 2. Load the EfficientNet Architecture
+    print("Loading Model...")
+    # robust load pattern
+    try:
+        weights = models.EfficientNet_B0_Weights.DEFAULT
+        model = models.efficientnet_b0(weights=weights)
+    except:
+        model = models.efficientnet_b0(weights=None)
+    
+    # Recreate the classifier head exactly as in training
+    num_ftrs = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(num_ftrs, len(class_names))
+    
+    # Load the trained weights
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.to(device)
+    model.eval()
+
+    # 3. Run Predictions
+    all_preds = []
+    all_labels = []
+
+    print("Running Evaluation...")
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    # 4. Report
+    print("\n--- Classification Report ---")
+    print(classification_report(all_labels, all_preds, target_names=class_names))
+
+    # 5. Plot Confusion Matrix
+    cm = confusion_matrix(all_labels, all_preds)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=class_names, yticklabels=class_names)
+    plt.ylabel('Actual')
+    plt.xlabel('Predicted')
+    plt.title('Confusion Matrix (EfficientNet-B0)')
+    plt.tight_layout()
+    plt.savefig("data/models/confusion_matrix_advanced.png")
+    print("Saved confusion matrix to data/models/confusion_matrix_advanced.png")
 
 if __name__ == "__main__":
     main()
@@ -523,540 +1057,6 @@ def main():
         plot_timeline(df)
     else:
         print("No birds detected.")
-
-if __name__ == "__main__":
-    main()
-</file>
-
-<file path="src/visuals/visualize_model_comparison.py">
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-
-# --- Data from your experiments ---
-# We take the values you just generated:
-# Custom CNN: Memorized training data (99.3%) but failed on test (80.9%)
-# ResNet18:   Good training data (93.0%) and generalized well (89.3%)
-
-models = ['Custom CNN\n(From Scratch)', 'ResNet18\n(Transfer Learning)']
-train_acc = [99.3, 93.0]  # Accuracy on Training Data
-test_acc =  [80.9, 89.3]  # Accuracy on Test Data (Real world performance)
-
-# Setup the bar chart
-x = np.arange(len(models))  # label locations
-width = 0.35  # width of the bars
-
-fig, ax = plt.subplots(figsize=(10, 6))
-
-# Create bars
-rects1 = ax.bar(x - width/2, train_acc, width, label='Training Accuracy', color='#A7C7E7') # Light Blue
-rects2 = ax.bar(x + width/2, test_acc, width, label='Test Accuracy', color='#0047AB')    # Dark Blue
-
-# Add textual layout
-ax.set_ylabel('Accuracy (%)')
-ax.set_title('Comparison: Training from Scratch vs. Transfer Learning')
-ax.set_xticks(x)
-ax.set_xticklabels(models)
-ax.set_ylim(0, 110) # Make room for labels
-ax.legend(loc='lower right')
-
-# Add grid for easier reading
-ax.yaxis.grid(True, linestyle='--', alpha=0.7)
-
-# Function to add labels on top of bars
-def autolabel(rects):
-    for rect in rects:
-        height = rect.get_height()
-        ax.annotate(f'{height}%',
-                    xy=(rect.get_x() + rect.get_width() / 2, height),
-                    xytext=(0, 3),  # 3 points vertical offset
-                    textcoords="offset points",
-                    ha='center', va='bottom', fontsize=11, fontweight='bold')
-
-autolabel(rects1)
-autolabel(rects2)
-
-# --- Highlight the Overfitting Gap ---
-# We draw a red bracket or line to show the gap for Custom CNN
-gap_custom = train_acc[0] - test_acc[0]
-gap_resnet = train_acc[1] - test_acc[1]
-
-# Annotation for Custom CNN
-ax.annotate(f'High Overfitting\nGap: {gap_custom:.1f}%',
-            xy=(x[0], (train_acc[0] + test_acc[0])/2),
-            xytext=(x[0], 40),
-            arrowprops=dict(facecolor='red', shrink=0.05),
-            ha='center', color='red', fontweight='bold')
-
-# Annotation for ResNet
-ax.annotate(f'Robust Generalization\nGap: {gap_resnet:.1f}%',
-            xy=(x[1], (train_acc[1] + test_acc[1])/2),
-            xytext=(x[1], 40),
-            arrowprops=dict(facecolor='green', shrink=0.05),
-            ha='center', color='green', fontweight='bold')
-
-# Save
-output_path = "src/visuals/comparison_model_performance.png"
-plt.tight_layout()
-plt.savefig(output_path, dpi=300)
-print(f"Comparison chart saved to {output_path}")
-plt.show()
-</file>
-
-<file path="src/visuals/visualize_quality.py">
-import sys
-import os
-
-# --- PATH FIX ---
-# Add the parent directory ('src') to Python's path so we can import dataset.py
-current_dir = os.path.dirname(os.path.abspath(__file__))
-src_dir = os.path.dirname(current_dir) # Go up one level from visuals/ to src/
-sys.path.append(src_dir)
-# ----------------
-
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import models
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-import numpy as np
-
-# Now this import will work
-from dataset import BirdRawDataset
-
-# --- Configuration ---
-TEST_DIR = "data/dataset/test"
-MODEL_PATH = "data/models/bird_classifier_pro.pth"
-BATCH_SIZE = 1 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-def get_quality_from_filename(filepath):
-    """
-    Extracts quality tag from filenames like 'XC12345_qA.mp3'.
-    Returns 'A', 'B', 'C', etc., or 'Unknown' if not found.
-    """
-    filename = os.path.basename(filepath)
-    if '_q' in filename:
-        try:
-            # Split by '_q' and take the first character after it
-            parts = filename.split('_q')
-            if len(parts) > 1:
-                quality_char = parts[1][0] # "A" from "A.mp3" or "A_..."
-                return quality_char.upper()
-        except:
-            pass
-    return "Unknown"
-
-def main():
-    if not os.path.exists(TEST_DIR):
-        print(f"Error: {TEST_DIR} not found.")
-        return
-
-    print("Initializing Dataset...")
-    # Mode='test' ensures no augmentation
-    try:
-        dataset = BirdRawDataset(TEST_DIR, mode='test')
-    except FileNotFoundError:
-        print("Could not load dataset. Check if data/dataset/test exists.")
-        return
-
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
-
-    print("Loading Model...")
-    try:
-        model = models.efficientnet_b0(weights=None)
-        model.classifier[1] = nn.Linear(model.classifier[1].in_features, len(dataset.classes))
-        model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
-        model.to(DEVICE)
-        model.eval()
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        return
-
-    results = []
-
-    print(f"Evaluating {len(dataset)} files by Quality...")
-    
-    with torch.no_grad():
-        for i, (inputs, labels) in enumerate(loader):
-            inputs = inputs.to(DEVICE)
-            labels = labels.to(DEVICE)
-
-            # Inference
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            
-            is_correct = (preds == labels).item()
-            
-            # Get Filename to determine Quality
-            file_path = dataset.files[i][0]
-            quality = get_quality_from_filename(file_path)
-            
-            results.append({
-                "Quality": quality,
-                "Correct": is_correct
-            })
-
-    # Convert to DataFrame
-    df = pd.DataFrame(results)
-    
-    if df.empty:
-        print("No results generated.")
-        return
-
-    # Calculate Accuracy per Quality
-    summary = df.groupby("Quality")["Correct"].mean().reset_index()
-    summary["Accuracy"] = summary["Correct"] * 100
-    
-    # Add counts to labels
-    counts = df["Quality"].value_counts().to_dict()
-    summary["Label"] = summary["Quality"].apply(lambda x: f"{x}\n(n={counts[x]})")
-
-    # Filter to standard qualities
-    summary = summary[summary["Quality"].isin(['A', 'B', 'C', 'D', 'E'])]
-
-    print("\n--- Results Summary ---")
-    print(summary[["Quality", "Accuracy"]])
-
-    # --- Plotting ---
-    plt.figure(figsize=(10, 6))
-    sns.set_style("whitegrid")
-    
-    # Create bar plot
-    if not summary.empty:
-        palette = sns.color_palette("Blues_d", n_colors=len(summary))
-        ax = sns.barplot(x="Label", y="Accuracy", data=summary, palette=palette)
-        
-        # Add numbers on top
-        for p in ax.patches:
-            if p.get_height() > 0:
-                ax.annotate(f'{p.get_height():.1f}%', 
-                           (p.get_x() + p.get_width() / 2., p.get_height()), 
-                           ha = 'center', va = 'center', 
-                           xytext = (0, 9), 
-                           textcoords = 'offset points',
-                           fontweight='bold')
-    else:
-        print("Warning: No A-E quality tags found. Did you download new data with the quality tags?")
-
-    plt.title("Model Performance by Audio Quality", fontsize=16)
-    plt.ylabel("Accuracy (%)", fontsize=12)
-    plt.xlabel("Xeno-Canto Quality Rating", fontsize=12)
-    plt.ylim(0, 110)
-    
-    # Ensure output directory exists
-    os.makedirs("data/visuals", exist_ok=True)
-    output_path = "data/visuals/performance_by_quality.png"
-    plt.savefig(output_path, dpi=300)
-    print(f"\nChart saved to {output_path}")
-
-if __name__ == "__main__":
-    main()
-</file>
-
-<file path="src/visuals/visualize_speciesSpectograms_SpectogramsMELvsLIN.py">
-import matplotlib.pyplot as plt
-import librosa
-import librosa.display
-import numpy as np
-import os
-import glob
-
-# --- Configuration ---
-DATA_DIR = "data/raw"
-SPECIES_LIST = ["Amsel", "Buchfink", "Haussperling", "Kohlmeise", "Rotkehlchen"]
-SAMPLE_RATE = 32000
-DURATION = 20  # Seconds to load
-
-def get_first_file(species_name):
-    """Finds the first mp3 file for a specific species."""
-    search_path = os.path.join(DATA_DIR, species_name, "*.mp3")
-    files = glob.glob(search_path)
-    if files:
-        return files[0]
-    else:
-        print(f"Warning: No files found for {species_name}")
-        return None
-
-def plot_five_birds():
-    """
-    Plot 1: Creates a 5-row figure comparing the 5 different birds.
-    """
-    print("Generating Plot 1: 5-Bird Comparison...")
-    
-    fig, axes = plt.subplots(nrows=1, ncols=5, figsize=(20, 4), sharey=True)
-    fig.suptitle('Spectrogram Comparison: 5 Different Species', fontsize=16)
-
-    for i, species in enumerate(SPECIES_LIST):
-        file_path = get_first_file(species)
-        if not file_path:
-            continue
-
-        # Load Audio
-        y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=DURATION)
-        
-        # Compute Mel Spectrogram
-        S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=16000)
-        S_dB = librosa.power_to_db(S, ref=np.max)
-
-        # Plot
-        img = librosa.display.specshow(S_dB, x_axis='time', y_axis='mel', 
-                                     sr=sr, fmax=16000, ax=axes[i], cmap='magma')
-        axes[i].set_title(species)
-        axes[i].set_xlabel('Time')
-        
-        # Only show Y label for the first plot to clean up look
-        if i > 0:
-            axes[i].set_ylabel('')
-
-    plt.tight_layout()
-    plt.savefig("src/visuals/comparison_species.png", dpi=300)
-    print("Saved to src/visuals/comparison_species.png")
-    plt.show()
-
-def plot_linear_vs_mel():
-    """
-    Plot 2: Compares Linear Spectrogram (STFT) vs Mel Spectrogram.
-    Uses 'Amsel' as the example.
-    """
-    print("\nGenerating Plot 2: Linear vs Mel Comparison...")
-    
-    file_path = get_first_file("Amsel") # Using Blackbird as example
-    if not file_path:
-        return
-
-    y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=DURATION)
-
-    fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(10, 8))
-    
-    # --- 1. Linear Frequency Spectrogram (STFT) ---
-    D = librosa.stft(y)  # Short-time Fourier transform
-    S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
-    
-    librosa.display.specshow(S_db, y_axis='log', x_axis='time', sr=sr, ax=ax[0], cmap='magma')
-    ax[0].set_title('Linear Spectrogram (Standard STFT)')
-    ax[0].set_ylabel('Frequency (Hz)')
-    ax[0].label_outer()
-
-    # --- 2. Mel Spectrogram ---
-    M = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=16000)
-    M_db = librosa.power_to_db(M, ref=np.max)
-    
-    librosa.display.specshow(M_db, y_axis='mel', x_axis='time', sr=sr, fmax=16000, ax=ax[1], cmap='magma')
-    ax[1].set_title('Mel Spectrogram (Biologically Inspired)')
-    ax[1].set_ylabel('Frequency (Hz)')
-
-    plt.tight_layout()
-    plt.savefig("src/visuals/comparison_linear_vs_mel.png", dpi=300)
-    print("Saved to src/visuals/comparison_linear_vs_mel.png")
-    plt.show()
-
-if __name__ == "__main__":
-    # Ensure we are in the project root or can find the data
-    if not os.path.exists(DATA_DIR):
-        print(f"Error: Could not find {DATA_DIR}. Run this from the project root.")
-    else:
-        plot_five_birds()
-        plot_linear_vs_mel()
-</file>
-
-<file path="src/dataset.py">
-import os
-import glob
-import numpy as np
-import librosa
-import torch
-from torch.utils.data import Dataset
-from audiomentations import Compose, AddGaussianNoise, TimeStretch, PitchShift, Shift, Gain
-
-# --- Configuration (Must match your Process.py logic) ---
-SAMPLE_RATE = 32000
-CHUNK_DURATION = 5  # Seconds
-N_MELS = 128
-FMAX = 16000
-
-class BirdRawDataset(Dataset):
-    def __init__(self, root_dir, mode='train'):
-        """
-        Args:
-            root_dir (str): Path to 'data/dataset/train' or 'data/dataset/test'
-            mode (str): 'train' or 'test'. 
-                        'train' enables Audio Augmentation and random cropping.
-                        'test' disables augmentation and takes the center crop.
-        """
-        self.root_dir = root_dir
-        self.mode = mode
-        self.classes = sorted([d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))])
-        self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
-        
-        # Collect all files
-        self.files = []
-        for cls_name in self.classes:
-            cls_folder = os.path.join(root_dir, cls_name)
-            cls_files = glob.glob(os.path.join(cls_folder, "*.mp3"))
-            cls_files += glob.glob(os.path.join(cls_folder, "*.wav"))
-            for f in cls_files:
-                self.files.append((f, self.class_to_idx[cls_name]))
-
-        # --- Audio Augmentation Pipeline ---
-        # Only applied if mode == 'train'
-        self.augment = Compose([
-            # Add static noise (wind/mic hiss)
-            AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
-            # Make the bird sound slightly different (age/size variation)
-            PitchShift(min_semitones=-2, max_semitones=2, p=0.5),
-            # Make the bird sing faster or slower
-            TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
-            # Simulates distance
-            Gain(min_gain_db=-12, max_gain_db=6, p=0.5),
-            # Shift the audio in time (so the chirp isn't always in the center)
-            Shift(min_shift=-0.5, max_shift=0.5, shift_unit="fraction", p=0.5),
-        ])
-
-    def __len__(self):
-        return len(self.files)
-
-    def __getitem__(self, idx):
-        file_path, label = self.files[idx]
-        
-        # 1. Load Audio
-        # We load up to chunk_duration * 2 to give us room to shift/crop
-        try:
-            y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=15)
-        except Exception as e:
-            # Fallback for corrupted files: return silence
-            print(f"Error loading {file_path}: {e}")
-            y = np.zeros(int(SAMPLE_RATE * CHUNK_DURATION))
-            sr = SAMPLE_RATE
-
-        # 2. Pad if too short
-        target_len = int(SAMPLE_RATE * CHUNK_DURATION)
-        if len(y) < target_len:
-            y = np.pad(y, (0, target_len - len(y)), mode='constant')
-
-        # 3. Crop / Select Segment
-        if len(y) > target_len:
-            if self.mode == 'train':
-                # Random Crop
-                start = np.random.randint(0, len(y) - target_len)
-            else:
-                # Center Crop for validation
-                start = (len(y) - target_len) // 2
-            y = y[start : start + target_len]
-
-        # 4. Apply Augmentation (Raw Waveform)
-        if self.mode == 'train':
-            try:
-                y = self.augment(samples=y, sample_rate=sr)
-            except Exception as e:
-                pass # Skip augmentation if it fails (rare size mismatch)
-
-        # 5. Convert to Mel Spectrogram (Matches process.py math)
-        melspec = librosa.feature.melspectrogram(
-            y=y, sr=sr, n_mels=N_MELS, fmax=FMAX
-        )
-        log_melspec = librosa.power_to_db(melspec, ref=np.max)
-
-        # 6. Normalize (Min-Max to 0.0 - 1.0)
-        min_val = log_melspec.min()
-        max_val = log_melspec.max()
-        spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
-        
-        # Flip (Low freq at bottom) AND COPY to fix negative stride error
-        spec_norm = np.flipud(spec_norm).copy()
-
-        # 7. Convert to Tensor
-        # Shape becomes (1, 128, time_steps)
-        # We repeat to 3 channels because EfficientNet expects RGB
-        tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0)
-        tensor = tensor.repeat(3, 1, 1)
-
-        # Resize to 224x224 (Model Input Size)
-        # We use torch.nn.functional.interpolate for this
-        tensor = torch.nn.functional.interpolate(tensor.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False)
-        tensor = tensor.squeeze(0)
-
-        return tensor, label
-</file>
-
-<file path="src/evaluate_efficientNet_specAugment_mixUp_cosAnneal.py">
-import torch
-import torch.nn as nn
-from torchvision import datasets, models, transforms
-from torch.utils.data import DataLoader
-from sklearn.metrics import classification_report, confusion_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
-import os
-
-# --- Config ---
-DATA_DIR = "data/processed/test"
-MODEL_PATH = "data/models/bird_classifier_efficientnet_advanced.pth"
-IMG_SIZE = 224
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-def main():
-    # 1. Setup Data
-    test_transform = transforms.Compose([
-        transforms.Resize((IMG_SIZE, IMG_SIZE)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
-    
-    test_dataset = datasets.ImageFolder(DATA_DIR, transform=test_transform)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-    class_names = test_dataset.classes
-    print(f"Classes: {class_names}")
-
-    # 2. Load the EfficientNet Architecture
-    print("Loading Model...")
-    # robust load pattern
-    try:
-        weights = models.EfficientNet_B0_Weights.DEFAULT
-        model = models.efficientnet_b0(weights=weights)
-    except:
-        model = models.efficientnet_b0(weights=None)
-    
-    # Recreate the classifier head exactly as in training
-    num_ftrs = model.classifier[1].in_features
-    model.classifier[1] = nn.Linear(num_ftrs, len(class_names))
-    
-    # Load the trained weights
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-    model.to(device)
-    model.eval()
-
-    # 3. Run Predictions
-    all_preds = []
-    all_labels = []
-
-    print("Running Evaluation...")
-    with torch.no_grad():
-        for inputs, labels in test_loader:
-            inputs = inputs.to(device)
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-
-    # 4. Report
-    print("\n--- Classification Report ---")
-    print(classification_report(all_labels, all_preds, target_names=class_names))
-
-    # 5. Plot Confusion Matrix
-    cm = confusion_matrix(all_labels, all_preds)
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=class_names, yticklabels=class_names)
-    plt.ylabel('Actual')
-    plt.xlabel('Predicted')
-    plt.title('Confusion Matrix (EfficientNet-B0)')
-    plt.tight_layout()
-    plt.savefig("data/models/confusion_matrix_advanced.png")
-    print("Saved confusion matrix to data/models/confusion_matrix_advanced.png")
 
 if __name__ == "__main__":
     main()
