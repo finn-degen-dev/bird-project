@@ -46,21 +46,35 @@ src/
     comparison_model_performance.png
     comparison_species.png
     confusion_matrix_15epoch_resnet18pre.png
+    confusion_matrix_20epoch_efficientNetpre.png
+    confusion_matrix_finetuned_pro.png
     loss_curve_15epoch_resnet18pre.png
+    performance_by_quality.png
     sliding_window_attention_0.1.png
     sliding_window_attention_2.5.png
     visualize_heatmap_birdsong.py
     visualize_model_comparison.py
+    visualize_quality.py
     visualize_speciesSpectograms_SpectogramsMELvsLIN.py
+  create_mock_stream.py
+  dataset.py
   download.py
+  evaluate_efficientNet_specAugment_mixUp_cosAnneal.py
+  evaluate_pro.py
+  generate_live_video.py
+  monitor.py
+  predict_pro.py
   predict.py
   process.py
   split_data.py
+  train_efficientNet_specAugment_mixUp_cosAnneal.py
   train_fromScratch.py
-  train.py
+  train_pro.py
+  train_resNet18.py
 .gitignore
 docker-compose.yml
 Dockerfile
+OUR_APPROACH.md
 README.md
 requirements.txt
 WRITEUP_INSPERATION.md
@@ -69,201 +83,446 @@ WRITEUP_INSPERATION.md
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/visuals/visualize_heatmap_birdsong.py">
-import matplotlib.pyplot as plt
-import numpy as np
-import torch
-import torch.nn.functional as F
-from torchvision import models, transforms
-from PIL import Image
-import librosa
-import librosa.display
-import cv2
+<file path="src/create_mock_stream.py">
 import os
-import glob
+import random
+import numpy as np
+import soundfile as sf
+import librosa
+from glob import glob
 
-# --- Configuration ---
-MODEL_PATH = "data/models/bird_classifier_resnet18.pth"
-DATA_DIR = "data/raw"
-SPECIES_LIST = ["Amsel", "Buchfink", "Haussperling", "Kohlmeise", "Rotkehlchen"]
-CLASSES = sorted(SPECIES_LIST)
+# --- Config ---
+DATA_DIR = "data/dataset/test"
+OUTPUT_FILE = "data/mock_forest_recording.wav"
+DURATION_TARGET = 120  # 2 Minutes of audio
+SAMPLE_RATE = 32000
+
+def main():
+    print("Generating mock forest recording...")
+    
+    # Find all files
+    all_files = glob(os.path.join(DATA_DIR, "*", "*.mp3"))
+    if not all_files:
+        print("No files found!")
+        return
+
+    full_audio = []
+    current_len = 0
+    target_samples = DURATION_TARGET * SAMPLE_RATE
+    
+    while current_len < target_samples:
+        # Pick random file
+        f = random.choice(all_files)
+        y, sr = librosa.load(f, sr=SAMPLE_RATE)
+        
+        # Occasionally insert silence (to simulate gaps)
+        if random.random() > 0.7:
+            silence_dur = random.randint(1, 5) # 1-5 seconds silence
+            full_audio.extend(np.zeros(silence_dur * SAMPLE_RATE))
+        
+        full_audio.extend(y)
+        current_len += len(y) + (5 * SAMPLE_RATE) # Rough estimate including silence
+        print(f"Added {os.path.basename(f)}")
+
+    # Save
+    full_audio = np.array(full_audio)
+    sf.write(OUTPUT_FILE, full_audio, SAMPLE_RATE)
+    print(f"\nCreated {OUTPUT_FILE} ({len(full_audio)/SAMPLE_RATE:.1f} seconds)")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/generate_live_video.py">
+import sys
+import os
+import subprocess
+import argparse
+import numpy as np
+import librosa
+import cv2
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision import models
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+
+# --- PATH FIX ---
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_dir = os.path.dirname(current_dir)
+sys.path.append(src_dir)
+
+# --- Config ---
+MODEL_PATH = "data/models/bird_classifier_pro.pth"
+CLASSES = ['Amsel', 'Buchfink', 'Haussperling', 'Kohlmeise', 'Rotkehlchen']
 SAMPLE_RATE = 32000
 CHUNK_DURATION = 5
-TOTAL_DURATION = 20
-STRIDE = 0.01  # Slide the window every 1 second (High resolution!)
 N_MELS = 128
 FMAX = 16000
+VIDEO_FPS = 30
+HEIGHT = 720
+WIDTH = 1280
+SCROLL_SPEED = 200 
+
+# --- GATES ---
+# 1. RMS (Volume) Threshold: Needs to be reasonably loud
+RMS_THRESHOLD = 0.005 
+
+# 2. Dynamic Range Threshold (dB): 
+# If the difference between min and max dB in the spectrogram is less than this,
+# it means the image is "flat" (just noise). Don't normalize it!
+DB_DELTA_THRESHOLD = 20.0 
+
+# 3. AI Confidence
+CONFIDENCE_THRESHOLD = 0.50
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# --- Grad-CAM Class ---
-class GradCAM:
-    def __init__(self, model, target_layer):
-        self.model = model
-        self.gradients = None
-        self.activations = None
-        target_layer.register_forward_hook(self.save_activation)
-        target_layer.register_full_backward_hook(self.save_gradient)
+def load_model():
+    print("Loading Model...")
+    try:
+        model = models.efficientnet_b0(weights=None)
+        model.classifier[1] = nn.Linear(model.classifier[1].in_features, len(CLASSES))
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+        model.to(device)
+        model.eval()
+        return model
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
-    def save_activation(self, module, input, output):
-        self.activations = output
+def get_prediction(model, audio_chunk, sr):
+    """Returns probability array for the chunk, with Strict Silence filtering."""
+    
+    # --- GATE 1: RAW AUDIO VOLUME ---
+    rms = np.sqrt(np.mean(audio_chunk**2))
+    if rms < RMS_THRESHOLD:
+        return np.zeros(len(CLASSES))
 
-    def save_gradient(self, module, grad_input, grad_output):
-        self.gradients = grad_output[0]
+    # Pad if too short
+    if len(audio_chunk) < int(CHUNK_DURATION * sr):
+        pad = int(CHUNK_DURATION * sr) - len(audio_chunk)
+        audio_chunk = np.pad(audio_chunk, (0, pad), mode='constant')
+    
+    # Generate Spectrogram
+    melspec = librosa.feature.melspectrogram(y=audio_chunk, sr=sr, n_mels=N_MELS, fmax=FMAX)
+    log_melspec = librosa.power_to_db(melspec, ref=np.max)
+    
+    # --- GATE 2: SPECTROGRAM CONTRAST (The Fix) ---
+    min_val, max_val = log_melspec.min(), log_melspec.max()
+    delta = max_val - min_val
+    
+    # If the "loudest" pixel and "quietest" pixel are close (e.g., < 20dB difference),
+    # it means the audio is just flat hiss/static. 
+    # Normalizing this would create hallucinations.
+    if delta < DB_DELTA_THRESHOLD:
+        return np.zeros(len(CLASSES))
 
-    def generate_cam(self, input_tensor, target_class_idx):
-        output = self.model(input_tensor)
-        self.model.zero_grad()
-        target = output[:, target_class_idx]
-        target.backward()
+    # Safe Normalization
+    spec_norm = (log_melspec - min_val) / (delta + 1e-6)
+    spec_norm = np.flipud(spec_norm).copy()
+    
+    tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0).repeat(3, 1, 1)
+    tensor = torch.nn.functional.interpolate(
+        tensor.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False
+    ).squeeze(0)
+    
+    with torch.no_grad():
+        outputs = model(tensor.unsqueeze(0).to(device))
+        probs = F.softmax(outputs, dim=1)
+    
+    probs_np = probs.cpu().numpy()[0]
 
-        weights = torch.mean(self.gradients, dim=(2, 3))[0]
-        cam = torch.zeros(self.activations.shape[2:], dtype=torch.float32).to(device)
-        for i, w in enumerate(weights):
-            cam += w * self.activations[0, i, :, :]
-            
-        cam = F.relu(cam)
-        cam = cam.cpu().detach().numpy()
-        cam = (cam - np.min(cam)) / (np.max(cam) - np.min(cam) + 1e-8)
-        return cam
+    # --- GATE 3: AI CONFIDENCE ---
+    if np.max(probs_np) < CONFIDENCE_THRESHOLD:
+        return np.zeros(len(CLASSES))
+
+    return probs_np
+
+def create_spectrogram_image(y, sr):
+    """Generates a long panoramic spectrogram image"""
+    print("Generating full spectrogram texture...")
+    S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=N_MELS, fmax=FMAX)
+    S_dB = librosa.power_to_db(S, ref=np.max)
+    
+    S_min, S_max = S_dB.min(), S_dB.max()
+    S_norm = 255 * (S_dB - S_min) / (S_max - S_min)
+    S_norm = np.flipud(S_norm).astype(np.uint8)
+    
+    colormap = plt.get_cmap('magma')
+    S_color = (colormap(S_norm / 255.0) * 255).astype(np.uint8)[:, :, :3]
+    S_color = cv2.cvtColor(S_color, cv2.COLOR_RGB2BGR)
+    
+    target_width = int(len(y) / sr * SCROLL_SPEED)
+    target_height = int(HEIGHT * 0.6)
+    
+    img = cv2.resize(S_color, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
+    return img
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--file", required=True, help="Path to audio file")
+    parser.add_argument("--output", default="data/visuals/live_detection.mp4")
+    args = parser.parse_args()
+    
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    
+    print(f"Loading audio: {args.file}")
+    y, sr = librosa.load(args.file, sr=SAMPLE_RATE)
+    duration = len(y) / sr
+    
+    model = load_model()
+    
+    print("Pre-calculating AI predictions...")
+    predictions = []
+    step = 0.2
+    for t in tqdm(np.arange(0, duration, step)):
+        start_sample = int(t * sr)
+        end_sample = start_sample + int(CHUNK_DURATION * sr)
+        if end_sample > len(y): break
+        
+        chunk = y[start_sample:end_sample]
+        probs = get_prediction(model, chunk, sr)
+        predictions.append(probs)
+    
+    predictions = np.array(predictions)
+
+    spec_img = create_spectrogram_image(y, sr)
+    
+    temp_video = "temp_video_no_audio.mp4"
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(temp_video, fourcc, VIDEO_FPS, (WIDTH, HEIGHT))
+    
+    print(f"Rendering video ({int(duration * VIDEO_FPS)} frames)...")
+    
+    for frame_idx in tqdm(range(int(duration * VIDEO_FPS))):
+        current_time = frame_idx / VIDEO_FPS
+        
+        # Background
+        frame = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+        frame[:] = (30, 30, 30) 
+        
+        # Spectrogram
+        spec_x = int(current_time * SCROLL_SPEED)
+        screen_center = WIDTH // 2
+        source_start = spec_x - screen_center
+        source_end = spec_x + screen_center
+        
+        dest_start = 0
+        dest_end = WIDTH
+        
+        if source_start < 0:
+            dest_start = -source_start
+            source_start = 0
+        if source_end > spec_img.shape[1]:
+            diff = source_end - spec_img.shape[1]
+            dest_end = WIDTH - diff
+            source_end = spec_img.shape[1]
+            
+        if dest_end > dest_start:
+            spec_slice = spec_img[:, source_start:source_end]
+            frame[0:spec_slice.shape[0], dest_start:dest_end] = spec_slice
+            
+        cv2.line(frame, (WIDTH//2, 0), (WIDTH//2, HEIGHT), (0, 255, 255), 2)
+        
+        # Predictions
+        pred_idx = int(current_time / step)
+        if pred_idx < len(predictions):
+            probs = predictions[pred_idx]
+        else:
+            probs = np.zeros(len(CLASSES))
+            
+        bar_width = (WIDTH - 100) // len(CLASSES)
+        
+        for i, (cls_name, prob) in enumerate(zip(CLASSES, probs)):
+            x = 50 + i * bar_width
+            h = int(prob * 200)
+            
+            if prob > 0.6:
+                color = (0, 255, 0) 
+            else:
+                color = (0, int(255 * prob * 1.5), 255)
+            
+            if h > 0:
+                cv2.rectangle(frame, (x + 10, HEIGHT - 50 - h), (x + bar_width - 10, HEIGHT - 50), color, -1)
+                cv2.putText(frame, f"{int(prob*100)}%", (x + 10, HEIGHT - 55 - h), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            cv2.putText(frame, cls_name, (x + 10, HEIGHT - 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
+        out.write(frame)
+        
+    out.release()
+    
+    print("Merging audio...")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", temp_video,
+        "-i", args.file,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-shortest",
+        args.output
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    os.remove(temp_video)
+    print(f"\n🎉 Video saved to {args.output}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/monitor.py">
+import argparse
+import torch
+import torch.nn as nn
+import numpy as np
+import librosa
+import matplotlib.pyplot as plt
+import seaborn as sns
+from torchvision import models
+import torch.nn.functional as F
+import os
+import pandas as pd
+
+# --- Config ---
+MODEL_PATH = "data/models/bird_classifier_pro.pth"
+CLASSES = ['Amsel', 'Buchfink', 'Haussperling', 'Kohlmeise', 'Rotkehlchen']
+SAMPLE_RATE = 32000
+CHUNK_DURATION = 5  # Seconds
+STEP_SIZE = 2.5     # 50% Overlap for better detection
+N_MELS = 128
+FMAX = 16000
+CONFIDENCE_THRESHOLD = 0.60  # Only count if model is 60% sure
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def load_model():
     print("Loading Model...")
-    model = models.resnet18()
-    model.fc = torch.nn.Linear(model.fc.in_features, len(CLASSES))
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-    model.to(device)
-    model.eval()
+    try:
+        model = models.efficientnet_b0(weights=None)
+        model.classifier[1] = nn.Linear(model.classifier[1].in_features, len(CLASSES))
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+        model.to(device)
+        model.eval()
+        return model
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        exit(1)
 
-    grad_cam = GradCAM(model, model.layer4[-1])
+def preprocess_chunk(y, sr):
+    """Converts a single 5s audio array into a tensor"""
+    # 1. Mel Spec
+    melspec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=N_MELS, fmax=FMAX)
+    log_melspec = librosa.power_to_db(melspec, ref=np.max)
+    
+    # 2. Normalize
+    min_val, max_val = log_melspec.min(), log_melspec.max()
+    spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+    
+    # 3. Flip & Copy
+    spec_norm = np.flipud(spec_norm).copy()
+    
+    # 4. Tensor
+    tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0)
+    tensor = tensor.repeat(3, 1, 1) # RGB
+    
+    # 5. Resize
+    tensor = torch.nn.functional.interpolate(
+        tensor.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False
+    ).squeeze(0)
+    
+    return tensor
 
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
+def analyze_long_audio(audio_path, model):
+    print(f"Loading audio: {audio_path} ... (this might take a moment)")
+    # Load full audio
+    y, sr = librosa.load(audio_path, sr=SAMPLE_RATE)
+    total_duration = len(y) / sr
+    print(f"Audio Duration: {total_duration:.1f} seconds")
 
-    fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(15, 12))
-    fig.suptitle(f'Continuous AI Attention (Sliding Window Stride: {STRIDE}s)', fontsize=16)
-
-    for i, species in enumerate(SPECIES_LIST):
-        print(f"Processing {species}...")
-        search_path = os.path.join(DATA_DIR, species, "*.mp3")
-        files = glob.glob(search_path)
-        if not files: continue
-        file_path = files[0]
-
-        # 1. Load full 20s Audio
-        y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=TOTAL_DURATION)
-        target_len = TOTAL_DURATION * SAMPLE_RATE
-        if len(y) < target_len:
-            y = np.pad(y, (0, target_len - len(y)))
-        else:
-            y = y[:target_len]
-
-        # 2. Compute Full Spectrogram (Background)
-        full_melspec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=N_MELS, fmax=FMAX)
-        full_melspec_db = librosa.power_to_db(full_melspec, ref=np.max)
+    # Sliding Window
+    chunk_samples = int(CHUNK_DURATION * sr)
+    step_samples = int(STEP_SIZE * sr)
+    
+    results = []
+    
+    print("Scanning...")
+    # Use a sliding window
+    for start_idx in range(0, len(y) - chunk_samples, step_samples):
+        end_idx = start_idx + chunk_samples
+        chunk = y[start_idx:end_idx]
         
-        # Normalize Full Spectrogram for display (0-1)
-        spec_min, spec_max = full_melspec_db.min(), full_melspec_db.max()
-        display_spec = (full_melspec_db - spec_min) / (spec_max - spec_min + 1e-6)
-
-        # 3. Create Accumulator Buffers
-        # shape is (n_mels, time_steps)
-        heatmap_sum = np.zeros_like(display_spec)
-        heatmap_count = np.zeros_like(display_spec)
-
-        # 4. Sliding Window Logic
-        samples_per_chunk = int(CHUNK_DURATION * sr)
-        samples_stride = int(STRIDE * sr)
+        # Preprocess
+        tensor = preprocess_chunk(chunk, sr).unsqueeze(0).to(device)
         
-        # Calculate how many pixels correspond to one chunk in the spectrogram
-        # librosa stft behavior: time_steps = samples / hop_length
-        # We need to map time -> pixels accurately
-        pixels_per_sec = display_spec.shape[1] / TOTAL_DURATION
-
-        current_sample = 0
-        while current_sample + samples_per_chunk <= len(y):
-            # Extract Audio Chunk
-            y_chunk = y[current_sample : current_sample + samples_per_chunk]
+        # Predict
+        with torch.no_grad():
+            outputs = model(tensor)
+            probs = F.softmax(outputs, dim=1)
+        
+        # Get top prediction
+        conf, idx = torch.max(probs, 1)
+        conf = conf.item()
+        idx = idx.item()
+        
+        time_sec = start_idx / sr
+        
+        # Store result if confident enough
+        if conf >= CONFIDENCE_THRESHOLD:
+            results.append({
+                "time": time_sec,
+                "species": CLASSES[idx],
+                "confidence": conf
+            })
             
-            # Create Mel Spec for Model (Match training preprocessing exactly)
-            chunk_melspec = librosa.feature.melspectrogram(y=y_chunk, sr=sr, n_mels=N_MELS, fmax=FMAX)
-            chunk_db = librosa.power_to_db(chunk_melspec, ref=np.max)
-            
-            # Normalize 0-255 uint8 for PIL
-            c_min, c_max = chunk_db.min(), chunk_db.max()
-            chunk_norm = (chunk_db - c_min) / (c_max - c_min + 1e-6)
-            chunk_img_data = (np.flipud(chunk_norm) * 255).astype(np.uint8)
-            pil_img = Image.fromarray(chunk_img_data).convert("RGB") # FIX APPLIED HERE
+    return pd.DataFrame(results)
 
-            # Get GradCAM
-            input_tensor = transform(pil_img).unsqueeze(0).to(device)
-            target_idx = CLASSES.index(species)
-            cam = grad_cam.generate_cam(input_tensor, target_idx) # returns 224x224 typically
+def plot_timeline(df, output_path="data/models/monitoring_timeline.png"):
+    if df.empty:
+        print("No birds detected above threshold.")
+        return
 
-            # Mapping back to the global spectrogram canvas
-            # Start and End time of this window
-            t_start = current_sample / sr
-            t_end = (current_sample + samples_per_chunk) / sr
-            
-            # Convert time to spectrogram pixel indices
-            px_start = int(t_start * pixels_per_sec)
-            px_end = int(t_end * pixels_per_sec)
-            
-            # Safety check for dimensions
-            if px_end > display_spec.shape[1]: px_end = display_spec.shape[1]
-            width = px_end - px_start
-            if width <= 0: break
-
-            # Resize CAM to fit this specific slice of the spectrogram
-            # We resize to (width, 128)
-            cam_resized = cv2.resize(cam, (width, N_MELS))
-            cam_resized = np.flipud(cam_resized) # Flip back to match librosa orientation
-
-            # Add to accumulators
-            heatmap_sum[:, px_start:px_end] += cam_resized
-            heatmap_count[:, px_start:px_end] += 1.0
-
-            # Slide
-            current_sample += samples_stride
-
-        # 5. Average and Normalize Heatmap
-        # Avoid division by zero
-        heatmap_count[heatmap_count == 0] = 1.0
-        final_heatmap = heatmap_sum / heatmap_count
-        
-        # Normalize final 0-1
-        if final_heatmap.max() > 0:
-            final_heatmap = final_heatmap / final_heatmap.max()
-
-        # 6. Plotting
-        ax = axes[i]
-        
-        # Background: Spectrogram (Grayscale)
-        ax.imshow(display_spec, aspect='auto', origin='lower', cmap='gray', extent=[0, 20, 0, FMAX])
-        
-        # Foreground: Heatmap (Jet, Alpha blended)
-        # We need to map 0-1 values to RGB color map manually for overlay
-        colored_map = plt.cm.jet(final_heatmap) # Returns RGBA
-        # Set alpha channel based on intensity (so low attention is transparent)
-        colored_map[:, :, 3] = final_heatmap * 0.6 
-        
-        ax.imshow(colored_map, aspect='auto', origin='lower', extent=[0, 20, 0, FMAX])
-
-        ax.set_title(f"{species}")
-        ax.set_ylabel("Freq (Hz)")
-        if i < 4:
-            ax.set_xticks([])
-        else:
-            ax.set_xlabel("Time (seconds)")
-
+    plt.figure(figsize=(15, 6))
+    
+    # Scatter plot: X=Time, Y=Species, Color=Confidence
+    sns.scatterplot(data=df, x="time", y="species", hue="confidence", 
+                    palette="viridis", s=100, alpha=0.7)
+    
+    plt.title("Bird Activity Timeline")
+    plt.xlabel("Time (seconds)")
+    plt.ylabel("Species")
+    plt.grid(True, linestyle='--', alpha=0.5)
     plt.tight_layout()
-    save_path = "src/visuals/sliding_window_attention.png"
-    plt.savefig(save_path, dpi=300)
-    print(f"\nSaved to {save_path}")
-    plt.show()
+    plt.savefig(output_path)
+    print(f"Timeline saved to {output_path}")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--file", required=True, help="Path to long audio file")
+    args = parser.parse_args()
+    
+    model = load_model()
+    df = analyze_long_audio(args.file, model)
+    
+    if not df.empty:
+        print("\n--- Detections ---")
+        # Group by species to count occurrences (rough estimate)
+        print(df['species'].value_counts())
+        
+        # Save detailed CSV
+        csv_path = "data/models/monitoring_results.csv"
+        df.to_csv(csv_path, index=False)
+        print(f"\nDetailed results saved to {csv_path}")
+        
+        plot_timeline(df)
+    else:
+        print("No birds detected.")
 
 if __name__ == "__main__":
     main()
@@ -342,6 +601,159 @@ plt.tight_layout()
 plt.savefig(output_path, dpi=300)
 print(f"Comparison chart saved to {output_path}")
 plt.show()
+</file>
+
+<file path="src/visuals/visualize_quality.py">
+import sys
+import os
+
+# --- PATH FIX ---
+# Add the parent directory ('src') to Python's path so we can import dataset.py
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_dir = os.path.dirname(current_dir) # Go up one level from visuals/ to src/
+sys.path.append(src_dir)
+# ----------------
+
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from torchvision import models
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import numpy as np
+
+# Now this import will work
+from dataset import BirdRawDataset
+
+# --- Configuration ---
+TEST_DIR = "data/dataset/test"
+MODEL_PATH = "data/models/bird_classifier_pro.pth"
+BATCH_SIZE = 1 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def get_quality_from_filename(filepath):
+    """
+    Extracts quality tag from filenames like 'XC12345_qA.mp3'.
+    Returns 'A', 'B', 'C', etc., or 'Unknown' if not found.
+    """
+    filename = os.path.basename(filepath)
+    if '_q' in filename:
+        try:
+            # Split by '_q' and take the first character after it
+            parts = filename.split('_q')
+            if len(parts) > 1:
+                quality_char = parts[1][0] # "A" from "A.mp3" or "A_..."
+                return quality_char.upper()
+        except:
+            pass
+    return "Unknown"
+
+def main():
+    if not os.path.exists(TEST_DIR):
+        print(f"Error: {TEST_DIR} not found.")
+        return
+
+    print("Initializing Dataset...")
+    # Mode='test' ensures no augmentation
+    try:
+        dataset = BirdRawDataset(TEST_DIR, mode='test')
+    except FileNotFoundError:
+        print("Could not load dataset. Check if data/dataset/test exists.")
+        return
+
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+    print("Loading Model...")
+    try:
+        model = models.efficientnet_b0(weights=None)
+        model.classifier[1] = nn.Linear(model.classifier[1].in_features, len(dataset.classes))
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+        model.to(DEVICE)
+        model.eval()
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        return
+
+    results = []
+
+    print(f"Evaluating {len(dataset)} files by Quality...")
+    
+    with torch.no_grad():
+        for i, (inputs, labels) in enumerate(loader):
+            inputs = inputs.to(DEVICE)
+            labels = labels.to(DEVICE)
+
+            # Inference
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            
+            is_correct = (preds == labels).item()
+            
+            # Get Filename to determine Quality
+            file_path = dataset.files[i][0]
+            quality = get_quality_from_filename(file_path)
+            
+            results.append({
+                "Quality": quality,
+                "Correct": is_correct
+            })
+
+    # Convert to DataFrame
+    df = pd.DataFrame(results)
+    
+    if df.empty:
+        print("No results generated.")
+        return
+
+    # Calculate Accuracy per Quality
+    summary = df.groupby("Quality")["Correct"].mean().reset_index()
+    summary["Accuracy"] = summary["Correct"] * 100
+    
+    # Add counts to labels
+    counts = df["Quality"].value_counts().to_dict()
+    summary["Label"] = summary["Quality"].apply(lambda x: f"{x}\n(n={counts[x]})")
+
+    # Filter to standard qualities
+    summary = summary[summary["Quality"].isin(['A', 'B', 'C', 'D', 'E'])]
+
+    print("\n--- Results Summary ---")
+    print(summary[["Quality", "Accuracy"]])
+
+    # --- Plotting ---
+    plt.figure(figsize=(10, 6))
+    sns.set_style("whitegrid")
+    
+    # Create bar plot
+    if not summary.empty:
+        palette = sns.color_palette("Blues_d", n_colors=len(summary))
+        ax = sns.barplot(x="Label", y="Accuracy", data=summary, palette=palette)
+        
+        # Add numbers on top
+        for p in ax.patches:
+            if p.get_height() > 0:
+                ax.annotate(f'{p.get_height():.1f}%', 
+                           (p.get_x() + p.get_width() / 2., p.get_height()), 
+                           ha = 'center', va = 'center', 
+                           xytext = (0, 9), 
+                           textcoords = 'offset points',
+                           fontweight='bold')
+    else:
+        print("Warning: No A-E quality tags found. Did you download new data with the quality tags?")
+
+    plt.title("Model Performance by Audio Quality", fontsize=16)
+    plt.ylabel("Accuracy (%)", fontsize=12)
+    plt.xlabel("Xeno-Canto Quality Rating", fontsize=12)
+    plt.ylim(0, 110)
+    
+    # Ensure output directory exists
+    os.makedirs("data/visuals", exist_ok=True)
+    output_path = "data/visuals/performance_by_quality.png"
+    plt.savefig(output_path, dpi=300)
+    print(f"\nChart saved to {output_path}")
+
+if __name__ == "__main__":
+    main()
 </file>
 
 <file path="src/visuals/visualize_speciesSpectograms_SpectogramsMELvsLIN.py">
@@ -450,265 +862,323 @@ if __name__ == "__main__":
         plot_linear_vs_mel()
 </file>
 
-<file path="src/download.py">
+<file path="src/dataset.py">
 import os
-import asyncio
-import aiohttp
-import shutil
-
-# --- KONFIGURATION ---
-DATA_DIR = "/app/data/raw"
-MAX_FILES = 60
-
-# Wir holen den Key aus der Umgebungsvariable
-API_KEY = os.getenv("XENOCANTO_API_KEY")
-
-# Prüfung: Ist der Key da?
-if not API_KEY:
-    print("❌ FEHLER: Kein API-Key gefunden!")
-    print("   Bitte setze 'XENOCANTO_API_KEY' in deiner .env Datei")
-    print("   und starte den Container neu.")
-    exit(1)
-
-API_VERSION = "3"  # Jetzt nutzen wir explizit v3
-
-# Unsere Vögel
-birds = {
-    "Turdus merula": "Amsel",
-    "Parus major": "Kohlmeise",
-    "Erithacus rubecula": "Rotkehlchen",
-    "Fringilla coelebs": "Buchfink",
-    "Passer domesticus": "Haussperling"
-}
-
-async def download_file(session, url, filepath):
-    # ... (Code bleibt gleich wie vorher) ...
-    try:
-        async with session.get(url) as response:
-            if response.status == 200:
-                with open(filepath, 'wb') as f:
-                    while True:
-                        chunk = await response.content.read(4096)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                return True
-            else:
-                print(f"❌ Download fehlgeschlagen (Status {response.status}): {url}")
-                return False
-    except Exception as e:
-        print(f"⚠️ Fehler beim Download von {url}: {e}")
-        return False
-
-async def process_bird(session, latin_name, german_name):
-    print(f"\n--- Suche nach: {german_name} ({latin_name}) ---")
-    
-    target_folder = os.path.join(DATA_DIR, german_name)
-    if not os.path.exists(target_folder):
-        os.makedirs(target_folder)
-        
-    existing_files = len([f for f in os.listdir(target_folder) if f.endswith('.mp3')])
-    if existing_files >= MAX_FILES:
-        print(f"✅ Bereits {existing_files} Dateien vorhanden. Überspringe...")
-        return
-
-    # --- Query Aufbauen ---
-    query = f'sp:"{latin_name}" cnt:germany q:A len:10-60 type:song'
-    
-    # API v3 URL
-    api_url = f"https://xeno-canto.org/api/{API_VERSION}/recordings"
-    
-    # Parameter für v3 (Query + Key sind jetzt separate Felder, nicht alles im Query-String)
-    params = {
-        'query': query,
-        'key': API_KEY  # Hier wird der Key sicher übergeben
-    }
-
-    try:
-        async with session.get(api_url, params=params) as response:
-            if response.status != 200:
-                print(f"❌ API Fehler für {german_name}: Status {response.status}")
-                error_text = await response.text()
-                print(f"   Server Antwort: {error_text}")
-                return
-            
-            data = await response.json()
-            recordings = data.get('recordings', [])
-            print(f"-> {len(recordings)} Aufnahmen gefunden. Starte Download...")
-
-            if not recordings:
-                print("   ⚠️ Keine Aufnahmen gefunden. Überprüfe die Suchparameter.")
-                return
-
-    except Exception as e:
-        print(f"❌ Verbindungsfehler zur API: {e}")
-        return
-
-    # --- Downloads ---
-    count = existing_files
-    for rec in recordings:
-        if count >= MAX_FILES:
-            break
-            
-        file_url = rec.get('file')
-        file_name = f"{rec.get('id')}.mp3"
-        file_path = os.path.join(target_folder, file_name)
-
-        if not os.path.exists(file_path):
-            success = await download_file(session, file_url, file_path)
-            if success:
-                count += 1
-                if count % 5 == 0:
-                    print(f"   ... {count}/{MAX_FILES} geladen")
-        else:
-            count += 1
-    
-    print(f"✅ {german_name}: {count} Dateien bereit.")
-
-async def main():
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
-
-    async with aiohttp.ClientSession() as session:
-        for latin, german in birds.items():
-            await process_bird(session, latin, german)
-
-    print("\n\n🎉 Alle Downloads abgeschlossen!")
-    print(f"Daten liegen in: {DATA_DIR}")
-
-if __name__ == "__main__":
-    asyncio.run(main())
-</file>
-
-<file path="src/predict.py">
-import argparse
-import os
-import torch
+import glob
 import numpy as np
 import librosa
-from torchvision import transforms, models
-from PIL import Image
-import torch.nn.functional as F
+import torch
+from torch.utils.data import Dataset
+from audiomentations import Compose, AddGaussianNoise, TimeStretch, PitchShift, Shift, Gain
 
-# --- Config matches Training ---
-MODEL_PATH = "data/models/bird_classifier_resnet18.pth"
-# ALPHABETICAL ORDER IS CRITICAL (Must match ImageFolder order)
+# --- Configuration (Must match your Process.py logic) ---
+SAMPLE_RATE = 32000
+CHUNK_DURATION = 5  # Seconds
+N_MELS = 128
+FMAX = 16000
+
+class BirdRawDataset(Dataset):
+    def __init__(self, root_dir, mode='train'):
+        """
+        Args:
+            root_dir (str): Path to 'data/dataset/train' or 'data/dataset/test'
+            mode (str): 'train' or 'test'. 
+                        'train' enables Audio Augmentation and random cropping.
+                        'test' disables augmentation and takes the center crop.
+        """
+        self.root_dir = root_dir
+        self.mode = mode
+        self.classes = sorted([d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))])
+        self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
+        
+        # Collect all files
+        self.files = []
+        for cls_name in self.classes:
+            cls_folder = os.path.join(root_dir, cls_name)
+            cls_files = glob.glob(os.path.join(cls_folder, "*.mp3"))
+            cls_files += glob.glob(os.path.join(cls_folder, "*.wav"))
+            for f in cls_files:
+                self.files.append((f, self.class_to_idx[cls_name]))
+
+        # --- Audio Augmentation Pipeline ---
+        # Only applied if mode == 'train'
+        self.augment = Compose([
+            # Add static noise (wind/mic hiss)
+            AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
+            # Make the bird sound slightly different (age/size variation)
+            PitchShift(min_semitones=-2, max_semitones=2, p=0.5),
+            # Make the bird sing faster or slower
+            TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
+            # Simulates distance
+            Gain(min_gain_db=-12, max_gain_db=6, p=0.5),
+            # Shift the audio in time (so the chirp isn't always in the center)
+            Shift(min_shift=-0.5, max_shift=0.5, shift_unit="fraction", p=0.5),
+        ])
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        file_path, label = self.files[idx]
+        
+        # 1. Load Audio
+        # We load up to chunk_duration * 2 to give us room to shift/crop
+        try:
+            y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=15)
+        except Exception as e:
+            # Fallback for corrupted files: return silence
+            print(f"Error loading {file_path}: {e}")
+            y = np.zeros(int(SAMPLE_RATE * CHUNK_DURATION))
+            sr = SAMPLE_RATE
+
+        # 2. Pad if too short
+        target_len = int(SAMPLE_RATE * CHUNK_DURATION)
+        if len(y) < target_len:
+            y = np.pad(y, (0, target_len - len(y)), mode='constant')
+
+        # 3. Crop / Select Segment
+        if len(y) > target_len:
+            if self.mode == 'train':
+                # Random Crop
+                start = np.random.randint(0, len(y) - target_len)
+            else:
+                # Center Crop for validation
+                start = (len(y) - target_len) // 2
+            y = y[start : start + target_len]
+
+        # 4. Apply Augmentation (Raw Waveform)
+        if self.mode == 'train':
+            try:
+                y = self.augment(samples=y, sample_rate=sr)
+            except Exception as e:
+                pass # Skip augmentation if it fails (rare size mismatch)
+
+        # 5. Convert to Mel Spectrogram (Matches process.py math)
+        melspec = librosa.feature.melspectrogram(
+            y=y, sr=sr, n_mels=N_MELS, fmax=FMAX
+        )
+        log_melspec = librosa.power_to_db(melspec, ref=np.max)
+
+        # 6. Normalize (Min-Max to 0.0 - 1.0)
+        min_val = log_melspec.min()
+        max_val = log_melspec.max()
+        spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+        
+        # Flip (Low freq at bottom) AND COPY to fix negative stride error
+        spec_norm = np.flipud(spec_norm).copy()
+
+        # 7. Convert to Tensor
+        # Shape becomes (1, 128, time_steps)
+        # We repeat to 3 channels because EfficientNet expects RGB
+        tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0)
+        tensor = tensor.repeat(3, 1, 1)
+
+        # Resize to 224x224 (Model Input Size)
+        # We use torch.nn.functional.interpolate for this
+        tensor = torch.nn.functional.interpolate(tensor.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False)
+        tensor = tensor.squeeze(0)
+
+        return tensor, label
+</file>
+
+<file path="src/evaluate_efficientNet_specAugment_mixUp_cosAnneal.py">
+import torch
+import torch.nn as nn
+from torchvision import datasets, models, transforms
+from torch.utils.data import DataLoader
+from sklearn.metrics import classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+
+# --- Config ---
+DATA_DIR = "data/processed/test"
+MODEL_PATH = "data/models/bird_classifier_efficientnet_advanced.pth"
+IMG_SIZE = 224
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def main():
+    # 1. Setup Data
+    test_transform = transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+    
+    test_dataset = datasets.ImageFolder(DATA_DIR, transform=test_transform)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    class_names = test_dataset.classes
+    print(f"Classes: {class_names}")
+
+    # 2. Load the EfficientNet Architecture
+    print("Loading Model...")
+    # robust load pattern
+    try:
+        weights = models.EfficientNet_B0_Weights.DEFAULT
+        model = models.efficientnet_b0(weights=weights)
+    except:
+        model = models.efficientnet_b0(weights=None)
+    
+    # Recreate the classifier head exactly as in training
+    num_ftrs = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(num_ftrs, len(class_names))
+    
+    # Load the trained weights
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.to(device)
+    model.eval()
+
+    # 3. Run Predictions
+    all_preds = []
+    all_labels = []
+
+    print("Running Evaluation...")
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    # 4. Report
+    print("\n--- Classification Report ---")
+    print(classification_report(all_labels, all_preds, target_names=class_names))
+
+    # 5. Plot Confusion Matrix
+    cm = confusion_matrix(all_labels, all_preds)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=class_names, yticklabels=class_names)
+    plt.ylabel('Actual')
+    plt.xlabel('Predicted')
+    plt.title('Confusion Matrix (EfficientNet-B0)')
+    plt.tight_layout()
+    plt.savefig("data/models/confusion_matrix_advanced.png")
+    print("Saved confusion matrix to data/models/confusion_matrix_advanced.png")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/predict_pro.py">
+import argparse
+import torch
+import torch.nn as nn
+import numpy as np
+import librosa
+from torchvision import models
+import torch.nn.functional as F
+import os
+
+# --- Config ---
+MODEL_PATH = "data/models/bird_classifier_pro.pth"
 CLASSES = ['Amsel', 'Buchfink', 'Haussperling', 'Kohlmeise', 'Rotkehlchen']
 SAMPLE_RATE = 32000
 CHUNK_DURATION = 5
 N_MELS = 128
 FMAX = 16000
 
-# Detect Device
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def get_transforms():
-    """Must match the 'test' transforms from train.py exactly."""
-    return transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
-
-def audio_to_images(audio_path):
+def preprocess_audio(audio_path):
     """
-    Loads audio, splits into chunks, converts to Spectrogram PIL Images.
-    (This replicates logic from process.py but in-memory)
+    Loads audio and converts to spectrogram tensor matching BirdRawDataset logic.
+    Returns a batch of tensors (one for each 5s chunk).
     """
+    # Load audio
     y, sr = librosa.load(audio_path, sr=SAMPLE_RATE)
     
-    # Calculate dimensions
-    frame_length = int(CHUNK_DURATION * sr)
-    hop_length = int(frame_length) # Non-overlapping for inference speed
+    # Pad to ensure at least one chunk exists
+    target_len = int(SAMPLE_RATE * CHUNK_DURATION)
+    if len(y) < target_len:
+        y = np.pad(y, (0, target_len - len(y)), mode='constant')
+        
+    # Split into 5s chunks (no overlap for simple prediction)
+    chunks = librosa.util.frame(y, frame_length=target_len, hop_length=target_len).T
     
-    # Pad if too short
-    if len(y) < frame_length:
-        y = np.pad(y, (0, frame_length - len(y)), mode='constant')
-
-    # Split into chunks
-    chunks = librosa.util.frame(y, frame_length=frame_length, hop_length=hop_length).T
+    tensors = []
     
-    images = []
     for chunk in chunks:
         chunk = np.ascontiguousarray(chunk)
         
-        # Generate Mel Spec
+        # Mel Spectrogram
         melspec = librosa.feature.melspectrogram(
             y=chunk, sr=sr, n_mels=N_MELS, fmax=FMAX
         )
         log_melspec = librosa.power_to_db(melspec, ref=np.max)
         
-        # Normalize to 0-255 (Same math as process.py)
+        # Normalize 0.0 to 1.0
         min_val = log_melspec.min()
         max_val = log_melspec.max()
-        norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
-        norm = np.flipud(norm) # Flip Y
-        img_data = (norm * 255).astype(np.uint8)
+        spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
         
-        # Convert to PIL
-        img = Image.fromarray(img_data)
-        # Convert to RGB (ResNet expects 3 channels)
-        img = img.convert("RGB")
-        images.append(img)
+        # Flip and Copy (Important!)
+        spec_norm = np.flipud(spec_norm).copy()
         
-    return images
+        # Convert to Tensor (1, 128, time)
+        tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0)
+        
+        # Repeat channels (3, 128, time)
+        tensor = tensor.repeat(3, 1, 1)
+        
+        # Resize to 224x224
+        tensor = torch.nn.functional.interpolate(
+            tensor.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False
+        ).squeeze(0)
+        
+        tensors.append(tensor)
+        
+    return torch.stack(tensors)
 
 def predict_file(audio_path):
-    print(f"Processing: {os.path.basename(audio_path)}...")
+    print(f"Analyzing {os.path.basename(audio_path)}...")
     
-    # 1. Prepare Model
-    model = models.resnet18()
-    num_ftrs = model.fc.in_features
-    model.fc = torch.nn.Linear(num_ftrs, len(CLASSES))
-    
-    # Load weights
-    if not os.path.exists(MODEL_PATH):
-        print(f"Error: Model not found at {MODEL_PATH}")
+    # Setup Model
+    try:
+        model = models.efficientnet_b0(weights=None)
+    except:
+        print("Error loading architecture.")
         return
 
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.classifier[1] = nn.Linear(model.classifier[1].in_features, len(CLASSES))
+    
+    try:
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    except FileNotFoundError:
+        print(f"Model not found at {MODEL_PATH}")
+        return
+
     model.to(device)
     model.eval()
     
-    # 2. Prepare Data
+    # Prepare Data
     try:
-        pil_images = audio_to_images(audio_path)
+        batch = preprocess_audio(audio_path).to(device)
     except Exception as e:
         print(f"Error loading audio: {e}")
         return
 
-    transform = get_transforms()
-    # Stack images into a batch tensor
-    batch = torch.stack([transform(img) for img in pil_images]).to(device)
-    
-    # 3. Inference
+    # Inference
     with torch.no_grad():
         outputs = model(batch)
-        # Convert logits to probabilities (0.0 to 1.0)
         probs = F.softmax(outputs, dim=1)
         
-    # 4. Aggregation (Average probability across all chunks)
+    # Average probability across all chunks (if file > 5s)
     avg_probs = torch.mean(probs, dim=0).cpu().numpy()
-    
-    # 5. Result
     best_idx = np.argmax(avg_probs)
-    confidence = avg_probs[best_idx]
-    predicted_class = CLASSES[best_idx]
     
-    print("\n--- Results ---")
-    print(f"Prediction: {predicted_class.upper()}")
-    print(f"Confidence: {confidence:.2%}")
+    print(f"\nPrediction: {CLASSES[best_idx].upper()}")
+    print(f"Confidence: {avg_probs[best_idx]:.2%}")
     print("-" * 20)
-    print("Details:")
     for i, cls in enumerate(CLASSES):
         print(f"{cls}: {avg_probs[i]:.2%}")
-    print("-" * 20)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--file", required=True, help="Path to audio file")
     args = parser.parse_args()
-    
     predict_file(args.file)
 </file>
 
@@ -907,6 +1377,242 @@ if __name__ == "__main__":
         split_dataset(args.input, args.output, args.ratio)
 </file>
 
+<file path="src/train_efficientNet_specAugment_mixUp_cosAnneal.py">
+import os
+import time
+import copy
+import argparse
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, models, transforms
+from torch.utils.data import DataLoader
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+
+# --- Configuration ---
+DEFAULT_DATA_DIR = "data/processed"
+MODEL_SAVE_PATH = "data/models"
+BATCH_SIZE = 32 
+NUM_EPOCHS = 25       # Increased for Cosine Annealing
+LEARNING_RATE = 1e-3
+IMG_SIZE = 224
+MIXUP_ALPHA = 0.4     # Strength of MixUp (0.2 - 0.4 is standard)
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+# --- 1. SpecAugment (The "Right" Augmentation for Audio) ---
+class SpecAugment:
+    """
+    Randomly masks out time or frequency stripes.
+    Replaces standard image cropping which distorts audio features.
+    """
+    def __init__(self, freq_mask_param=20, time_mask_param=30, num_masks=2):
+        self.freq_mask_param = freq_mask_param
+        self.time_mask_param = time_mask_param
+        self.num_masks = num_masks
+
+    def __call__(self, img_tensor):
+        # img_tensor is (C, H, W)
+        _, h, w = img_tensor.shape
+        
+        # Frequency Masking (Horizontal bars)
+        for _ in range(self.num_masks):
+            f = np.random.randint(0, self.freq_mask_param)
+            f0 = np.random.randint(0, h - f)
+            img_tensor[:, f0:f0+f, :] = 0.0
+
+        # Time Masking (Vertical bars)
+        for _ in range(self.num_masks):
+            t = np.random.randint(0, self.time_mask_param)
+            t0 = np.random.randint(0, w - t)
+            img_tensor[:, :, t0:t0+t] = 0.0
+            
+        return img_tensor
+
+def get_transforms():
+    # Train: Resize -> Tensor -> Norm -> SpecAugment
+    train_transforms = transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        SpecAugment() 
+    ])
+    
+    # Test: No Augmentation
+    test_transforms = transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+    return {'train': train_transforms, 'test': test_transforms}
+
+# --- 2. MixUp Logic ---
+def mixup_data(x, y, alpha=1.0):
+    """Returns mixed inputs, pairs of targets, and lambda"""
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1
+
+    batch_size = x.size(0)
+    index = torch.randperm(batch_size).to(device)
+
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+
+# --- 3. Training Loop with MixUp & Cosine Scheduler ---
+def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, scheduler, num_epochs=25):
+    since = time.time()
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_acc = 0.0
+    
+    history = {'train_loss': [], 'val_loss': [], 'val_acc': []}
+
+    for epoch in range(num_epochs):
+        print(f'Epoch {epoch+1}/{num_epochs}')
+        
+        for phase in ['train', 'test']:
+            if phase == 'train':
+                model.train()
+            else:
+                model.eval()
+
+            running_loss = 0.0
+            running_corrects = 0
+
+            for inputs, labels in dataloaders[phase]:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                optimizer.zero_grad()
+
+                with torch.set_grad_enabled(phase == 'train'):
+                    # Apply MixUp ONLY in training
+                    if phase == 'train' and np.random.random() > 0.5: # Apply mixup 50% of the time
+                        inputs, targets_a, targets_b, lam = mixup_data(inputs, labels, MIXUP_ALPHA)
+                        inputs, targets_a, targets_b = map(torch.autograd.Variable, (inputs, targets_a, targets_b))
+                        
+                        outputs = model(inputs)
+                        loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
+                        
+                        # For accuracy calc in mixup, we just take the max prediction
+                        _, preds = torch.max(outputs, 1)
+                    else:
+                        outputs = model(inputs)
+                        _, preds = torch.max(outputs, 1)
+                        loss = criterion(outputs, labels)
+
+                    if phase == 'train':
+                        loss.backward()
+                        optimizer.step()
+
+                running_loss += loss.item() * inputs.size(0)
+                
+                # Accuracy calculation (approximation for MixUp)
+                if phase == 'train':
+                    # During training with mixup, accuracy is fuzzy, so we just trust loss
+                    running_corrects += torch.sum(preds == labels.data)
+                else:
+                    running_corrects += torch.sum(preds == labels.data)
+
+            # Scheduler Step (Cosine Annealing updates every epoch)
+            if phase == 'train':
+                scheduler.step()
+
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_corrects.double() / dataset_sizes[phase]
+
+            print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+
+            if phase == 'train':
+                history['train_loss'].append(epoch_loss)
+            else:
+                history['val_loss'].append(epoch_loss)
+                history['val_acc'].append(epoch_acc.item())
+                
+                if epoch_acc > best_acc:
+                    best_acc = epoch_acc
+                    best_model_wts = copy.deepcopy(model.state_dict())
+
+    time_elapsed = time.time() - since
+    print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
+    print(f'Best val Acc: {best_acc:4f}')
+
+    model.load_state_dict(best_model_wts)
+    return model, history
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", default=DEFAULT_DATA_DIR)
+    parser.add_argument("--epochs", type=int, default=NUM_EPOCHS)
+    args = parser.parse_args()
+
+    os.makedirs(MODEL_SAVE_PATH, exist_ok=True)
+    
+    # Data Setup
+    transforms_dict = get_transforms()
+    image_datasets = {x: datasets.ImageFolder(os.path.join(args.data, x), transforms_dict[x]) for x in ['train', 'test']}
+    dataloaders = {x: DataLoader(image_datasets[x], batch_size=BATCH_SIZE, shuffle=True, num_workers=4) for x in ['train', 'test']}
+    dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'test']}
+    class_names = image_datasets['train'].classes
+    num_classes = len(class_names)
+
+    print(f"Training EfficientNet-B0 on {num_classes} classes: {class_names}")
+
+    # --- 4. Model: EfficientNet B0 ---
+    # EfficientNet is generally better for spectrograms than ResNet
+    # EfficientNet is generally better for spectrograms than ResNet
+    print("Loading EfficientNet-B0...")
+    try:
+        # Try standard load
+        weights = models.EfficientNet_B0_Weights.DEFAULT
+        model = models.efficientnet_b0(weights=weights)
+    except RuntimeError as e:
+        print(f"Standard load failed ({e}). Attempting to load with check_hash=False...")
+        # Fallback: Load architecture first
+        model = models.efficientnet_b0(weights=None)
+        # Manually load weights ignoring the hash check
+        url = models.EfficientNet_B0_Weights.DEFAULT.url
+        state_dict = torch.hub.load_state_dict_from_url(url, check_hash=False)
+        model.load_state_dict(state_dict)
+    
+    # Adjust Classifier Head
+    # EfficientNet's classifier is usually a Sequential block, we access the last linear layer
+    num_ftrs = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(num_ftrs, num_classes)
+    model = model.to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
+    
+    # Cosine Annealing Scheduler
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+
+    # Train
+    model, history = train_model(model, dataloaders, dataset_sizes, criterion, optimizer, scheduler, num_epochs=args.epochs)
+
+    # Save
+    save_path = os.path.join(MODEL_SAVE_PATH, "bird_classifier_efficientnet_advanced.pth")
+    torch.save(model.state_dict(), save_path)
+    print(f"Advanced Model saved to {save_path}")
+
+    # Simple Plot
+    plt.figure()
+    plt.plot(history['train_loss'], label='Train Loss')
+    plt.plot(history['val_loss'], label='Val Loss')
+    plt.title('Advanced Training Loss (MixUp + Cosine)')
+    plt.legend()
+    plt.savefig(os.path.join(MODEL_SAVE_PATH, 'loss_curve_advanced.png'))
+
+if __name__ == "__main__":
+    main()
+</file>
+
 <file path="src/train_fromScratch.py">
 # src/train_custom.py
 # Use this ONLY to prove that ResNet is better!
@@ -1012,7 +1718,7 @@ if __name__ == "__main__":
     main()
 </file>
 
-<file path="src/train.py">
+<file path="src/train_resNet18.py">
 import os
 import time
 import copy
@@ -1265,6 +1971,67 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 4. Standard-Befehl (hält den Container am Leben)
 CMD ["bash"]
+</file>
+
+<file path="OUR_APPROACH.md">
+# Project Methodology: Autonomous Acoustic Bird Species Monitoring
+
+## 1. Abstract
+This project aims to develop a robust, automated system for the acoustic identification of indigenous bird species. Unlike traditional methods that rely on manual observation or simple threshold-based detection, this system utilizes Deep Learning (Convolutional Neural Networks) to analyze spectral representations of audio. The final model achieves significant accuracy by leveraging Transfer Learning, raw audio augmentation, and advanced regularization techniques, enabling it to function effectively in noisy, real-world environments.
+
+## 2. Data Strategy
+
+### 2.1. Data Acquisition
+Audio data was sourced from the Xeno-Canto repository using the API v3. To ensure the model generalizes well to real-world conditions, the dataset was constructed in two phases:
+1.  **Initial Phase:** High-quality recordings (Quality A) were used to establish baseline feature extraction.
+2.  **Expansion Phase:** The dataset was expanded to include lower-quality recordings (Quality B and C) containing background noise (wind, rain, anthropogenic sounds). This prevents the model from overfitting to studio-quality silence.
+
+### 2.2. Preprocessing
+Instead of training on pre-generated static images, the pipeline processes raw audio waveforms on-the-fly.
+1.  **Loading:** Audio is loaded at a sample rate of 32 kHz.
+2.  **Segmentation:** Continuous audio is sliced into 5-second chunks.
+3.  **Spectrogram Generation:** Mel-frequency cepstral coefficients (MFCCs) or Mel-Spectrograms are generated dynamically.
+    *   n_mels: 128
+    *   f_max: 16,000 Hz
+4.  **Normalization:** Log-scale conversion (dB) followed by Min-Max normalization to the [0, 1] range.
+
+## 3. Model Architecture
+
+### 3.1. Backbone: EfficientNet-B0
+We selected EfficientNet-B0 as the primary architecture over ResNet-18.
+*   **Reasoning:** EfficientNet optimizes depth, width, and resolution simultaneously. For spectrogram analysis, it captures fine-grained textural details (chirps and trills) more effectively than standard residual networks while maintaining a lower parameter count, which is beneficial for deployment on edge devices.
+
+### 3.2. Transfer Learning
+The model was initialized with weights pre-trained on ImageNet. While audio spectrograms differ from natural images, the low-level feature detectors (edges, curves, gradients) learned from ImageNet provide a robust starting point, significantly reducing convergence time compared to training from scratch.
+
+## 4. Training Strategy
+
+To combat the scarcity of labeled data and the "Cocktail Party Problem" (overlapping sounds), we implemented a heavy regularization pipeline.
+
+### 4.1. Audio Augmentation
+We applied stochastic transformations to the raw waveform *before* spectrogram generation. This effectively generates infinite unique training samples.
+*   **Gaussian Noise:** Simulates wind and microphone hiss.
+*   **Gain:** Simulates varying distances between the bird and the recorder.
+*   **Pitch Shift:** Accounts for biological variations (age, size) within a species.
+*   **Time Stretch:** Accounts for variations in singing speed.
+
+### 4.2. Regularization Techniques
+*   **MixUp:** Convex combinations of pairs of examples and their labels (e.g., fading a Blackbird into a Robin). This enforces linear behavior in-between training examples and prevents the model from being overconfident on noisy data.
+*   **SpecAugment:** Random masking of time and frequency bands in the spectrogram. This forces the model to identify species based on partial information rather than relying on the complete song structure.
+
+### 4.3. Optimization
+*   **Optimizer:** AdamW (Adam with decoupled Weight Decay) for better generalization.
+*   **Scheduler:** Cosine Annealing with Warm Resarts or OneCycleLR to navigate the loss landscape effectively and escape local minima.
+
+## 5. Inference & Monitoring
+
+For the application phase, a sliding-window algorithm scans long-duration recordings.
+*   **Window Size:** 5 seconds.
+*   **Stride:** 2.5 seconds (50% overlap).
+*   **Aggregation:** Predictions are smoothed over time, and a confidence threshold (typically 0.60) filters out uncertain detections to minimize false positives.
+
+## 6. Conclusion
+The transition from standard computer vision techniques to domain-specific audio augmentation was the decisive factor in performance. The final system demonstrates that identifying birds in noisy environments requires a model trained not just on bird sounds, but on the acoustic chaos of nature itself.
 </file>
 
 <file path="WRITEUP_INSPERATION.md">
@@ -2318,6 +3085,735 @@ Sarah Arshad
 Posted 5 months ago
 
 thanks alot….
+</file>
+
+<file path="src/visuals/visualize_heatmap_birdsong.py">
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torchvision import models, transforms
+from PIL import Image
+import librosa
+import librosa.display
+import cv2
+import os
+import glob
+
+# --- Configuration ---
+MODEL_PATH = "data/models/bird_classifier_resnet18.pth"
+DATA_DIR = "data/raw"
+SPECIES_LIST = ["Amsel", "Buchfink", "Haussperling", "Kohlmeise", "Rotkehlchen"]
+CLASSES = sorted(SPECIES_LIST)
+SAMPLE_RATE = 32000
+CHUNK_DURATION = 5
+TOTAL_DURATION = 20
+STRIDE = 0.01  # Slide the window every 1 second (High resolution!)
+N_MELS = 128
+FMAX = 16000
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# --- Grad-CAM Class ---
+class GradCAM:
+    def __init__(self, model, target_layer):
+        self.model = model
+        self.gradients = None
+        self.activations = None
+        target_layer.register_forward_hook(self.save_activation)
+        target_layer.register_full_backward_hook(self.save_gradient)
+
+    def save_activation(self, module, input, output):
+        self.activations = output
+
+    def save_gradient(self, module, grad_input, grad_output):
+        self.gradients = grad_output[0]
+
+    def generate_cam(self, input_tensor, target_class_idx):
+        output = self.model(input_tensor)
+        self.model.zero_grad()
+        target = output[:, target_class_idx]
+        target.backward()
+
+        weights = torch.mean(self.gradients, dim=(2, 3))[0]
+        cam = torch.zeros(self.activations.shape[2:], dtype=torch.float32).to(device)
+        for i, w in enumerate(weights):
+            cam += w * self.activations[0, i, :, :]
+            
+        cam = F.relu(cam)
+        cam = cam.cpu().detach().numpy()
+        cam = (cam - np.min(cam)) / (np.max(cam) - np.min(cam) + 1e-8)
+        return cam
+
+def main():
+    print("Loading Model...")
+    model = models.resnet18()
+    model.fc = torch.nn.Linear(model.fc.in_features, len(CLASSES))
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.to(device)
+    model.eval()
+
+    grad_cam = GradCAM(model, model.layer4[-1])
+
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+
+    fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(15, 12))
+    fig.suptitle(f'Continuous AI Attention (Sliding Window Stride: {STRIDE}s)', fontsize=16)
+
+    for i, species in enumerate(SPECIES_LIST):
+        print(f"Processing {species}...")
+        search_path = os.path.join(DATA_DIR, species, "*.mp3")
+        files = glob.glob(search_path)
+        if not files: continue
+        file_path = files[0]
+
+        # 1. Load full 20s Audio
+        y, sr = librosa.load(file_path, sr=SAMPLE_RATE, duration=TOTAL_DURATION)
+        target_len = TOTAL_DURATION * SAMPLE_RATE
+        if len(y) < target_len:
+            y = np.pad(y, (0, target_len - len(y)))
+        else:
+            y = y[:target_len]
+
+        # 2. Compute Full Spectrogram (Background)
+        full_melspec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=N_MELS, fmax=FMAX)
+        full_melspec_db = librosa.power_to_db(full_melspec, ref=np.max)
+        
+        # Normalize Full Spectrogram for display (0-1)
+        spec_min, spec_max = full_melspec_db.min(), full_melspec_db.max()
+        display_spec = (full_melspec_db - spec_min) / (spec_max - spec_min + 1e-6)
+
+        # 3. Create Accumulator Buffers
+        # shape is (n_mels, time_steps)
+        heatmap_sum = np.zeros_like(display_spec)
+        heatmap_count = np.zeros_like(display_spec)
+
+        # 4. Sliding Window Logic
+        samples_per_chunk = int(CHUNK_DURATION * sr)
+        samples_stride = int(STRIDE * sr)
+        
+        # Calculate how many pixels correspond to one chunk in the spectrogram
+        # librosa stft behavior: time_steps = samples / hop_length
+        # We need to map time -> pixels accurately
+        pixels_per_sec = display_spec.shape[1] / TOTAL_DURATION
+
+        current_sample = 0
+        while current_sample + samples_per_chunk <= len(y):
+            # Extract Audio Chunk
+            y_chunk = y[current_sample : current_sample + samples_per_chunk]
+            
+            # Create Mel Spec for Model (Match training preprocessing exactly)
+            chunk_melspec = librosa.feature.melspectrogram(y=y_chunk, sr=sr, n_mels=N_MELS, fmax=FMAX)
+            chunk_db = librosa.power_to_db(chunk_melspec, ref=np.max)
+            
+            # Normalize 0-255 uint8 for PIL
+            c_min, c_max = chunk_db.min(), chunk_db.max()
+            chunk_norm = (chunk_db - c_min) / (c_max - c_min + 1e-6)
+            chunk_img_data = (np.flipud(chunk_norm) * 255).astype(np.uint8)
+            pil_img = Image.fromarray(chunk_img_data).convert("RGB") # FIX APPLIED HERE
+
+            # Get GradCAM
+            input_tensor = transform(pil_img).unsqueeze(0).to(device)
+            target_idx = CLASSES.index(species)
+            cam = grad_cam.generate_cam(input_tensor, target_idx) # returns 224x224 typically
+
+            # Mapping back to the global spectrogram canvas
+            # Start and End time of this window
+            t_start = current_sample / sr
+            t_end = (current_sample + samples_per_chunk) / sr
+            
+            # Convert time to spectrogram pixel indices
+            px_start = int(t_start * pixels_per_sec)
+            px_end = int(t_end * pixels_per_sec)
+            
+            # Safety check for dimensions
+            if px_end > display_spec.shape[1]: px_end = display_spec.shape[1]
+            width = px_end - px_start
+            if width <= 0: break
+
+            # Resize CAM to fit this specific slice of the spectrogram
+            # We resize to (width, 128)
+            cam_resized = cv2.resize(cam, (width, N_MELS))
+            cam_resized = np.flipud(cam_resized) # Flip back to match librosa orientation
+
+            # Add to accumulators
+            heatmap_sum[:, px_start:px_end] += cam_resized
+            heatmap_count[:, px_start:px_end] += 1.0
+
+            # Slide
+            current_sample += samples_stride
+
+        # 5. Average and Normalize Heatmap
+        # Avoid division by zero
+        heatmap_count[heatmap_count == 0] = 1.0
+        final_heatmap = heatmap_sum / heatmap_count
+        
+        # Normalize final 0-1
+        if final_heatmap.max() > 0:
+            final_heatmap = final_heatmap / final_heatmap.max()
+
+        # 6. Plotting
+        ax = axes[i]
+        
+        # Background: Spectrogram (Grayscale)
+        ax.imshow(display_spec, aspect='auto', origin='lower', cmap='gray', extent=[0, 20, 0, FMAX])
+        
+        # Foreground: Heatmap (Jet, Alpha blended)
+        # We need to map 0-1 values to RGB color map manually for overlay
+        colored_map = plt.cm.jet(final_heatmap) # Returns RGBA
+        # Set alpha channel based on intensity (so low attention is transparent)
+        colored_map[:, :, 3] = final_heatmap * 0.6 
+        
+        ax.imshow(colored_map, aspect='auto', origin='lower', extent=[0, 20, 0, FMAX])
+
+        ax.set_title(f"{species}")
+        ax.set_ylabel("Freq (Hz)")
+        if i < 4:
+            ax.set_xticks([])
+        else:
+            ax.set_xlabel("Time (seconds)")
+
+    plt.tight_layout()
+    save_path = "src/visuals/sliding_window_attention.png"
+    plt.savefig(save_path, dpi=300)
+    print(f"\nSaved to {save_path}")
+    plt.show()
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/download.py">
+import os
+import asyncio
+import aiohttp
+import shutil
+
+# --- KONFIGURATION ---
+DATA_DIR = "/app/data/raw"
+MAX_FILES = 200  # Tripled the amount of data!
+
+API_KEY = os.getenv("XENOCANTO_API_KEY")
+if not API_KEY:
+    print("❌ FEHLER: Kein API-Key gefunden!")
+    exit(1)
+
+API_VERSION = "3"
+
+birds = {
+    "Turdus merula": "Amsel",
+    "Parus major": "Kohlmeise",
+    "Erithacus rubecula": "Rotkehlchen",
+    "Fringilla coelebs": "Buchfink",
+    "Passer domesticus": "Haussperling"
+}
+
+async def download_file(session, url, filepath):
+    try:
+        async with session.get(url) as response:
+            if response.status == 200:
+                with open(filepath, 'wb') as f:
+                    while True:
+                        chunk = await response.content.read(4096)
+                        if not chunk: break
+                        f.write(chunk)
+                return True
+            return False
+    except Exception as e:
+        print(f"⚠️ Fehler: {e}")
+        return False
+
+async def process_bird(session, latin_name, german_name):
+    print(f"\n--- Suche nach: {german_name} ({latin_name}) ---")
+    
+    target_folder = os.path.join(DATA_DIR, german_name)
+    os.makedirs(target_folder, exist_ok=True)
+    
+    # Check existing files
+    existing = len([f for f in os.listdir(target_folder) if f.endswith('.mp3')])
+    if existing >= MAX_FILES:
+        print(f"✅ Genug Daten vorhanden ({existing}).")
+        return
+
+    # --- STRATEGIE ÄNDERUNG ---
+    # Wir entfernen "q:A" (Quality A).
+    # Das gibt uns alle Qualitäten (A, B, C, D, E).
+    # Die API sortiert standardmäßig nicht nach Qualität, das müssen wir beachten.
+    query = f'sp:"{latin_name}" cnt:germany len:10-60 type:song'
+    
+    api_url = f"https://xeno-canto.org/api/{API_VERSION}/recordings"
+    params = {'query': query, 'key': API_KEY}
+
+    try:
+        async with session.get(api_url, params=params) as response:
+            data = await response.json()
+            recordings = data.get('recordings', [])
+            print(f"-> {len(recordings)} Aufnahmen gefunden.")
+    except Exception as e:
+        print(f"❌ API Fehler: {e}")
+        return
+
+    # --- SORTIERUNG ---
+    # Wir sortieren die Liste manuell: 'q' ist die Qualität.
+    # A > B > C > D > E.
+    # Wir wollen erst die guten, dann die schlechten, bis MAX_FILES voll ist.
+    quality_order = {'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5, 'no score': 6}
+    
+    recordings.sort(key=lambda x: quality_order.get(x.get('q', 'no score'), 6))
+
+    count = existing
+    for rec in recordings:
+        if count >= MAX_FILES:
+            break
+            
+        file_url = rec.get('file')
+        # Wir speichern die Qualität im Dateinamen! 
+        # z.B. "XC12345_qA.mp3". Das hilft uns später beim Filtern, falls nötig.
+        quality = rec.get('q', 'N')
+        file_name = f"{rec.get('id')}_q{quality}.mp3"
+        file_path = os.path.join(target_folder, file_name)
+
+        if not os.path.exists(file_path):
+            if await download_file(session, file_url, file_path):
+                count += 1
+                if count % 10 == 0:
+                    print(f"   ... {count}/{MAX_FILES} (Qualität: {quality})")
+        else:
+            count += 1
+    
+    print(f"✅ {german_name}: {count} Dateien fertig.")
+
+async def main():
+    async with aiohttp.ClientSession() as session:
+        for latin, german in birds.items():
+            await process_bird(session, latin, german)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+</file>
+
+<file path="src/evaluate_pro.py">
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from torchvision import models
+from sklearn.metrics import classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+import argparse
+
+# Import your custom dataset
+from dataset import BirdRawDataset
+
+# --- Configuration ---
+RAW_DATA_DIR = "data/dataset" 
+MODEL_PATH = "data/models/bird_classifier_pro.pth"
+BATCH_SIZE = 32
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--split", choices=['train', 'test'], default='test', 
+                        help="Choose 'test' for validation data or 'train' for training data.")
+    args = parser.parse_args()
+
+    # 1. Setup Data
+    # We always use mode='test' here to disable random augmentation during evaluation
+    # This gives us a stable "clean" accuracy score.
+    target_dir = os.path.join(RAW_DATA_DIR, args.split)
+    
+    if not os.path.exists(target_dir):
+        print(f"Error: {target_dir} not found. Did you run split_data.py?")
+        return
+
+    print(f"Initializing {args.split.upper()} Dataset...")
+    dataset = BirdRawDataset(target_dir, mode='test')
+    
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4)
+    class_names = dataset.classes
+    print(f"Classes: {class_names}")
+
+    # 2. Load Model
+    print("Loading Pro Model...")
+    try:
+        weights = models.EfficientNet_B0_Weights.DEFAULT
+        model = models.efficientnet_b0(weights=weights)
+    except:
+        model = models.efficientnet_b0(weights=None)
+    
+    num_ftrs = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(num_ftrs, len(class_names))
+    
+    # Load Weights
+    try:
+        state_dict = torch.load(MODEL_PATH, map_location=device)
+        model.load_state_dict(state_dict)
+    except FileNotFoundError:
+        print(f"Error: Model not found at {MODEL_PATH}")
+        return
+
+    model.to(device)
+    model.eval()
+
+    # 3. Evaluation Loop
+    all_preds = []
+    all_labels = []
+
+    print(f"Evaluating on {len(dataset)} {args.split} files...")
+    with torch.no_grad():
+        for inputs, labels in loader:
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    # 4. Metrics & Report
+    print(f"\n--- Classification Report ({args.split.upper()} Data) ---")
+    print(classification_report(all_labels, all_preds, target_names=class_names))
+
+    # 5. Confusion Matrix
+    cm = confusion_matrix(all_labels, all_preds)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Greens',
+                xticklabels=class_names, yticklabels=class_names)
+    plt.ylabel('Actual')
+    plt.xlabel('Predicted')
+    plt.title(f'Confusion Matrix ({args.split.upper()})')
+    plt.tight_layout()
+    
+    save_path = f"data/models/confusion_matrix_pro_{args.split}.png"
+    plt.savefig(save_path)
+    print(f"Confusion Matrix saved to {save_path}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/predict.py">
+import argparse
+import torch
+import torch.nn as nn
+import numpy as np
+import librosa
+from torchvision import models, transforms
+from PIL import Image
+import torch.nn.functional as F
+import os
+
+# --- Configuration ---
+MODEL_PATH = "data/models/bird_classifier_efficientnet_advanced.pth"
+CLASSES = ['Amsel', 'Buchfink', 'Haussperling', 'Kohlmeise', 'Rotkehlchen'] # Alphabetical!
+SAMPLE_RATE = 32000
+CHUNK_DURATION = 5
+N_MELS = 128
+FMAX = 16000
+IMG_SIZE = 224
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def get_transforms():
+    return transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+
+def audio_to_images(audio_path):
+    y, sr = librosa.load(audio_path, sr=SAMPLE_RATE)
+    frame_length = int(CHUNK_DURATION * sr)
+    hop_length = int(frame_length) 
+    
+    if len(y) < frame_length:
+        y = np.pad(y, (0, frame_length - len(y)), mode='constant')
+
+    chunks = librosa.util.frame(y, frame_length=frame_length, hop_length=hop_length).T
+    
+    images = []
+    for chunk in chunks:
+        chunk = np.ascontiguousarray(chunk)
+        melspec = librosa.feature.melspectrogram(y=chunk, sr=sr, n_mels=N_MELS, fmax=FMAX)
+        log_melspec = librosa.power_to_db(melspec, ref=np.max)
+        
+        min_val, max_val = log_melspec.min(), log_melspec.max()
+        norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+        img_data = (np.flipud(norm) * 255).astype(np.uint8)
+        
+        img = Image.fromarray(img_data).convert("RGB")
+        images.append(img)
+        
+    return images
+
+def predict_file(audio_path):
+    print(f"Analyzing {os.path.basename(audio_path)}...")
+    
+    # Load EfficientNet Architecture
+    try:
+        model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
+    except:
+        model = models.efficientnet_b0(weights=None)
+        
+    model.classifier[1] = nn.Linear(model.classifier[1].in_features, len(CLASSES))
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.to(device)
+    model.eval()
+    
+    try:
+        pil_images = audio_to_images(audio_path)
+    except Exception as e:
+        print(f"Error: {e}")
+        return
+
+    transform = get_transforms()
+    batch = torch.stack([transform(img) for img in pil_images]).to(device)
+    
+    with torch.no_grad():
+        outputs = model(batch)
+        probs = F.softmax(outputs, dim=1)
+        
+    avg_probs = torch.mean(probs, dim=0).cpu().numpy()
+    best_idx = np.argmax(avg_probs)
+    
+    print(f"\nPrediction: {CLASSES[best_idx].upper()}")
+    print(f"Confidence: {avg_probs[best_idx]:.2%}")
+    print("-" * 20)
+    for i, cls in enumerate(CLASSES):
+        print(f"{cls}: {avg_probs[i]:.2%}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--file", required=True)
+    args = parser.parse_args()
+    predict_file(args.file)
+</file>
+
+<file path="src/train_pro.py">
+import os
+import time
+import copy
+import argparse
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from torchvision import models
+import matplotlib.pyplot as plt
+
+# Import our new Custom Dataset
+from dataset import BirdRawDataset
+
+# --- Configuration ---
+RAW_DATA_DIR = "data/dataset" # Contains 'train' and 'test' folders with MP3s
+MODEL_SAVE_PATH = "data/models"
+BATCH_SIZE = 32 # Might need to lower to 16 if "Out of Memory" occurs
+NUM_EPOCHS = 25
+LEARNING_RATE = 1e-3
+MIXUP_ALPHA = 0.4
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+# --- SpecAugment (Still useful even with Audio Augmentation) ---
+class SpecAugment(nn.Module):
+    def __init__(self, freq_mask_param=20, time_mask_param=30, num_masks=2):
+        super().__init__()
+        self.freq_mask_param = freq_mask_param
+        self.time_mask_param = time_mask_param
+        self.num_masks = num_masks
+
+    def forward(self, img_tensor):
+        # img_tensor is (Batch, C, H, W)
+        B, C, H, W = img_tensor.shape
+        
+        # Create a copy to avoid in-place modification errors
+        out = img_tensor.clone()
+        
+        for i in range(B):
+            # Frequency Masking
+            for _ in range(self.num_masks):
+                f = np.random.randint(0, self.freq_mask_param)
+                f0 = np.random.randint(0, H - f)
+                out[i, :, f0:f0+f, :] = 0.0
+
+            # Time Masking
+            for _ in range(self.num_masks):
+                t = np.random.randint(0, self.time_mask_param)
+                t0 = np.random.randint(0, W - t)
+                out[i, :, :, t0:t0+t] = 0.0
+        return out
+
+# --- MixUp Logic ---
+def mixup_data(x, y, alpha=1.0):
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1
+    batch_size = x.size(0)
+    index = torch.randperm(batch_size).to(device)
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+
+def train_model(model, dataloaders, dataset_sizes, criterion, optimizer, scheduler, spec_augmenter, num_epochs=25):
+    since = time.time()
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_acc = 0.0
+    history = {'train_loss': [], 'val_loss': [], 'val_acc': []}
+
+    for epoch in range(num_epochs):
+        print(f'Epoch {epoch+1}/{num_epochs}')
+        
+        for phase in ['train', 'test']:
+            if phase == 'train':
+                model.train()
+            else:
+                model.eval()
+
+            running_loss = 0.0
+            running_corrects = 0
+
+            # Iterate over data
+            for inputs, labels in dataloaders[phase]:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                optimizer.zero_grad()
+
+                with torch.set_grad_enabled(phase == 'train'):
+                    if phase == 'train':
+                        # 1. Apply SpecAugment (on GPU)
+                        inputs = spec_augmenter(inputs)
+                        
+                        # 2. Apply MixUp (50% chance)
+                        if np.random.random() > 0.5:
+                            inputs, targets_a, targets_b, lam = mixup_data(inputs, labels, MIXUP_ALPHA)
+                            inputs, targets_a, targets_b = map(torch.autograd.Variable, (inputs, targets_a, targets_b))
+                            outputs = model(inputs)
+                            loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
+                            _, preds = torch.max(outputs, 1)
+                        else:
+                            outputs = model(inputs)
+                            loss = criterion(outputs, labels)
+                            _, preds = torch.max(outputs, 1)
+                        
+                        loss.backward()
+                        optimizer.step()
+                        scheduler.step() # Step every batch for OneCycle/Cosine
+                    else:
+                        outputs = model(inputs)
+                        _, preds = torch.max(outputs, 1)
+                        loss = criterion(outputs, labels)
+
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels.data)
+
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_corrects.double() / dataset_sizes[phase]
+
+            print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+
+            if phase == 'train':
+                history['train_loss'].append(epoch_loss)
+            else:
+                history['val_loss'].append(epoch_loss)
+                history['val_acc'].append(epoch_acc.item())
+                if epoch_acc > best_acc:
+                    best_acc = epoch_acc
+                    best_model_wts = copy.deepcopy(model.state_dict())
+
+    time_elapsed = time.time() - since
+    print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
+    print(f'Best val Acc: {best_acc:4f}')
+    model.load_state_dict(best_model_wts)
+    return model, history
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--epochs", type=int, default=NUM_EPOCHS)
+    args = parser.parse_args()
+
+    os.makedirs(MODEL_SAVE_PATH, exist_ok=True)
+    
+    # 1. Datasets (Now using Raw Audio MP3s)
+    train_dir = os.path.join(RAW_DATA_DIR, "train")
+    test_dir = os.path.join(RAW_DATA_DIR, "test")
+    
+    if not os.path.exists(train_dir):
+        print(f"Error: Could not find {train_dir}. Did you run 'src/split_data.py'?")
+        return
+
+    train_dataset = BirdRawDataset(train_dir, mode='train')
+    test_dataset = BirdRawDataset(test_dir, mode='test')
+    
+    # 2. DataLoaders
+    # num_workers is crucial here because we process audio on the CPU
+    dataloaders = {
+        'train': DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True),
+        'test': DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
+    }
+    
+    dataset_sizes = {'train': len(train_dataset), 'test': len(test_dataset)}
+    class_names = train_dataset.classes
+    print(f"Classes: {class_names}")
+    print(f"Training on {len(train_dataset)} audio files. Validation on {len(test_dataset)} files.")
+
+    # 3. Model Setup (Robust Load)
+    #print("Loading EfficientNet-B0...")
+#try:
+    #    weights = models.EfficientNet_B0_Weights.DEFAULT
+    #    model = models.efficientnet_b0(weights=weights)
+    #except:
+    #    model = models.efficientnet_b0(weights=None)
+    #fine tuning 
+
+    print("Loading previous Pro Model for Fine-Tuning...")
+    model = models.efficientnet_b0(weights=None)
+    # Setup head to match
+    num_ftrs = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(num_ftrs, len(class_names))
+    # Load your 96% weights
+    model.load_state_dict(torch.load("data/models/bird_classifier_pro.pth"))
+    model = model.to(device)
+
+    num_ftrs = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(num_ftrs, len(class_names))
+    model = model.to(device)
+
+    # 4. Training Components
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    
+    # OneCycleLR is often better for "Super Convergence" with heavy augmentation
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=LEARNING_RATE, 
+                                              steps_per_epoch=len(dataloaders['train']), 
+                                              epochs=args.epochs)
+    
+    spec_augmenter = SpecAugment().to(device)
+
+    # 5. Run Training
+    model, history = train_model(model, dataloaders, dataset_sizes, criterion, optimizer, scheduler, spec_augmenter, num_epochs=args.epochs)
+
+    # 6. Save
+    save_path = os.path.join(MODEL_SAVE_PATH, "bird_classifier_pro.pth")
+    torch.save(model.state_dict(), save_path)
+    print(f"Pro Model saved to {save_path}")
+
+    plt.figure()
+    plt.plot(history['train_loss'], label='Train Loss')
+    plt.plot(history['val_loss'], label='Val Loss')
+    plt.title('Pro Training Loss (Audio Augment + MixUp)')
+    plt.savefig(os.path.join(MODEL_SAVE_PATH, 'loss_curve_pro.png'))
+
+if __name__ == "__main__":
+    main()
 </file>
 
 <file path="docker-compose.yml">
