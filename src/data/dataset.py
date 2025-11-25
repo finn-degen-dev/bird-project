@@ -16,7 +16,7 @@ class SmartBirdDataset(Dataset):
     def __init__(self, mode='train', filter_sex=None, filter_type=None, task='species', min_samples=10):
         """
         Args:
-            mode (str): 'train' (Random Crop) or 'test' (Center Crop).
+            mode (str): 'train' (Random Crop), 'test' (Center Crop), or 'full' (No Crop, return all).
             filter_sex (str): 'male', 'female', or None.
             filter_type (str): 'song', 'call', or None.
             task (str): 'species' (Label = Bird Name) or 'type' (Label = Song/Call).
@@ -49,7 +49,6 @@ class SmartBirdDataset(Dataset):
             df = df[df['species'].isin(valid_species)]
 
         # 5. IMPORTANT: Only keep rows where the .pt file actually exists
-        # This automatically filters out files that failed preprocessing
         df['pt_exists'] = df['filename'].apply(
             lambda x: os.path.exists(os.path.join(PROCESSED_DIR, x.replace('.mp3', '.pt')))
         )
@@ -70,6 +69,13 @@ class SmartBirdDataset(Dataset):
 
     def __len__(self):
         return len(self.df)
+    
+    def get_all_labels(self):
+        """Returns a list of all labels for creating WeightedRandomSampler"""
+        labels = []
+        for _, row in self.df.iterrows():
+            labels.append(self._get_label(row))
+        return labels
 
     def _get_label(self, row):
         if self.task == 'species':
@@ -80,9 +86,6 @@ class SmartBirdDataset(Dataset):
             return self.class_to_idx[label_str]
 
     def __getitem__(self, idx):
-        # --- ROBUST LOADING LOOP ---
-        # If a file is corrupt, we try up to 3 times to pick a replacement
-        # so training doesn't crash.
         attempt = 0
         while attempt < 3:
             try:
@@ -90,33 +93,35 @@ class SmartBirdDataset(Dataset):
                 pt_filename = row['filename'].replace('.mp3', '.pt')
                 pt_path = os.path.join(PROCESSED_DIR, pt_filename)
                 
-                # 1. Load Tensor (Super Fast)
-                # Shape is typically (128, Time)
-                # We convert to float32 immediately for PyTorch operations
+                # 1. Load Tensor
                 spec = torch.load(pt_path).float() 
 
-                # 2. Random Crop (in Time dimension)
-                # We want exactly 5 seconds.
-                # 5s * 32000sr / 512 hop_length ≈ 313 frames
-                target_width = 313 
+                # 2. Crop Logic
+                if self.mode == 'full':
+                    # Return the WHOLE spectrogram (variable length)
+                    # Note: Cannot use batch_size > 1 with this mode without custom collate
+                    tensor = spec.unsqueeze(0).repeat(3, 1, 1) # (3, 128, Time)
+                    return tensor, self._get_label(row)
+
+                # Standard Fixed Width Logic
+                target_width = 313 # approx 5 seconds
                 current_width = spec.shape[1]
 
                 if current_width > target_width:
                     if self.mode == 'train':
                         start = np.random.randint(0, current_width - target_width)
                     else:
+                        # Center Crop
                         start = (current_width - target_width) // 2
                     spec = spec[:, start : start + target_width]
                 elif current_width < target_width:
-                    # Padding if too short
                     pad_amount = target_width - current_width
                     spec = torch.nn.functional.pad(spec, (0, pad_amount))
 
-                # 3. Prepare for EfficientNet (3 Channels, Resize)
-                # (1, 128, 313) -> (3, 128, 313)
+                # 3. Prepare for EfficientNet
                 tensor = spec.unsqueeze(0).repeat(3, 1, 1) 
                 
-                # Resize to 224x224
+                # Resize to 224x224 (Standard ImageNet size)
                 tensor = torch.nn.functional.interpolate(
                     tensor.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False
                 ).squeeze(0)
@@ -124,13 +129,8 @@ class SmartBirdDataset(Dataset):
                 return tensor, self._get_label(row)
 
             except Exception as e:
-                # If we are here, the file is likely corrupt
                 print(f"⚠️ Warning: Corrupt file {pt_filename}. Skipping. Error: {e}")
-                # Pick a random new index and try again
                 idx = np.random.randint(0, len(self.df))
                 attempt += 1
         
-        # Fallback if 3 attempts fail (avoids crash, returns empty batch)
-        # EfficientNet expects (3, 224, 224)
-        print("❌ Critical: Failed to load 3 consecutive files. Returning zeros.")
         return torch.zeros((3, 224, 224)), 0
