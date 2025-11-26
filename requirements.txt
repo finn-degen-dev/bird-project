@@ -5,6 +5,8 @@
 numpy<2.0
 pandas
 scikit-learn
+pytorch-metric-learning
+umap-learn
 
 # Audio Verarbeitung
 librosa
