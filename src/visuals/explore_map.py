@@ -36,7 +36,7 @@ def main():
     # 2. Extract Embeddings
     loader = DataLoader(subset_ds, batch_size=32, shuffle=False)
     model = BirdEmbedder(embedding_size=512, pretrained=False)
-    model.load_state_dict(torch.load("data/models/bird_embedder.pth"))
+    model.load_state_dict(torch.load("data/models/bird_embedder_sota.pth"))
     model.to(DEVICE).eval()
     
     print("   Extracting vectors...")

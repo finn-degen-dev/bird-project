@@ -41,7 +41,7 @@ def main():
     
     # 1. Load Model
     model = BirdEmbedder(embedding_size=512, pretrained=False)
-    model.load_state_dict(torch.load("data/models/bird_embedder.pth"))
+    model.load_state_dict(torch.load("data/models/bird_embedder_sota.pth"))
     model.to(DEVICE).eval()
 
     # 2. Build Memory (Training Data)
