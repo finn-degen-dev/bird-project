@@ -16,10 +16,10 @@ import config
 
 # --- SOTA CONFIG ---
 EMBEDDING_SIZE = 512
-EPOCHS = 35
+EPOCHS = 100
 BATCH_SIZE = 32
 LR = 0.0005
-SUB_CENTERS = 3  # K=3: Allows 3 distinct "types" of sounds per bird (Song, Call, Noise)
+SUB_CENTERS = 1  # K=1: Standard ArcFace (One center per class) - tighter clusters
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def get_balanced_sampler(dataset, indices):
@@ -32,7 +32,7 @@ def get_balanced_sampler(dataset, indices):
     return WeightedRandomSampler(sample_weights, len(sample_weights))
 
 def main():
-    print("🚀 STARTING SOTA TRAINING (SUB-CENTER ARCFACE)...")
+    print("🚀 STARTING SOTA TRAINING (ARCFACE)...")
     print(f"   Config: {SUB_CENTERS} Sub-Centers per Class")
     
     # 1. Data Setup (Same as before)
@@ -46,8 +46,8 @@ def main():
     # 2. Model
     model = BirdEmbedder(embedding_size=EMBEDDING_SIZE).to(DEVICE)
     
-    # 3. THE MAGIC: Sub-Center ArcFace Loss
-    # Instead of 1 center per class, we have 'k' centers.
+    # 3. THE MAGIC: ArcFace Loss
+    # With K=1, this is standard ArcFace.
     loss_func = losses.SubCenterArcFaceLoss(
         num_classes=len(ds.classes), 
         embedding_size=EMBEDDING_SIZE, 
@@ -98,8 +98,8 @@ def main():
         scheduler.step()
         
         # Save checkpoints
-        os.makedirs("data/models", exist_ok=True)
-        torch.save(model.state_dict(), "data/models/bird_embedder_sota.pth")
+        os.makedirs("models", exist_ok=True)
+        torch.save(model.state_dict(), "models/bird_embedder.pth")
 
 if __name__ == "__main__":
     main()

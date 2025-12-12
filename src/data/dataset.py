@@ -118,6 +118,29 @@ class SmartBirdDataset(Dataset):
                     pad_amount = target_width - current_width
                     spec = torch.nn.functional.pad(spec, (0, pad_amount))
 
+                # --- AUGMENTATION (Train Only) ---
+                if self.mode == 'train':
+                    # 1. Frequency Masking
+                    # Mask 1-2 bands of up to 30 bins
+                    num_masks = np.random.randint(1, 3)
+                    for _ in range(num_masks):
+                        f_width = np.random.randint(1, 30)
+                        f_start = np.random.randint(0, spec.shape[0] - f_width)
+                        spec[f_start : f_start + f_width, :] = 0
+
+                    # 2. Time Masking
+                    # Mask 1-2 blocks of up to 40 frames
+                    num_masks = np.random.randint(1, 3)
+                    for _ in range(num_masks):
+                        t_width = np.random.randint(1, 40)
+                        t_start = np.random.randint(0, spec.shape[1] - t_width)
+                        spec[:, t_start : t_start + t_width] = 0
+                    
+                    # 3. Gaussian Noise
+                    if np.random.rand() < 0.5:
+                        noise = torch.randn_like(spec) * 0.05 * spec.mean()
+                        spec = spec + noise
+
                 # 3. Prepare for EfficientNet
                 tensor = spec.unsqueeze(0).repeat(3, 1, 1) 
                 
