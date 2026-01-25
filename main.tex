@@ -71,7 +71,7 @@ Wir haben uns intensiv damit beschäftigt, wie man diese Bilder am besten aufber
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.85\textwidth]{src/visuals/comparison_linear_vs_mel.png}
+    \includegraphics[width=0.85\textwidth]{Pictures/comparison_linear_vs_mel.png}
     \caption{Vergleich der Darstellung: Das Mel-Spektrogramm (unten) löst die für Vögel relevanten Frequenzbereiche deutlich besser auf als die lineare Darstellung (oben).}
     \label{fig:mel_vs_lin}
 \end{figure}
@@ -81,7 +81,7 @@ Es ist faszinierend zu sehen, wie unterschiedlich die Arten auch visuell sind. E
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=1.0\textwidth]{src/visuals/comparison_species.png}
+    \includegraphics[width=1.0\textwidth]{Pictures/comparison_species.png}
     \caption{Exemplarische Spektrogramme von fünf Arten aus unserem umfangreichen Europa-Datensatz. Die visuellen Strukturen sind deutlich unterscheidbar, was dem CNN die Klassifikation ermöglicht.}
     \label{fig:species_comp}
 \end{figure}
@@ -126,7 +126,7 @@ Wir haben den Trainingsverlauf genau überwacht. In Abbildung \ref{fig:loss_curv
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.7\textwidth]{src/visuals/loss_curve_15epoch_resnet18pre.png}
+    \includegraphics[width=0.7\textwidth]{Pictures/loss_curve_15epoch_resnet18pre.png}
     \caption{Trainingsverlauf: Auch mit dem großen Datensatz sinken Training- und Validation-Loss parallel, was ein gutes Zeichen gegen Overfitting ist.}
     \label{fig:loss_curve}
 \end{figure}
@@ -139,28 +139,48 @@ Zum Vergleich haben wir ein Modell komplett von Null trainiert („From Scratch�
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.7\textwidth]{src/visuals/comparison_model_performance.png}
+    \includegraphics[width=0.7\textwidth]{Pictures/comparison_model_performance.png}
     \caption{Der Vergleich zeigt deutlich: Das Transfer-Learning-Modell (rechts) ist nicht nur präziser, sondern generalisiert auch besser auf neue Daten, selbst bei vielen Klassen.}
     \label{fig:modelcomp}
 \end{figure}
 
-\subsection{Fehleranalyse}
-Natürlich ist keine KI perfekt. Wir haben uns die Fehler genau angeschaut. Die Konfusionsmatrix in Abbildung \ref{fig:conf_matrix} zeigt exemplarisch einen Ausschnitt der Ergebnisse. Die Diagonale ist dunkelblau, was super ist. Das heißt, meistens liegt das Modell richtig. Verwechslungen treten vor allem bei sehr kurzen Rufen von verwandten Arten auf (z.B. verschiedene Finken-Arten). Das ist aber auch für menschliche Experten oft schwer zu unterscheided und außerdem war die richtige Art dann oft in den Top-3 die das Model ausgegeben hat.
+Ein wichtiger Faktor für die Genauigkeit ist die verfügbare Datenmenge pro Vogelart. Abbildung \ref{fig:bubble} zeigt, dass Arten mit vielen Trainingsbeispielen ("Common") tendenziell besser erkannt werden.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.6\textwidth]{src/visuals/confusion_matrix_finetuned_pro.png}
+    \includegraphics[width=0.8\textwidth]{Pictures/scatter_data_vs_acc_bubble.png}
+    \caption{Einfluss der Datenmenge auf die Genauigkeit. Die Größe der Blasen repräsentiert die Anzahl der Trainingsdaten. Es zeigt sich, dass Arten mit sehr wenigen Daten ("Rare") oft schlechter erkannt werden, während "Common"-Arten (grün) eine hohe Genauigkeit aufweisen.}
+    \label{fig:bubble}
+\end{figure}
+
+
+\subsection{Fehleranalyse}
+Natürlich ist keine KI perfekt. Wir haben uns die Fehler genau angeschaut. Die Konfusionsmatrix in Abbildung \ref{fig:conf_matrix} zeigt exemplarisch einen Ausschnitt der Ergebnisse. Die Diagonale ist dunkelblau, was super ist. Das heißt, meistens liegt das Modell richtig. Verwechslungen treten vor allem bei sehr kurzen Rufen von verwandten Arten auf (z.B. verschiedene Finken-Arten). Das ist aber auch für menschliche Experten oft schwer zu unterscheiden und außerdem war die richtige Art dann oft in den Top-3 die das Model ausgegeben hat.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{Pictures/confusion_matrix_finetuned_pro.png}
     \caption{Konfusionsmatrix des finalen Modells (Ausschnitt). Die starke Diagonale bestätigt die hohe Präzision auch bei vielen Klassen.}
     \label{fig:conf_matrix}
+\end{figure}
+
+In Abbildung \ref{fig:top_errors} haben wir die häufigsten Fehlklassifikationen genauer aufgeschlüsselt.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Pictures/top_errors.png}
+    \caption{Die häufigsten Verwechslungen. Balken zeigen an, welche Art fälschlicherweise als welche andere Art klassifiziert wurde.}
+    \label{fig:top_errors}
 \end{figure}
 
 %TODO: change image
 \subsection{Robustheit gegen schlechte Audioqualität}
 Ein wichtiger Punkt war uns die Frage, wie das Modell reagiert, wenn die Aufnahmequalität sinkt. Auf Xeno-Canto sind die Aufnahmen mit Buchstaben von A (Studio) bis E (Müll) bewertet.
-In Abbildung \ref{fig:quality} sehen wir, dass die Erkennungsrate bei A-C ungefähr gleichbleibt, unser Modell ist also relativ unabhängig von Audioqualität
+In Abbildung \ref{fig:quality} sehen wir, dass die Erkennungsrate bei A-C ungefähr gleichbleibt, unser Modell ist also relativ unabhängig von Audioqualität.
+
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.7\textwidth]{src/visuals/performance_by_quality.png}
+    \includegraphics[width=0.7\textwidth]{Pictures/performance_by_quality.png}
     \caption{Performance nach Audioqualität. Selbst bei schlechten Aufnahmen (D/E) bleibt das Modell brauchbar.}
     \label{fig:quality}
 \end{figure}
@@ -177,9 +197,26 @@ In Abbildung \ref{fig:sliding} haben wir das visualisiert. Man sieht unten das S
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=1.0\textwidth]{src/visuals/sliding_window_attention_2.5.png}
+    \includegraphics[width=1.0\textwidth]{Pictures/sliding_window_attention_2.5.png}
     \caption{Visualisierung der KI-Aufmerksamkeit. Die farbigen Bereiche markieren, wo das Modell relevante Merkmale im Audio-Stream gefunden hat.}
     \label{fig:sliding}
+\end{figure}
+
+\subsection{Zusatzexperimente: Rufe vs. Gesänge und Geschlecht}
+Neben der Artenerkennung haben wir untersucht, ob das Modell auch den Typ der Lautäußerung (Gesang oder Ruf) unterscheiden kann. Die t-SNE Visualisierung der Embeddings (Abb. \ref{fig:tsne}) zeigt, dass das Modell diese Unterscheidung intern bereits lernt.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Pictures/tsne_song_call.png}
+    \caption{t-SNE Visualisierung der Modell-Embeddings. Rufe (Call) und Gesänge (Song) bilden teils eigene Cluster, auch ohne explizites Training darauf.}
+    \label{fig:tsne}
+\end{figure}
+
+Zusätzlich haben wir getestet, ob ein auf Männchen-Daten gefiltertes Training bessere Ergebnisse liefert, da diese häufiger singen. Wie in Abbildung \ref{fig:gender} zu sehen, brachte die Einschränkung der Daten jedoch keinen signifikanten Vorteil gegenüber dem kompletten Datensatz.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Pictures/experiment_gender_result.png}
+    \caption{Vergleich der Trainingsgenauigkeit: Das Filtern nach Geschlecht (Male Only) bringt keinen Vorteil gegenüber dem Nutzen aller Daten.}
+    \label{fig:gender}
 \end{figure}
 
 \section{Hardware-Design}
