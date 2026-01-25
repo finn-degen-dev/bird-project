@@ -96,7 +96,7 @@ Wichtig war uns dabei die Vermeidung von „Müll rein, Müll raus“. Viele Auf
 Unsere Pipeline verarbeitet die Daten \textit{on-the-fly}:
 \begin{itemize}
     \item Resampling auf 32kHz (mehr brauchen wir für Vögel nicht).
-    \item Zerschneiden in 5-Sekunden-Häppchen.
+    \item Zerschneiden in 5-Sekunden-Stücke.
     \item Umwandlung in Mel-Spektrogramme (128 Bänder).
     \item Logarithmierung (dB) und Normalisierung auf Werte zwischen 0 und 1.
 \end{itemize}
@@ -127,7 +127,7 @@ Wir haben den Trainingsverlauf genau überwacht. In Abbildung \ref{fig:loss_curv
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.7\textwidth]{Pictures/loss_curve_15epoch_resnet18pre.png}
-    \caption{Trainingsverlauf: Auch mit dem großen Datensatz sinken Training- und Validation-Loss parallel, was ein gutes Zeichen gegen Overfitting ist.}
+    \caption{Erste 15 Eopchen vom Trainingsverlauf: Normalerweise ist es ein Anzeichen von Overfitting wenn Val Loss deutlich höher also Train Loss ist, aber bei uns ist der Grund hierfür, dass wir Noise hinzufügen und diese hier sichtbar wird.}
     \label{fig:loss_curve}
 \end{figure}
 
@@ -144,12 +144,12 @@ Zum Vergleich haben wir ein Modell komplett von Null trainiert („From Scratch�
     \label{fig:modelcomp}
 \end{figure}
 
-Ein wichtiger Faktor für die Genauigkeit ist die verfügbare Datenmenge pro Vogelart. Abbildung \ref{fig:bubble} zeigt, dass Arten mit vielen Trainingsbeispielen ("Common") tendenziell besser erkannt werden.
+Ein wichtiger Faktor für die Genauigkeit ist die verfügbare Datenmenge pro Vogelart. Abbildung \ref{fig:bubble} zeigt, dass unsere Methode, seltene Vögel öfter dranzunehmen ihr Ziel erreicht hat, und unsere KI auch Vögel die nur wenig in den Daten vertreten sind gut erkennt. 
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.8\textwidth]{Pictures/scatter_data_vs_acc_bubble.png}
-    \caption{Einfluss der Datenmenge auf die Genauigkeit. Die Größe der Blasen repräsentiert die Anzahl der Trainingsdaten. Es zeigt sich, dass Arten mit sehr wenigen Daten ("Rare") oft schlechter erkannt werden, während "Common"-Arten (grün) eine hohe Genauigkeit aufweisen.}
+    \caption{Einfluss der Datenmenge auf die Genauigkeit. Die Größe der Blasen repräsentiert die Anzahl der Trainingsdaten.}
     \label{fig:bubble}
 \end{figure}
 
