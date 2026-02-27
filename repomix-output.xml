@@ -66,7 +66,6 @@ Pictures/
   tsne_song_call.png
 src/
   experiments/
-    attention_test.py
     gradcam.py
     song_vs_call.py
   config.py
@@ -84,13 +83,67 @@ flake.nix
 Förderantrag.pdf
 main.tex
 requirements.txt
+USAGE.txt
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/experiments/attention_test.py">
+<file path="USAGE.txt">
+1. Daten Vorbereiten (src/data_prep.py)
+Dieses Skript liest die Einstellungen aus src/config.py, lädt Daten von Xeno-Canto herunter und wandelt sie in schnelle .pt Tensoren um.
 
+Befehl: python src/data_prep.py
+
+wenn parameter ändern -> metadata.csv ändern
+
+2. Modelle Trainieren (src/train.py)
+Hier trainierst du verschiedene Architekturen. Die Modelle speichern sich automatisch in data/models/.
+
+Verfügbare Argumente:
+--model (Pflicht): Wähle aus custom, resnet, efficientnet, embedding.
+--epochs: Anzahl der Durchläufe (Standard: 15).
+--task: Wähle species (Arten erkennen) oder type (Ruf vs. Gesang) (Standard: species).
+--use-attention: Aktiviert unseren selbstgebauten Squeeze-and-Excitation Layer im CustomCNN.
+--cnn-layers: Definiert die Tiefe des CustomCNNs (Standard: 3).
+
+Beispiele:
+1. Standard EfficientNet Trainieren: 
+   python src/train.py --model efficientnet --epochs 20
+2. CustomCNN mit Attention und 4 Schichten testen: 
+   python src/train.py --model custom --use-attention --cnn-layers 4
+3. Ruf vs. Gesang Klassifikation für das T-SNE Experiment:
+   python src/train.py --model efficientnet --task type
+
+
+
+3. Modelle Evaluieren (src/evaluate.py)
+Erstellt die Confusion-Matrix und berechnet die finale Accuracy auf dem Testdatensatz. Die Bilder landen in visuals/experiments/.
+
+Beispiel:
+python src/evaluate.py --model efficientnet
+
+
+
+4. Showcase & Live-Radar (src/showcase.py)
+Dieses Skript ist für die Präsentation gedacht. Es nutzt den Sliding-Window-Ansatz.
+
+Modus 1: Eine Datei scannen (Generiert einen fertigen Zeitachsen-Plot)
+python src/showcase.py --model efficientnet --file data/raw_audio/wald.mp3 --threshold 0.70
+
+Modus 2: Live-Mikrofon Radar (Jury-Highlight!)
+Öffnet das Mikrofon und zeichnet einen live updatenden Graphen.
+python src/showcase.py --model efficientnet --live --threshold 0.60
+
+(Die --threshold bestimmt, ab wie viel % Sicherheit die KI ausschlägt. Erhöhe den Wert bei sehr lauten Messen, senke ihn in leisen Umgebungen).
+
+
+
+5. Pi-Deployment (src/quantize.py)
+Wandelt das schwergewichtige PyTorch-Modell in einen leichtgewichtigen ONNX-Graphen für den Raspberry Pi Zero um.
+
+Befehl:
+python src/quantize.py --model efficientnet
 </file>
 
 <file path="src/experiments/gradcam.py">
@@ -173,6 +226,74 @@ if __name__ == "__main__":
     main()
 </file>
 
+<file path="src/showcase.py">
+
+</file>
+
+<file path="src/experiments/song_vs_call.py">
+import sys
+import os
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.manifold import TSNE
+from torch.utils.data import DataLoader, Subset
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import *
+from models import get_model
+from data import SmartBirdDataset
+
+def main():
+    print(" T-SNE Visualisierung: Rufe vs. Gesänge...")
+
+    exp_name = "efficientnet_task-type_attn-False_layers-3"
+    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+
+    if not os.path.exists(model_path):
+        print(f" Bitte zuerst das Modell trainieren: python src/train.py --model efficientnet --task type")
+        return
+
+    ds = SmartBirdDataset(mode='test', task='type')
+    indices = np.random.choice(len(ds), min(1000, len(ds)), replace=False)
+    loader = DataLoader(Subset(ds, indices), batch_size=32, shuffle=False)
+
+    model = get_model("efficientnet", 2).to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+
+    features =[]
+    def hook(module, input, output):
+        features.append(input[0].cpu().numpy())
+    handle = model.classifier[1].register_forward_hook(hook)
+
+    labels_list =[]
+    with torch.no_grad():
+        for inputs, labels in loader:
+            _ = model(inputs.to(DEVICE))
+            labels_list.extend(labels.numpy())
+
+    handle.remove()
+    embeddings = np.concatenate(features)
+
+    print("Berechne T-SNE...")
+    tsne = TSNE(n_components=2, random_state=42)
+    features_2d = tsne.fit_transform(embeddings)
+
+    plt.figure(figsize=(10, 8))
+    class_names = [ds.classes[i] for i in labels_list]
+    sns.scatterplot(x=features_2d[:, 0], y=features_2d[:, 1], hue=class_names, palette={'song': '#1f77b4', 'call': '#ff7f0e'}, s=60)
+    plt.title("Internes KI-Verständnis: Ruf vs. Gesang")
+
+    out_path = os.path.join(VISUALS_DIR, "tsne_song_vs_call.png")
+    plt.savefig(out_path, dpi=300)
+    print(f" Gespeichert unter {out_path}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
 <file path="src/data_prep.py">
 import pandas as pd
 import requests
@@ -211,31 +332,31 @@ def step1_get_metadata():
 
     params_species = {'query': XC_SPECIES_LOCATION, 'key': API_KEY, 'per_page': 500}
     try:
-        num_pages_ger = requests.get(url, params=params_ger).json()['numPages']
+        num_pages = requests.get(url, params=params_species).json()['numPages']
     except Exception as e:
         print(f" API Error bei Xeno-Canto (Schritt 1): {e}")
         return None
 
     target_species = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_ger.copy(), p) for p in range(1, num_pages_ger + 1)]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_ger, desc="Scanne Arten"):
+        futures =[executor.submit(fetch_page, url, params_species.copy(), p) for p in range(1, num_pages_ger + 1)]
+        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages, desc="Scanne Arten"):
             for rec in future.result():
                 target_species.add(rec['en'])
 
     query_str = f'{XC_RECORDING_LOCATION} grp:birds len:{XC_MIN_LENGTH}-{XC_MAX_LENGTH}'
-    params_eu = {'query': query_str, 'key': API_KEY, 'per_page': 500}
+    params_rec = {'query': query_str, 'key': API_KEY, 'per_page': 500}
 
     try:
-        num_pages_eu = requests.get(url, params=params_eu).json()['numPages']
+        num_pages_rec = requests.get(url, params=params_rec).json()['numPages']
     except Exception as e:
         print(f" API Error bei Xeno-Canto (Schritt 2): {e}")
         return None
 
     valid_recordings =[]
     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_eu.copy(), p) for p in range(1, num_pages_eu + 1)]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_eu, desc="Lade Datensätze"):
+        futures =[executor.submit(fetch_page, url, params_rec.copy(), p) for p in range(1, num_pages_eu + 1)]
+        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_rec, desc="Lade Datensätze"):
             for rec in future.result():
 
                 if rec['en'] in target_species and rec.get('q') in XC_QUALITIES:
@@ -332,74 +453,6 @@ def main():
         step2_download_audio(df)
         step3_preprocess_tensors(df)
     print("\n Datenpipeline abgeschlossen. Du kannst jetzt das Training starten!")
-
-if __name__ == "__main__":
-    main()
-</file>
-
-<file path="src/showcase.py">
-
-</file>
-
-<file path="src/experiments/song_vs_call.py">
-import sys
-import os
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.manifold import TSNE
-from torch.utils.data import DataLoader, Subset
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import *
-from models import get_model
-from data import SmartBirdDataset
-
-def main():
-    print(" T-SNE Visualisierung: Rufe vs. Gesänge...")
-
-    exp_name = "efficientnet_task-type_attn-False_layers-3"
-    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
-
-    if not os.path.exists(model_path):
-        print(f" Bitte zuerst das Modell trainieren: python src/train.py --model efficientnet --task type")
-        return
-
-    ds = SmartBirdDataset(mode='test', task='type')
-    indices = np.random.choice(len(ds), min(1000, len(ds)), replace=False)
-    loader = DataLoader(Subset(ds, indices), batch_size=32, shuffle=False)
-
-    model = get_model("efficientnet", 2).to(DEVICE)
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-    model.eval()
-
-    features =[]
-    def hook(module, input, output):
-        features.append(input[0].cpu().numpy())
-    handle = model.classifier[1].register_forward_hook(hook)
-
-    labels_list =[]
-    with torch.no_grad():
-        for inputs, labels in loader:
-            _ = model(inputs.to(DEVICE))
-            labels_list.extend(labels.numpy())
-
-    handle.remove()
-    embeddings = np.concatenate(features)
-
-    print("Berechne T-SNE...")
-    tsne = TSNE(n_components=2, random_state=42)
-    features_2d = tsne.fit_transform(embeddings)
-
-    plt.figure(figsize=(10, 8))
-    class_names = [ds.classes[i] for i in labels_list]
-    sns.scatterplot(x=features_2d[:, 0], y=features_2d[:, 1], hue=class_names, palette={'song': '#1f77b4', 'call': '#ff7f0e'}, s=60)
-    plt.title("Internes KI-Verständnis: Ruf vs. Gesang")
-
-    out_path = os.path.join(VISUALS_DIR, "tsne_song_vs_call.png")
-    plt.savefig(out_path, dpi=300)
-    print(f" Gespeichert unter {out_path}")
 
 if __name__ == "__main__":
     main()
@@ -1142,11 +1195,12 @@ clean_code.py
           ffmpeg
           cudaPackages.cudatoolkit
           cudaPackages.cudnn
-          xorg.libX11
-          xorg.libXext
-          xorg.libSM
-          xorg.libICE
-          xorg.libXrender
+          libX11
+          libXext
+          libSM
+          libICE
+          libXrender
+	  portaudio
         ];
 
         tex = pkgs.texlive.combine {
@@ -1203,6 +1257,7 @@ onnxruntime               # Für lokale Inferenz-Tests
 librosa
 soundfile
 audiomentations
+sounddevice
 
 # Visualisierung
 matplotlib
@@ -1283,9 +1338,18 @@ def main():
         json.dump({'classes': full_ds.classes}, f)
 
     train_size = int(0.9 * len(full_ds))
-    train_ds, val_ds = random_split(full_ds,[train_size, len(full_ds) - train_size])
+    train_ds, val_ds = random_split(full_ds, [train_size, len(full_ds) - train_size])
 
-    sampler = get_balanced_sampler(train_ds.dataset)
+    from collections import Counter
+    import numpy as np
+    from torch.utils.data import WeightedRandomSampler
+
+    train_labels = [full_ds.get_all_labels()[i] for i in train_ds.indices]
+    counts = Counter(train_labels)
+    weights = {cls: 1.0 / np.sqrt(c) for cls, c in counts.items()}
+    sample_weights = torch.tensor([weights[l] for l in train_labels])
+
+    sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=4, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 

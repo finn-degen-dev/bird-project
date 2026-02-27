@@ -42,7 +42,7 @@ def step1_get_metadata():
 
     target_species = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_species.copy(), p) for p in range(1, num_pages_ger + 1)]
+        futures =[executor.submit(fetch_page, url, params_species.copy(), p) for p in range(1, num_pages + 1)]
         for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages, desc="Scanne Arten"):
             for rec in future.result():
                 target_species.add(rec['en'])
@@ -58,7 +58,7 @@ def step1_get_metadata():
 
     valid_recordings =[]
     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_rec.copy(), p) for p in range(1, num_pages_eu + 1)]
+        futures =[executor.submit(fetch_page, url, params_rec.copy(), p) for p in range(1, num_pages_rec + 1)]
         for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_rec, desc="Lade Datensätze"):
             for rec in future.result():
 
