@@ -1,0 +1,54 @@
+1. Daten Vorbereiten (src/data_prep.py)
+Dieses Skript liest die Einstellungen aus src/config.py, lädt Daten von Xeno-Canto herunter und wandelt sie in schnelle .pt Tensoren um.
+
+Befehl: python src/data_prep.py
+
+wenn parameter ändern -> metadata.csv ändern
+
+2. Modelle Trainieren (src/train.py)
+Hier trainierst du verschiedene Architekturen. Die Modelle speichern sich automatisch in data/models/.
+
+Verfügbare Argumente:
+--model (Pflicht): Wähle aus custom, resnet, efficientnet, embedding.
+--epochs: Anzahl der Durchläufe (Standard: 15).
+--task: Wähle species (Arten erkennen) oder type (Ruf vs. Gesang) (Standard: species).
+--use-attention: Aktiviert unseren selbstgebauten Squeeze-and-Excitation Layer im CustomCNN.
+--cnn-layers: Definiert die Tiefe des CustomCNNs (Standard: 3).
+
+Beispiele:
+1. Standard EfficientNet Trainieren: 
+   python src/train.py --model efficientnet --epochs 20
+2. CustomCNN mit Attention und 4 Schichten testen: 
+   python src/train.py --model custom --use-attention --cnn-layers 4
+3. Ruf vs. Gesang Klassifikation für das T-SNE Experiment:
+   python src/train.py --model efficientnet --task type
+
+
+
+3. Modelle Evaluieren (src/evaluate.py)
+Erstellt die Confusion-Matrix und berechnet die finale Accuracy auf dem Testdatensatz. Die Bilder landen in visuals/experiments/.
+
+Beispiel:
+python src/evaluate.py --model efficientnet
+
+
+
+4. Showcase & Live-Radar (src/showcase.py)
+Dieses Skript ist für die Präsentation gedacht. Es nutzt den Sliding-Window-Ansatz.
+
+Modus 1: Eine Datei scannen (Generiert einen fertigen Zeitachsen-Plot)
+python src/showcase.py --model efficientnet --file data/raw_audio/wald.mp3 --threshold 0.70
+
+Modus 2: Live-Mikrofon Radar (Jury-Highlight!)
+Öffnet das Mikrofon und zeichnet einen live updatenden Graphen.
+python src/showcase.py --model efficientnet --live --threshold 0.60
+
+(Die --threshold bestimmt, ab wie viel % Sicherheit die KI ausschlägt. Erhöhe den Wert bei sehr lauten Messen, senke ihn in leisen Umgebungen).
+
+
+
+5. Pi-Deployment (src/quantize.py)
+Wandelt das schwergewichtige PyTorch-Modell in einen leichtgewichtigen ONNX-Graphen für den Raspberry Pi Zero um.
+
+Befehl:
+python src/quantize.py --model efficientnet
