@@ -1,0 +1,27 @@
+# KI & Mathe
+torch
+torchaudio
+torchvision
+numpy<2.0
+pandas
+scikit-learn
+
+# Neue Algorithmen & Experimente
+pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
+umap-learn                # Für Clustering Visualisierungen
+onnx                      # Für den Export auf den Raspberry Pi
+onnxruntime               # Für lokale Inferenz-Tests
+
+# Audio Verarbeitung
+librosa
+soundfile
+audiomentations
+
+# Visualisierung
+matplotlib
+seaborn
+opencv-python-headless<4.10
+
+# Datenbeschaffung (Xeno-Canto)
+aiohttp
+tqdm

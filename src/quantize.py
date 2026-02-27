@@ -1,18 +1,31 @@
+import os
 import torch
+import argparse
 from models import get_model
 from config import *
 
-def export_to_onnx():
-    print("Lade trainiertes Modell...")
-    model = get_model("efficientnet", len(CLASSES))
-    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, "efficientnet_best.pth"), map_location="cpu"))
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet"], default="efficientnet")
+    args = parser.parse_args()
+
+    # Wir exportieren unser bestes (Species) Modell
+    exp_name = f"{args.model}_task-species_attn-False_layers-3"
+    
+    # Hier liest man eigentlich die echten Klassen aus json, der Einfachheit halber:
+    import json
+    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+        num_classes = len(json.load(f)['classes'])
+
+    print(f"Lade {exp_name}...")
+    model = get_model(args.model, num_classes).to("cpu")
+    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location="cpu"))
     model.eval()
 
-    # Ein Dummy-Input (Batch Size 1, 3 Kanäle, 224x224)
     dummy_input = torch.randn(1, 3, IMG_SIZE, IMG_SIZE)
-    onnx_path = os.path.join(MODELS_DIR, "bird_model_quantized.onnx")
+    onnx_path = os.path.join(MODELS_DIR, f"{args.model}_quantized.onnx")
 
-    print("Exportiere nach ONNX...")
+    print(f"Exportiere nach ONNX: {onnx_path}...")
     torch.onnx.export(
         model, dummy_input, onnx_path,
         export_params=True,
@@ -21,8 +34,7 @@ def export_to_onnx():
         input_names=['input'], output_names=['output'],
         dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
     )
-    print(f"Erfolgreich gespeichert unter: {onnx_path}")
-    print("TIPP FÜR DEN PI: Installiere 'onnxruntime' statt 'torch'. Das spart extrem viel RAM!")
+    print("✅ ONNX Export erfolgreich. Perfekt für den Raspberry Pi!")
 
 if __name__ == "__main__":
-    export_to_onnx()
+    main()
