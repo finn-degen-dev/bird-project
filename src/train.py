@@ -37,7 +37,10 @@ def main():
     import numpy as np
     from torch.utils.data import WeightedRandomSampler
 
-    train_labels = [full_ds.get_all_labels()[i] for i in train_ds.indices]
+    print(" Berechne Klassen-Gewichte...")
+    all_labels = full_ds.get_all_labels()  # Nur EINMAL aufrufen!
+    train_labels = [all_labels[i] for i in train_ds.indices]
+
     counts = Counter(train_labels)
     weights = {cls: 1.0 / np.sqrt(c) for cls, c in counts.items()}
     sample_weights = torch.tensor([weights[l] for l in train_labels])

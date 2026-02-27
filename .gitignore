@@ -3,6 +3,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.env
 
 # OS Files
 .DS_Store

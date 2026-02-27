@@ -26,3 +26,5 @@ opencv-python-headless<4.10
 # Datenbeschaffung (Xeno-Canto)
 aiohttp
 tqdm
+
+python-dotenv

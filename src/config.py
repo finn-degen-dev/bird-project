@@ -1,9 +1,13 @@
 import os
 import torch
+from dotenv import load_dotenv
+
+load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 METADATA_FILE = os.path.join(DATA_DIR, "metadata.csv")
+RAW_AUDIO_DIR = os.path.join(DATA_DIR, "raw_audio")
 PROCESSED_DIR = os.path.join(DATA_DIR, "processed_tensors")
 MODELS_DIR = os.path.join(DATA_DIR, "models")
 VISUALS_DIR = os.path.join(BASE_DIR, "visuals", "experiments")

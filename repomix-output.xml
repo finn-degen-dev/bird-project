@@ -226,10 +226,6 @@ if __name__ == "__main__":
     main()
 </file>
 
-<file path="src/showcase.py">
-
-</file>
-
 <file path="src/experiments/song_vs_call.py">
 import sys
 import os
@@ -289,170 +285,6 @@ def main():
     out_path = os.path.join(VISUALS_DIR, "tsne_song_vs_call.png")
     plt.savefig(out_path, dpi=300)
     print(f" Gespeichert unter {out_path}")
-
-if __name__ == "__main__":
-    main()
-</file>
-
-<file path="src/data_prep.py">
-import pandas as pd
-import requests
-import os
-import concurrent.futures
-from tqdm import tqdm
-import torch
-import librosa
-import numpy as np
-import warnings
-
-warnings.filterwarnings("ignore")
-
-from config import *
-
-API_KEY = os.getenv("XENOCANTO_API_KEY", "")
-
-def fetch_page(url, params, page):
-    params['page'] = page
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        if r.status_code == 200:
-            return r.json().get('recordings',[])
-    except:
-        pass
-    return[]
-
-def step1_get_metadata():
-    print(f" Schritt 1/3: Erfasse Metadaten (Vögel aus {XC_SPECIES_COUNTRY}, Audio aus {XC_RECORDING_AREA})...")
-
-    if os.path.exists(METADATA_FILE):
-        print(" Metadaten existieren bereits. (Lösche die metadata.csv, falls du Filter geändert hast!)")
-        return pd.read_csv(METADATA_FILE)
-
-    url = "https://xeno-canto.org/api/3/recordings"
-
-    params_species = {'query': XC_SPECIES_LOCATION, 'key': API_KEY, 'per_page': 500}
-    try:
-        num_pages = requests.get(url, params=params_species).json()['numPages']
-    except Exception as e:
-        print(f" API Error bei Xeno-Canto (Schritt 1): {e}")
-        return None
-
-    target_species = set()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_species.copy(), p) for p in range(1, num_pages_ger + 1)]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages, desc="Scanne Arten"):
-            for rec in future.result():
-                target_species.add(rec['en'])
-
-    query_str = f'{XC_RECORDING_LOCATION} grp:birds len:{XC_MIN_LENGTH}-{XC_MAX_LENGTH}'
-    params_rec = {'query': query_str, 'key': API_KEY, 'per_page': 500}
-
-    try:
-        num_pages_rec = requests.get(url, params=params_rec).json()['numPages']
-    except Exception as e:
-        print(f" API Error bei Xeno-Canto (Schritt 2): {e}")
-        return None
-
-    valid_recordings =[]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_rec.copy(), p) for p in range(1, num_pages_eu + 1)]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_rec, desc="Lade Datensätze"):
-            for rec in future.result():
-
-                if rec['en'] in target_species and rec.get('q') in XC_QUALITIES:
-                    valid_recordings.append({
-                        'id': rec['id'], 'species': rec['en'], 'scientific': f"{rec['gen']} {rec['sp']}",
-                        'sex': rec['sex'], 'type': rec['type'], 'quality': rec['q'],
-                        'url': rec['file'], 'length': rec['length'], 'filename': f"XC{rec['id']}.mp3"
-                    })
-
-    df = pd.DataFrame(valid_recordings)
-
-    if len(df) == 0:
-        print(" Keine Aufnahmen gefunden, die auf die Filter passen!")
-        return None
-
-    counts = df['species'].value_counts()
-    valid_counts = counts[counts >= 10].index
-    df = df[df['species'].isin(valid_counts)]
-
-    os.makedirs(DATA_DIR, exist_ok=True)
-    df.to_csv(METADATA_FILE, index=False)
-    print(f" {len(df)} Aufnahmen in metadata.csv gespeichert (Qualitäten: {XC_QUALITIES}).")
-    return df
-
-def step2_download_audio(df):
-    print("\n Schritt 2/3: Lade fehlende Audio-Dateien herunter...")
-    os.makedirs(RAW_AUDIO_DIR, exist_ok=True)
-
-    tasks =[]
-    for _, row in df.iterrows():
-        filepath = os.path.join(RAW_AUDIO_DIR, row['filename'])
-        if not os.path.exists(filepath):
-            tasks.append((row['url'], filepath))
-
-    if not tasks:
-        print(" Alle Audio-Dateien sind bereits heruntergeladen.")
-        return
-
-    def download_file(task):
-        url, filepath = task
-        try:
-            r = requests.get(url, timeout=30)
-            if r.status_code == 200:
-                with open(filepath, 'wb') as f:
-                    f.write(r.content)
-        except:
-            pass
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        list(tqdm(executor.map(download_file, tasks), total=len(tasks), desc="Downloading"))
-
-def step3_preprocess_tensors(df):
-    print(f"\n Schritt 3/3: Generiere Tensoren ({DURATION}s Fenster, Hop-Length {HOP_LENGTH})...")
-    os.makedirs(PROCESSED_DIR, exist_ok=True)
-
-    success = 0
-
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="Verarbeite"):
-        mp3_path = os.path.join(RAW_AUDIO_DIR, row['filename'])
-        pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
-
-        if os.path.exists(pt_path) or not os.path.exists(mp3_path):
-            continue
-
-        try:
-
-            load_duration = max(15, DURATION * 2)
-            y, sr = librosa.load(mp3_path, sr=SAMPLE_RATE, duration=load_duration)
-
-            target_len_samples = SAMPLE_RATE * DURATION
-            if len(y) < target_len_samples:
-                y = np.pad(y, (0, target_len_samples - len(y)), mode='constant')
-
-            melspec = librosa.feature.melspectrogram(
-                y=y, sr=sr, n_mels=N_MELS, fmax=FMAX, hop_length=HOP_LENGTH
-            )
-            log_melspec = librosa.power_to_db(melspec, ref=np.max)
-
-            min_val, max_val = log_melspec.min(), log_melspec.max()
-            spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
-            spec_norm = np.flipud(spec_norm).copy()
-
-            tensor = torch.tensor(spec_norm, dtype=torch.float16)
-            torch.save(tensor, pt_path)
-            success += 1
-        except Exception as e:
-            pass
-
-    print(f" Fertig. {success} neue Tensoren generiert.")
-
-def main():
-    df = step1_get_metadata()
-    if df is not None:
-        step2_download_audio(df)
-        step3_preprocess_tensors(df)
-    print("\n Datenpipeline abgeschlossen. Du kannst jetzt das Training starten!")
 
 if __name__ == "__main__":
     main()
@@ -761,6 +593,209 @@ def main():
         dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
     )
     print(" ONNX Export erfolgreich. Perfekt für den Raspberry Pi!")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/showcase.py">
+import argparse
+import time
+import torch
+import torch.nn.functional as F
+import librosa
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import json
+import os
+from tqdm import tqdm
+import sounddevice as sd
+
+from config import *
+from models import get_model
+
+RMS_THRESHOLD = 0.005
+
+def preprocess_chunk(y_chunk, sr):
+    """Wandelt einen Audio-Ausschnitt exakt wie im Training in einen Tensor um."""
+
+    rms = np.sqrt(np.mean(y_chunk**2))
+    if rms < RMS_THRESHOLD:
+        return None
+
+    target_len = int(sr * DURATION)
+    if len(y_chunk) < target_len:
+        y_chunk = np.pad(y_chunk, (0, target_len - len(y_chunk)))
+    else:
+        y_chunk = y_chunk[:target_len]
+
+    melspec = librosa.feature.melspectrogram(
+        y=y_chunk, sr=sr, n_mels=N_MELS, fmax=FMAX, hop_length=HOP_LENGTH
+    )
+    log_melspec = librosa.power_to_db(melspec, ref=np.max)
+
+    min_val, max_val = log_melspec.min(), log_melspec.max()
+    if max_val - min_val < 1e-6:
+        return None
+
+    spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+    spec_norm = np.flipud(spec_norm).copy()
+
+    tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0).repeat(3, 1, 1).unsqueeze(0)
+    tensor = F.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False)
+
+    return tensor
+
+def live_showcase(model, classes, threshold, model_type):
+    print("\n LIVE MIKROFON MODUS GESTARTET! (Beenden mit Strg+C)")
+    print("Spiele Vogelstimmen über dein Handy ab...")
+
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(12, 6))
+    fig.canvas.manager.set_window_title("Piepmatz Polizei - Live Radar")
+
+    buffer_size = int(SAMPLE_RATE * DURATION)
+    audio_buffer = np.zeros(buffer_size, dtype=np.float32)
+
+    results =[]
+    start_time = time.time()
+
+    def audio_callback(indata, frames, time_info, status):
+        """Wird kontinuierlich vom Mikrofon aufgerufen"""
+        nonlocal audio_buffer
+        if status:
+            pass
+        new_data = indata[:, 0]
+
+        audio_buffer = np.roll(audio_buffer, -len(new_data))
+        audio_buffer[-len(new_data):] = new_data
+
+    try:
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, callback=audio_callback):
+            while True:
+                time.sleep(1.0)
+
+                chunk = audio_buffer.copy()
+                tensor = preprocess_chunk(chunk, SAMPLE_RATE)
+
+                if tensor is None:
+                    continue
+
+                tensor = tensor.to(DEVICE)
+                with torch.no_grad():
+                    logits = model(tensor)
+                    probs = F.softmax(logits, dim=1)
+
+                conf, idx = torch.max(probs, 1)
+                conf = conf.item()
+                idx = idx.item()
+
+                if conf >= threshold:
+                    current_time = time.time() - start_time
+                    bird_name = classes[idx]
+                    results.append({"Zeit (s)": current_time, "Vogelart": bird_name, "Konfidenz": conf})
+                    print(f"[{current_time:04.1f}s]  {bird_name:<20} | Sicherheit: {conf:.1%}")
+
+                ax.clear()
+                if results:
+                    df = pd.DataFrame(results)
+                    sns.scatterplot(
+                        data=df, x="Zeit (s)", y="Vogelart", size="Konfidenz",
+                        sizes=(100, 400), hue="Vogelart", palette="Set1", ax=ax, legend=False
+                    )
+
+                    max_time = current_time
+                    min_time = max(0, max_time - 30)
+                    ax.set_xlim(min_time, max_time + 2)
+
+                ax.set_title(f"Live-Radar: Was hört die KI gerade? | {model_type.capitalize()}", fontsize=14)
+                ax.grid(True, linestyle='--', alpha=0.4)
+                plt.pause(0.01)
+
+    except KeyboardInterrupt:
+        print("\n Live-Modus beendet.")
+        plt.ioff()
+        plt.show()
+
+def file_showcase(audio_path, model, classes, threshold, model_type):
+    print(f" Analysiere Datei: {audio_path}")
+    y, sr = librosa.load(audio_path, sr=SAMPLE_RATE)
+    print(f"Länge der Aufnahme: {len(y)/sr:.1f} Sekunden")
+
+    window_samples = int(DURATION * sr)
+    stride_samples = int((DURATION / 2.0) * sr)
+
+    results =[]
+    print(" Starte Sliding-Window Scan...")
+    for start in tqdm(range(0, len(y) - window_samples + 1, stride_samples)):
+        chunk = y[start : start + window_samples]
+        tensor = preprocess_chunk(chunk, sr)
+        if tensor is None: continue
+
+        with torch.no_grad():
+            logits = model(tensor.to(DEVICE))
+            probs = F.softmax(logits, dim=1)
+
+        conf, idx = torch.max(probs, 1)
+        if conf.item() >= threshold:
+            results.append({"Zeit (s)": start / sr, "Vogelart": classes[idx.item()], "Konfidenz": conf.item()})
+
+    if not results:
+        print(f" Keine Vögel gefunden (> {threshold*100:.0f}% Konfidenz).")
+        return
+
+    df = pd.DataFrame(results)
+    print("\n Gefundene Vögel:")
+    print(df['Vogelart'].value_counts().to_string())
+
+    plt.figure(figsize=(14, 7))
+    sns.scatterplot(data=df, x="Zeit (s)", y="Vogelart", size="Konfidenz", sizes=(50, 300), hue="Konfidenz", palette="viridis")
+    plt.title(f"Aktivitäts-Timeline | Datei: {os.path.basename(audio_path)}")
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, f"showcase_{model_type}.png")
+    plt.savefig(out_path, dpi=300)
+    print(f" Grafik gespeichert unter: {out_path}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Live-Radar oder Datei-Analyse für Vogelstimmen")
+
+    parser.add_argument("--live", action="store_true", help="Startet das Live-Mikrofon Radar")
+    parser.add_argument("--file", type=str, help="Analysiert eine Audio-Datei (.mp3/.wav)")
+
+    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet"], default="efficientnet")
+    parser.add_argument("--use-attention", action="store_true")
+    parser.add_argument("--cnn-layers", type=int, default=3)
+    parser.add_argument("--threshold", type=float, default=0.60, help="Mindest-Sicherheit der KI")
+
+    args = parser.parse_args()
+
+    if not args.live and not args.file:
+        print(" Du musst entweder --live ODER --file [PFAD] angeben!")
+        return
+
+    exp_name = f"{args.model}_task-species_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    json_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
+
+    if not os.path.exists(json_path):
+        print(f" Modell {exp_name} nicht gefunden. Hast du es trainiert?")
+        return
+
+    with open(json_path, "r") as f:
+        classes = json.load(f)['classes']
+
+    model = get_model(args.model, len(classes), args.use_attention, args.cnn_layers).to(DEVICE)
+    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
+    model.eval()
+
+    if args.live:
+        live_showcase(model, classes, args.threshold, args.model)
+    else:
+        file_showcase(args.file, model, classes, args.threshold, args.model)
 
 if __name__ == "__main__":
     main()
@@ -1121,6 +1156,170 @@ Wir haben viel Hilfe aus der Open-Source-Community bekommen. Insbesondere die Au
 Ein besonderer Dank geht an David May für die Gestaltung des Titelbildes sowie an unsere JuFo-Lehrer für das Feedback zwischendurch.
 
 \end{document}
+</file>
+
+<file path="src/data_prep.py">
+import pandas as pd
+import requests
+import os
+import concurrent.futures
+from tqdm import tqdm
+import torch
+import librosa
+import numpy as np
+import warnings
+
+warnings.filterwarnings("ignore")
+
+from config import *
+
+API_KEY = os.getenv("XENOCANTO_API_KEY", "")
+
+def fetch_page(url, params, page):
+    params['page'] = page
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code == 200:
+            return r.json().get('recordings',[])
+    except:
+        pass
+    return[]
+
+def step1_get_metadata():
+    print(f" Schritt 1/3: Erfasse Metadaten (Vögel aus {XC_SPECIES_COUNTRY}, Audio aus {XC_RECORDING_AREA})...")
+
+    if os.path.exists(METADATA_FILE):
+        print(" Metadaten existieren bereits. (Lösche die metadata.csv, falls du Filter geändert hast!)")
+        return pd.read_csv(METADATA_FILE)
+
+    url = "https://xeno-canto.org/api/3/recordings"
+
+    params_species = {'query': XC_SPECIES_LOCATION, 'key': API_KEY, 'per_page': 500}
+    try:
+        num_pages = requests.get(url, params=params_species).json()['numPages']
+    except Exception as e:
+        print(f" API Error bei Xeno-Canto (Schritt 1): {e}")
+        return None
+
+    target_species = set()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures =[executor.submit(fetch_page, url, params_species.copy(), p) for p in range(1, num_pages + 1)]
+        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages, desc="Scanne Arten"):
+            for rec in future.result():
+                target_species.add(rec['en'])
+
+    query_str = f'{XC_RECORDING_LOCATION} grp:birds len:{XC_MIN_LENGTH}-{XC_MAX_LENGTH}'
+    params_rec = {'query': query_str, 'key': API_KEY, 'per_page': 500}
+
+    try:
+        num_pages_rec = requests.get(url, params=params_rec).json()['numPages']
+    except Exception as e:
+        print(f" API Error bei Xeno-Canto (Schritt 2): {e}")
+        return None
+
+    valid_recordings =[]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures =[executor.submit(fetch_page, url, params_rec.copy(), p) for p in range(1, num_pages_rec + 1)]
+        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_rec, desc="Lade Datensätze"):
+            for rec in future.result():
+
+                if rec['en'] in target_species and rec.get('q') in XC_QUALITIES:
+                    valid_recordings.append({
+                        'id': rec['id'], 'species': rec['en'], 'scientific': f"{rec['gen']} {rec['sp']}",
+                        'sex': rec['sex'], 'type': rec['type'], 'quality': rec['q'],
+                        'url': rec['file'], 'length': rec['length'], 'filename': f"XC{rec['id']}.mp3"
+                    })
+
+    df = pd.DataFrame(valid_recordings)
+
+    if len(df) == 0:
+        print(" Keine Aufnahmen gefunden, die auf die Filter passen!")
+        return None
+
+    counts = df['species'].value_counts()
+    valid_counts = counts[counts >= 10].index
+    df = df[df['species'].isin(valid_counts)]
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    df.to_csv(METADATA_FILE, index=False)
+    print(f" {len(df)} Aufnahmen in metadata.csv gespeichert (Qualitäten: {XC_QUALITIES}).")
+    return df
+
+def step2_download_audio(df):
+    print("\n Schritt 2/3: Lade fehlende Audio-Dateien herunter...")
+    os.makedirs(RAW_AUDIO_DIR, exist_ok=True)
+
+    tasks =[]
+    for _, row in df.iterrows():
+        filepath = os.path.join(RAW_AUDIO_DIR, row['filename'])
+        if not os.path.exists(filepath):
+            tasks.append((row['url'], filepath))
+
+    if not tasks:
+        print(" Alle Audio-Dateien sind bereits heruntergeladen.")
+        return
+
+    def download_file(task):
+        url, filepath = task
+        try:
+            r = requests.get(url, timeout=30)
+            if r.status_code == 200:
+                with open(filepath, 'wb') as f:
+                    f.write(r.content)
+        except:
+            pass
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        list(tqdm(executor.map(download_file, tasks), total=len(tasks), desc="Downloading"))
+
+def step3_preprocess_tensors(df):
+    print(f"\n Schritt 3/3: Generiere Tensoren ({DURATION}s Fenster, Hop-Length {HOP_LENGTH})...")
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
+
+    success = 0
+
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="Verarbeite"):
+        mp3_path = os.path.join(RAW_AUDIO_DIR, row['filename'])
+        pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
+
+        if os.path.exists(pt_path) or not os.path.exists(mp3_path):
+            continue
+
+        try:
+
+            load_duration = max(15, DURATION * 2)
+            y, sr = librosa.load(mp3_path, sr=SAMPLE_RATE, duration=load_duration)
+
+            target_len_samples = SAMPLE_RATE * DURATION
+            if len(y) < target_len_samples:
+                y = np.pad(y, (0, target_len_samples - len(y)), mode='constant')
+
+            melspec = librosa.feature.melspectrogram(
+                y=y, sr=sr, n_mels=N_MELS, fmax=FMAX, hop_length=HOP_LENGTH
+            )
+            log_melspec = librosa.power_to_db(melspec, ref=np.max)
+
+            min_val, max_val = log_melspec.min(), log_melspec.max()
+            spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+            spec_norm = np.flipud(spec_norm).copy()
+
+            tensor = torch.tensor(spec_norm, dtype=torch.float16)
+            torch.save(tensor, pt_path)
+            success += 1
+        except Exception as e:
+            pass
+
+    print(f" Fertig. {success} neue Tensoren generiert.")
+
+def main():
+    df = step1_get_metadata()
+    if df is not None:
+        step2_download_audio(df)
+        step3_preprocess_tensors(df)
+    print("\n Datenpipeline abgeschlossen. Du kannst jetzt das Training starten!")
+
+if __name__ == "__main__":
+    main()
 </file>
 
 <file path=".gitignore">

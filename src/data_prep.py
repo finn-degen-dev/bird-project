@@ -25,7 +25,7 @@ def fetch_page(url, params, page):
     return[]
 
 def step1_get_metadata():
-    print(f" Schritt 1/3: Erfasse Metadaten (Vögel aus {XC_SPECIES_COUNTRY}, Audio aus {XC_RECORDING_AREA})...")
+    print(f" Schritt 1/3: Erfasse Metadaten (Vögel aus {XC_SPECIES_LOCATION}, Audio aus {XC_RECORDING_LOCATION})...")
 
     if os.path.exists(METADATA_FILE):
         print(" Metadaten existieren bereits. (Lösche die metadata.csv, falls du Filter geändert hast!)")
