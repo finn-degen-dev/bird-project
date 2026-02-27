@@ -12,33 +12,41 @@ class SmartBirdDataset(Dataset):
         self.mode = mode
         self.task = task
         
+        if not os.path.exists(METADATA_FILE):
+            raise FileNotFoundError(f"Die Datei {METADATA_FILE} fehlt. Bitte 'python src/data_prep.py' ausführen.")
+
         df = pd.read_csv(METADATA_FILE)
         
-        # Blacklist & Filter
+        # Blacklist
         df = df[~df['species'].isin(["Identity unknown", "Soundscape", "Mystery bird", "?"])]
+        
+        # Optionaler Geschlechts-Filter (für eure Experimente)
         if filter_sex:
             df = df[df['sex'].astype(str).str.lower() == filter_sex.lower()]
             
-        # Seltene Klassen filtern (für Stabilität bei 600+ Klassen)
+        # Seltene Klassen filtern
         if task == 'species':
             counts = df['species'].value_counts()
             valid_species = counts[counts >= min_samples].index
             df = df[df['species'].isin(valid_species)]
 
-        # Nur Zeilen behalten, zu denen der Tensor wirklich existiert
+        # Nur Datensätze behalten, zu denen der Tensor (.pt) existiert
         df['pt_exists'] = df['filename'].apply(
             lambda x: os.path.exists(os.path.join(PROCESSED_DIR, x.replace('.mp3', '.pt')))
         )
         self.df = df[df['pt_exists']].reset_index(drop=True)
 
-        # Labels definieren
+        if len(self.df) == 0:
+            raise ValueError("Keine gültigen Tensoren gefunden! Stimmen die Pfade?")
+
+        # Klassen-Indizes erstellen
         if task == 'species':
             self.classes = sorted(self.df['species'].unique().tolist())
         elif task == 'type':
             self.classes = ['call', 'song']
             
         self.class_to_idx = {cls: i for i, cls in enumerate(self.classes)}
-        print(f"[{mode.upper()}] Dataset geladen: {len(self.df)} Samples, {len(self.classes)} Klassen.")
+        print(f"[{mode.upper()}] Dataset bereit: {len(self.df)} Samples, {len(self.classes)} Klassen.")
 
     def __len__(self):
         return len(self.df)
@@ -51,49 +59,73 @@ class SmartBirdDataset(Dataset):
             return self.class_to_idx['song' if 'song' in desc else 'call']
 
     def get_all_labels(self):
+        # Wird für den WeightedRandomSampler benötigt
         return[self._get_label(row) for _, row in self.df.iterrows()]
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
         
+        # Tensor laden (ist in float16 gespeichert, wir konvertieren zurück zu float32)
         spec = torch.load(pt_path).float()
-        target_width = 313 # ca. 5 Sekunden
-
-        # Random Crop (Train) oder Center Crop (Test)
+        
+        # --- DYNAMISCHER CROP (Nutzt TARGET_WIDTH aus config.py) ---
         current_width = spec.shape[1]
-        if current_width > target_width:
-            start = np.random.randint(0, current_width - target_width) if self.mode == 'train' else (current_width - target_width) // 2
-            spec = spec[:, start : start + target_width]
-        elif current_width < target_width:
-            spec = torch.nn.functional.pad(spec, (0, target_width - current_width))
+        
+        if current_width > TARGET_WIDTH:
+            if self.mode == 'train':
+                # Im Training: Zufälliger Startpunkt (Data Augmentation durch Verschiebung)
+                start = np.random.randint(0, current_width - TARGET_WIDTH)
+            else:
+                # In Evaluation: Immer exakt die Mitte nehmen (für konsistente Tests)
+                start = (current_width - TARGET_WIDTH) // 2
+                
+            spec = spec[:, start : start + TARGET_WIDTH]
+            
+        elif current_width < TARGET_WIDTH:
+            # Falls die Audiodatei doch mal zu kurz ist, wird mit Stille (0) aufgefüllt
+            pad_amount = TARGET_WIDTH - current_width
+            spec = torch.nn.functional.pad(spec, (0, pad_amount))
 
-        # Für EfficientNet/ResNet auf 3 Kanäle und 224x224 bringen
-        tensor = spec.unsqueeze(0).repeat(3, 1, 1).unsqueeze(0)
-        tensor = torch.nn.functional.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False).squeeze(0)
+        # --- FORMATIERUNG FÜR DAS NEURONALE NETZ ---
+        # 1. Dimension aufbauen: Aus [128, X] wird [1, 128, X]
+        tensor = spec.unsqueeze(0)
+        
+        # 2. Auf 3 Kanäle duplizieren (ImageNet Modelle wie ResNet erwarten RGB)
+        tensor = tensor.repeat(3, 1, 1)
+        
+        # 3. Größe anpassen auf z.B. 224x224 (Interpolation auf der GPU)
+        tensor = torch.nn.functional.interpolate(
+            tensor.unsqueeze(0), size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False
+        ).squeeze(0)
         
         return tensor, self._get_label(row)
 
-# GPU-basiertes SpecAugment (extrem schnell)
+# --- HILFSFUNKTIONEN FÜR DAS TRAINING ---
+
 def get_spec_augmenter():
+    """Erstellt den GPU-beschleunigten SpecAugment Filter"""
     return torch.nn.Sequential(
         T.FrequencyMasking(freq_mask_param=15),
         T.TimeMasking(time_mask_param=35)
     ).to(DEVICE)
 
-# MixUp Logik
 def mixup_data(x, y, alpha=0.4):
+    """Mischt zwei Spektrogramme und ihre Labels ineinander"""
     lam = np.random.beta(alpha, alpha) if alpha > 0 else 1
     index = torch.randperm(x.size(0)).to(DEVICE)
     mixed_x = lam * x + (1 - lam) * x[index, :]
     return mixed_x, y, y[index], lam
 
 def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    """Berechnet den Loss für gemischte (MixUp) Daten"""
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 def get_balanced_sampler(dataset):
+    """Sorgt dafür, dass seltene und häufige Vogelarten gleich oft trainiert werden"""
     labels = np.array(dataset.get_all_labels())
     counts = Counter(labels)
+    # Gewichtung: 1 / sqrt(Anzahl) ist ein guter Sweetspot
     weights = {cls: 1.0 / np.sqrt(c) for cls, c in counts.items()}
     sample_weights = torch.tensor([weights[l] for l in labels])
     return WeightedRandomSampler(sample_weights, len(sample_weights))

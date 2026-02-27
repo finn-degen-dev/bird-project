@@ -1,5 +1,38 @@
-/data/
+# Python Environments & Cache
+.venv/
 __pycache__/
-*.DS_Store
-.env
-.venv
+*.py[cod]
+*$py.class
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# -----------------------------------
+# DATA & MODELS (WICHTIG!)
+# -----------------------------------
+# Wir ignorieren alles im data/ Ordner...
+data/*
+
+# ... AUSSER diese speziellen Dateien/Ordner:
+!data/.gitkeep
+!data/models/
+!data/metadata.csv
+
+
+
+# Und wir stellen sicher, dass die schweren Audio- und Tensor-Dateien immer ignoriert werden
+data/raw_audio/
+data/processed_tensors/
+
+# -----------------------------------
+# LaTeX Hilfsdateien
+# -----------------------------------
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.bbl
+*.blg
