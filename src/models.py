@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
-# Das Experiment: Hilft Attention?
 class ChannelAttention(nn.Module):
     def __init__(self, channels, reduction=8):
         super().__init__()
@@ -18,15 +17,14 @@ class ChannelAttention(nn.Module):
         y = self.fc(self.avg_pool(x).view(b, c)).view(b, c, 1, 1)
         return x * y.expand_as(x)
 
-# Das CustomCNN, das sich per Argument skalieren lässt
 class CustomCNN(nn.Module):
     def __init__(self, num_classes, use_attention=False, num_layers=3):
         super().__init__()
         self.use_attention = use_attention
-        
+
         layers =[nn.Conv2d(3, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2)]
         in_channels = 32
-        
+
         for _ in range(1, num_layers):
             out_channels = in_channels * 2
             layers.extend([nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2)])
@@ -34,8 +32,7 @@ class CustomCNN(nn.Module):
 
         self.features = nn.Sequential(*layers)
         self.attention = ChannelAttention(in_channels) if use_attention else nn.Identity()
-        
-        # LazyLinear ist genial: Es berechnet die nötigen Input-Features automatisch beim ersten Durchlauf!
+
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.LazyLinear(512), nn.ReLU(), nn.Dropout(0.5),
@@ -53,7 +50,7 @@ class EmbeddingNet(nn.Module):
         self.backbone = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
         in_features = self.backbone.classifier[1].in_features
         self.backbone.classifier = nn.Identity()
-        
+
         self.head = nn.Sequential(
             nn.Linear(in_features, 1024),
             nn.BatchNorm1d(1024),

@@ -36,3 +36,6 @@ data/processed_tensors/
 *.synctex.gz
 *.bbl
 *.blg
+
+# extra stuff
+clean_code.py

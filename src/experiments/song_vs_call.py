@@ -13,16 +13,15 @@ from models import get_model
 from data import SmartBirdDataset
 
 def main():
-    print("🎨 T-SNE Visualisierung: Rufe vs. Gesänge...")
-    
+    print(" T-SNE Visualisierung: Rufe vs. Gesänge...")
+
     exp_name = "efficientnet_task-type_attn-False_layers-3"
     model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
-    
+
     if not os.path.exists(model_path):
-        print(f"❌ Bitte zuerst das Modell trainieren: python src/train.py --model efficientnet --task type")
+        print(f" Bitte zuerst das Modell trainieren: python src/train.py --model efficientnet --task type")
         return
 
-    # Dataset laden (Nur 1000 Samples für T-SNE, sonst wird es zu unübersichtlich)
     ds = SmartBirdDataset(mode='test', task='type')
     indices = np.random.choice(len(ds), min(1000, len(ds)), replace=False)
     loader = DataLoader(Subset(ds, indices), batch_size=32, shuffle=False)
@@ -31,7 +30,6 @@ def main():
     model.load_state_dict(torch.load(model_path, map_location=DEVICE))
     model.eval()
 
-    # Features VOR dem letzten Layer extrahieren
     features =[]
     def hook(module, input, output):
         features.append(input[0].cpu().numpy())
@@ -42,11 +40,10 @@ def main():
         for inputs, labels in loader:
             _ = model(inputs.to(DEVICE))
             labels_list.extend(labels.numpy())
-            
+
     handle.remove()
     embeddings = np.concatenate(features)
 
-    # T-SNE
     print("Berechne T-SNE...")
     tsne = TSNE(n_components=2, random_state=42)
     features_2d = tsne.fit_transform(embeddings)
@@ -55,10 +52,10 @@ def main():
     class_names = [ds.classes[i] for i in labels_list]
     sns.scatterplot(x=features_2d[:, 0], y=features_2d[:, 1], hue=class_names, palette={'song': '#1f77b4', 'call': '#ff7f0e'}, s=60)
     plt.title("Internes KI-Verständnis: Ruf vs. Gesang")
-    
+
     out_path = os.path.join(VISUALS_DIR, "tsne_song_vs_call.png")
     plt.savefig(out_path, dpi=300)
-    print(f"✅ Gespeichert unter {out_path}")
+    print(f" Gespeichert unter {out_path}")
 
 if __name__ == "__main__":
     main()

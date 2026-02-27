@@ -11,26 +11,22 @@ class SmartBirdDataset(Dataset):
     def __init__(self, mode='train', task='species', filter_sex=None, min_samples=10):
         self.mode = mode
         self.task = task
-        
+
         if not os.path.exists(METADATA_FILE):
             raise FileNotFoundError(f"Die Datei {METADATA_FILE} fehlt. Bitte 'python src/data_prep.py' ausführen.")
 
         df = pd.read_csv(METADATA_FILE)
-        
-        # Blacklist
+
         df = df[~df['species'].isin(["Identity unknown", "Soundscape", "Mystery bird", "?"])]
-        
-        # Optionaler Geschlechts-Filter (für eure Experimente)
+
         if filter_sex:
             df = df[df['sex'].astype(str).str.lower() == filter_sex.lower()]
-            
-        # Seltene Klassen filtern
+
         if task == 'species':
             counts = df['species'].value_counts()
             valid_species = counts[counts >= min_samples].index
             df = df[df['species'].isin(valid_species)]
 
-        # Nur Datensätze behalten, zu denen der Tensor (.pt) existiert
         df['pt_exists'] = df['filename'].apply(
             lambda x: os.path.exists(os.path.join(PROCESSED_DIR, x.replace('.mp3', '.pt')))
         )
@@ -39,12 +35,11 @@ class SmartBirdDataset(Dataset):
         if len(self.df) == 0:
             raise ValueError("Keine gültigen Tensoren gefunden! Stimmen die Pfade?")
 
-        # Klassen-Indizes erstellen
         if task == 'species':
             self.classes = sorted(self.df['species'].unique().tolist())
         elif task == 'type':
             self.classes = ['call', 'song']
-            
+
         self.class_to_idx = {cls: i for i, cls in enumerate(self.classes)}
         print(f"[{mode.upper()}] Dataset bereit: {len(self.df)} Samples, {len(self.classes)} Klassen.")
 
@@ -59,49 +54,41 @@ class SmartBirdDataset(Dataset):
             return self.class_to_idx['song' if 'song' in desc else 'call']
 
     def get_all_labels(self):
-        # Wird für den WeightedRandomSampler benötigt
+
         return[self._get_label(row) for _, row in self.df.iterrows()]
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
-        
-        # Tensor laden (ist in float16 gespeichert, wir konvertieren zurück zu float32)
+
         spec = torch.load(pt_path).float()
-        
-        # --- DYNAMISCHER CROP (Nutzt TARGET_WIDTH aus config.py) ---
+
         current_width = spec.shape[1]
-        
+
         if current_width > TARGET_WIDTH:
             if self.mode == 'train':
-                # Im Training: Zufälliger Startpunkt (Data Augmentation durch Verschiebung)
+
                 start = np.random.randint(0, current_width - TARGET_WIDTH)
             else:
-                # In Evaluation: Immer exakt die Mitte nehmen (für konsistente Tests)
+
                 start = (current_width - TARGET_WIDTH) // 2
-                
+
             spec = spec[:, start : start + TARGET_WIDTH]
-            
+
         elif current_width < TARGET_WIDTH:
-            # Falls die Audiodatei doch mal zu kurz ist, wird mit Stille (0) aufgefüllt
+
             pad_amount = TARGET_WIDTH - current_width
             spec = torch.nn.functional.pad(spec, (0, pad_amount))
 
-        # --- FORMATIERUNG FÜR DAS NEURONALE NETZ ---
-        # 1. Dimension aufbauen: Aus [128, X] wird [1, 128, X]
         tensor = spec.unsqueeze(0)
-        
-        # 2. Auf 3 Kanäle duplizieren (ImageNet Modelle wie ResNet erwarten RGB)
+
         tensor = tensor.repeat(3, 1, 1)
-        
-        # 3. Größe anpassen auf z.B. 224x224 (Interpolation auf der GPU)
+
         tensor = torch.nn.functional.interpolate(
             tensor.unsqueeze(0), size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False
         ).squeeze(0)
-        
-        return tensor, self._get_label(row)
 
-# --- HILFSFUNKTIONEN FÜR DAS TRAINING ---
+        return tensor, self._get_label(row)
 
 def get_spec_augmenter():
     """Erstellt den GPU-beschleunigten SpecAugment Filter"""
@@ -125,7 +112,7 @@ def get_balanced_sampler(dataset):
     """Sorgt dafür, dass seltene und häufige Vogelarten gleich oft trainiert werden"""
     labels = np.array(dataset.get_all_labels())
     counts = Counter(labels)
-    # Gewichtung: 1 / sqrt(Anzahl) ist ein guter Sweetspot
+
     weights = {cls: 1.0 / np.sqrt(c) for cls, c in counts.items()}
     sample_weights = torch.tensor([weights[l] for l in labels])
     return WeightedRandomSampler(sample_weights, len(sample_weights))

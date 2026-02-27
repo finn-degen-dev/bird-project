@@ -9,10 +9,8 @@ def main():
     parser.add_argument("--model", choices=["custom", "resnet", "efficientnet"], default="efficientnet")
     args = parser.parse_args()
 
-    # Wir exportieren unser bestes (Species) Modell
     exp_name = f"{args.model}_task-species_attn-False_layers-3"
-    
-    # Hier liest man eigentlich die echten Klassen aus json, der Einfachheit halber:
+
     import json
     with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
         num_classes = len(json.load(f)['classes'])
@@ -34,7 +32,7 @@ def main():
         input_names=['input'], output_names=['output'],
         dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
     )
-    print("✅ ONNX Export erfolgreich. Perfekt für den Raspberry Pi!")
+    print(" ONNX Export erfolgreich. Perfekt für den Raspberry Pi!")
 
 if __name__ == "__main__":
     main()
