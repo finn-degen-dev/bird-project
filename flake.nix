@@ -25,11 +25,12 @@
           ffmpeg
           cudaPackages.cudatoolkit
           cudaPackages.cudnn
-          xorg.libX11
-          xorg.libXext
-          xorg.libSM
-          xorg.libICE
-          xorg.libXrender
+          libX11
+          libXext
+          libSM
+          libICE
+          libXrender
+	  portaudio
         ];
 
         tex = pkgs.texlive.combine {

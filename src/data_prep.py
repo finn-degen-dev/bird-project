@@ -35,31 +35,31 @@ def step1_get_metadata():
 
     params_species = {'query': XC_SPECIES_LOCATION, 'key': API_KEY, 'per_page': 500}
     try:
-        num_pages_ger = requests.get(url, params=params_ger).json()['numPages']
+        num_pages = requests.get(url, params=params_species).json()['numPages']
     except Exception as e:
         print(f" API Error bei Xeno-Canto (Schritt 1): {e}")
         return None
 
     target_species = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_ger.copy(), p) for p in range(1, num_pages_ger + 1)]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_ger, desc="Scanne Arten"):
+        futures =[executor.submit(fetch_page, url, params_species.copy(), p) for p in range(1, num_pages_ger + 1)]
+        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages, desc="Scanne Arten"):
             for rec in future.result():
                 target_species.add(rec['en'])
 
     query_str = f'{XC_RECORDING_LOCATION} grp:birds len:{XC_MIN_LENGTH}-{XC_MAX_LENGTH}'
-    params_eu = {'query': query_str, 'key': API_KEY, 'per_page': 500}
+    params_rec = {'query': query_str, 'key': API_KEY, 'per_page': 500}
 
     try:
-        num_pages_eu = requests.get(url, params=params_eu).json()['numPages']
+        num_pages_rec = requests.get(url, params=params_rec).json()['numPages']
     except Exception as e:
         print(f" API Error bei Xeno-Canto (Schritt 2): {e}")
         return None
 
     valid_recordings =[]
     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_eu.copy(), p) for p in range(1, num_pages_eu + 1)]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_eu, desc="Lade Datensätze"):
+        futures =[executor.submit(fetch_page, url, params_rec.copy(), p) for p in range(1, num_pages_eu + 1)]
+        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_rec, desc="Lade Datensätze"):
             for rec in future.result():
 
                 if rec['en'] in target_species and rec.get('q') in XC_QUALITIES:

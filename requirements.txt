@@ -16,6 +16,7 @@ onnxruntime               # Für lokale Inferenz-Tests
 librosa
 soundfile
 audiomentations
+sounddevice
 
 # Visualisierung
 matplotlib

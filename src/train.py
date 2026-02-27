@@ -31,9 +31,18 @@ def main():
         json.dump({'classes': full_ds.classes}, f)
 
     train_size = int(0.9 * len(full_ds))
-    train_ds, val_ds = random_split(full_ds,[train_size, len(full_ds) - train_size])
+    train_ds, val_ds = random_split(full_ds, [train_size, len(full_ds) - train_size])
 
-    sampler = get_balanced_sampler(train_ds.dataset)
+    from collections import Counter
+    import numpy as np
+    from torch.utils.data import WeightedRandomSampler
+
+    train_labels = [full_ds.get_all_labels()[i] for i in train_ds.indices]
+    counts = Counter(train_labels)
+    weights = {cls: 1.0 / np.sqrt(c) for cls, c in counts.items()}
+    sample_weights = torch.tensor([weights[l] for l in train_labels])
+
+    sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=4, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 

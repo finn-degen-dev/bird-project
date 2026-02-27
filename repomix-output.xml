@@ -89,184 +89,6 @@ requirements.txt
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/data_prep.py">
-import pandas as pd
-import requests
-import os
-import concurrent.futures
-from tqdm import tqdm
-import torch
-import librosa
-import numpy as np
-import warnings
-
-warnings.filterwarnings("ignore")
-
-# Importiere alle Variablen aus der config.py
-from config import *
-
-API_KEY = os.getenv("XENOCANTO_API_KEY", "")
-
-def fetch_page(url, params, page):
-    params['page'] = page
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        if r.status_code == 200:
-            return r.json().get('recordings',[])
-    except:
-        pass
-    return[]
-
-def step1_get_metadata():
-    print(f"🇩🇪 Schritt 1/3: Erfasse Metadaten (Vögel aus {XC_SPECIES_COUNTRY}, Audio aus {XC_RECORDING_AREA})...")
-    
-    # Wenn wir die Qualitäten oder Längen ändern, wollen wir neue Metadaten laden.
-    # Für den schnellen Test: Einfach metadata.csv löschen, um diesen Schritt neu zu erzwingen.
-    if os.path.exists(METADATA_FILE):
-        print("✅ Metadaten existieren bereits. (Lösche die metadata.csv, falls du Filter geändert hast!)")
-        return pd.read_csv(METADATA_FILE)
-
-    url = "https://xeno-canto.org/api/3/recordings"
-    
-    # 1. Ermittle die relevanten Arten
-    params_species = {'query': XC_SPECIES_LOCATION, 'key': API_KEY, 'per_page': 500}
-    try:
-        num_pages_ger = requests.get(url, params=params_ger).json()['numPages']
-    except Exception as e:
-        print(f"❌ API Error bei Xeno-Canto (Schritt 1): {e}")
-        return None
-
-    target_species = set()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_ger.copy(), p) for p in range(1, num_pages_ger + 1)]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_ger, desc="Scanne Arten"):
-            for rec in future.result():
-                target_species.add(rec['en'])
-
-    # 2. Lade Europa-Daten (OHNE Qualitätsfilter in der API, wir filtern lokal!)
-    query_str = f'{XC_RECORDING_LOCATION} grp:birds len:{XC_MIN_LENGTH}-{XC_MAX_LENGTH}' 
-    params_eu = {'query': query_str, 'key': API_KEY, 'per_page': 500}
-    
-    try:
-        num_pages_eu = requests.get(url, params=params_eu).json()['numPages']
-    except Exception as e:
-        print(f"❌ API Error bei Xeno-Canto (Schritt 2): {e}")
-        return None
-    
-    valid_recordings =[]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_eu.copy(), p) for p in range(1, num_pages_eu + 1)]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_eu, desc="Lade Datensätze"):
-            for rec in future.result():
-                # --- HIER IST DER LOKALE FILTER ---
-                # 1. Ist es eine der gesuchten Arten?
-                # 2. Entspricht die Qualität unseren Vorgaben aus XC_QUALITIES?
-                if rec['en'] in target_species and rec.get('q') in XC_QUALITIES:
-                    valid_recordings.append({
-                        'id': rec['id'], 'species': rec['en'], 'scientific': f"{rec['gen']} {rec['sp']}",
-                        'sex': rec['sex'], 'type': rec['type'], 'quality': rec['q'],
-                        'url': rec['file'], 'length': rec['length'], 'filename': f"XC{rec['id']}.mp3"
-                    })
-
-    df = pd.DataFrame(valid_recordings)
-    
-    if len(df) == 0:
-        print("❌ Keine Aufnahmen gefunden, die auf die Filter passen!")
-        return None
-
-    # Filtere extrem seltene Arten raus (< 10 Samples), da das Netz sonst abstürzt
-    counts = df['species'].value_counts()
-    valid_counts = counts[counts >= 10].index
-    df = df[df['species'].isin(valid_counts)]
-    
-    os.makedirs(DATA_DIR, exist_ok=True)
-    df.to_csv(METADATA_FILE, index=False)
-    print(f"✅ {len(df)} Aufnahmen in metadata.csv gespeichert (Qualitäten: {XC_QUALITIES}).")
-    return df
-
-def step2_download_audio(df):
-    print("\n⬇️ Schritt 2/3: Lade fehlende Audio-Dateien herunter...")
-    os.makedirs(RAW_AUDIO_DIR, exist_ok=True)
-    
-    tasks =[]
-    for _, row in df.iterrows():
-        filepath = os.path.join(RAW_AUDIO_DIR, row['filename'])
-        if not os.path.exists(filepath):
-            tasks.append((row['url'], filepath))
-
-    if not tasks:
-        print("✅ Alle Audio-Dateien sind bereits heruntergeladen.")
-        return
-
-    def download_file(task):
-        url, filepath = task
-        try:
-            r = requests.get(url, timeout=30)
-            if r.status_code == 200:
-                with open(filepath, 'wb') as f:
-                    f.write(r.content)
-        except: 
-            pass
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        list(tqdm(executor.map(download_file, tasks), total=len(tasks), desc="Downloading"))
-
-def step3_preprocess_tensors(df):
-    print(f"\n🚀 Schritt 3/3: Generiere Tensoren ({DURATION}s Fenster, Hop-Length {HOP_LENGTH})...")
-    os.makedirs(PROCESSED_DIR, exist_ok=True)
-    
-    success = 0
-    
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="Verarbeite"):
-        mp3_path = os.path.join(RAW_AUDIO_DIR, row['filename'])
-        pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
-
-        # Überspringen, wenn der Tensor schon existiert oder die MP3 beim Download fehlschlug
-        if os.path.exists(pt_path) or not os.path.exists(mp3_path):
-            continue
-
-        try:
-            # Wir laden absichtlich etwas MEHR als DURATION (z.B. das Doppelte, max 15s), 
-            # damit wir im Training zufällige Ausschnitte wählen können.
-            load_duration = max(15, DURATION * 2)
-            y, sr = librosa.load(mp3_path, sr=SAMPLE_RATE, duration=load_duration)
-            
-            # Padding, falls die Datei kürzer ist als unsere Config-Vorgabe
-            target_len_samples = SAMPLE_RATE * DURATION
-            if len(y) < target_len_samples:
-                y = np.pad(y, (0, target_len_samples - len(y)), mode='constant')
-
-            # WICHTIG: Nutze hop_length aus der Config!
-            melspec = librosa.feature.melspectrogram(
-                y=y, sr=sr, n_mels=N_MELS, fmax=FMAX, hop_length=HOP_LENGTH
-            )
-            log_melspec = librosa.power_to_db(melspec, ref=np.max)
-
-            # Normalisierung auf 0-1
-            min_val, max_val = log_melspec.min(), log_melspec.max()
-            spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
-            spec_norm = np.flipud(spec_norm).copy()
-
-            # Speichern als float16 (Spart 50% SSD Speicherplatz!)
-            tensor = torch.tensor(spec_norm, dtype=torch.float16)
-            torch.save(tensor, pt_path)
-            success += 1
-        except Exception as e:
-            pass
-
-    print(f"✅ Fertig. {success} neue Tensoren generiert.")
-
-def main():
-    df = step1_get_metadata()
-    if df is not None:
-        step2_download_audio(df)
-        step3_preprocess_tensors(df)
-    print("\n🎉 Datenpipeline abgeschlossen. Du kannst jetzt das Training starten!")
-
-if __name__ == "__main__":
-    main()
-</file>
-
 <file path="src/experiments/attention_test.py">
 
 </file>
@@ -286,7 +108,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models import get_model
 from config import *
 
-# Eine einfache Hilfsklasse für Grad-CAM
 class GradCAM:
     def __init__(self, model, target_layer):
         self.model = model
@@ -306,55 +127,279 @@ class GradCAM:
         output = self.model(x)
         self.model.zero_grad()
         output[0, class_idx].backward()
-        
-        # Gewichte der Feature Maps berechnen
+
         weights = torch.mean(self.gradients, dim=(2, 3), keepdim=True)
         cam = torch.sum(weights * self.activations, dim=1).squeeze()
-        cam = F.relu(cam) # Nur positive Einflüsse behalten
-        
+        cam = F.relu(cam)
+
         cam -= cam.min()
         cam /= cam.max()
         return cam.cpu().detach().numpy()
 
 def main():
-    # 1. Modell laden (Beispiel ResNet18)
+
     model = get_model("resnet", len(CLASSES)).to(DEVICE)
     model.load_state_dict(torch.load(os.path.join(MODELS_DIR, "resnet_best.pth"), map_location=DEVICE))
     model.eval()
 
-    # Den letzten Convolutional Layer des ResNets auswählen
     cam_extractor = GradCAM(model, model.layer4[-1])
 
-    # 2. Ein Beispiel-Audio laden (aus eurem Test-Ordner)
-    sample_path = os.path.join(RAW_AUDIO_DIR, "Amsel/beispiel.mp3") # ANPASSEN!
+    sample_path = os.path.join(RAW_AUDIO_DIR, "Amsel/beispiel.mp3")
     y, sr = librosa.load(sample_path, sr=SAMPLE_RATE, duration=DURATION)
-    
-    # 3. Spektrogramm erstellen (genau wie im Training)
+
     melspec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=N_MELS, fmax=FMAX)
     log_melspec = librosa.power_to_db(melspec, ref=np.max)
     log_melspec = (log_melspec - log_melspec.min()) / (log_melspec.max() - log_melspec.min())
-    
-    # 4. Als Tensor für das Modell vorbereiten
+
     tensor = torch.tensor(log_melspec, dtype=torch.float32).unsqueeze(0).repeat(3, 1, 1).unsqueeze(0).to(DEVICE)
     tensor = F.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False)
 
-    # 5. Heatmap generieren (z.B. für Klasse 0 = Amsel)
     heatmap = cam_extractor(tensor, class_idx=0)
 
-    # 6. Plotten
     plt.figure(figsize=(10, 5))
     plt.imshow(log_melspec, origin='lower', aspect='auto', cmap='gray')
-    
-    # Heatmap resizen, um über das Spektrogramm zu passen
+
     import cv2
     heatmap_resized = cv2.resize(heatmap, (log_melspec.shape[1], log_melspec.shape[0]))
     plt.imshow(heatmap_resized, origin='lower', aspect='auto', cmap='jet', alpha=0.5)
-    
+
     plt.title("Grad-CAM: Worauf achtet die KI?")
     plt.ylabel("Frequenz")
     plt.xlabel("Zeit")
     plt.savefig("docs/poster/gradcam_amsel.png", dpi=300)
     print("Heatmap gespeichert unter docs/poster/gradcam_amsel.png")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/data_prep.py">
+import pandas as pd
+import requests
+import os
+import concurrent.futures
+from tqdm import tqdm
+import torch
+import librosa
+import numpy as np
+import warnings
+
+warnings.filterwarnings("ignore")
+
+from config import *
+
+API_KEY = os.getenv("XENOCANTO_API_KEY", "")
+
+def fetch_page(url, params, page):
+    params['page'] = page
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code == 200:
+            return r.json().get('recordings',[])
+    except:
+        pass
+    return[]
+
+def step1_get_metadata():
+    print(f" Schritt 1/3: Erfasse Metadaten (Vögel aus {XC_SPECIES_COUNTRY}, Audio aus {XC_RECORDING_AREA})...")
+
+    if os.path.exists(METADATA_FILE):
+        print(" Metadaten existieren bereits. (Lösche die metadata.csv, falls du Filter geändert hast!)")
+        return pd.read_csv(METADATA_FILE)
+
+    url = "https://xeno-canto.org/api/3/recordings"
+
+    params_species = {'query': XC_SPECIES_LOCATION, 'key': API_KEY, 'per_page': 500}
+    try:
+        num_pages_ger = requests.get(url, params=params_ger).json()['numPages']
+    except Exception as e:
+        print(f" API Error bei Xeno-Canto (Schritt 1): {e}")
+        return None
+
+    target_species = set()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures =[executor.submit(fetch_page, url, params_ger.copy(), p) for p in range(1, num_pages_ger + 1)]
+        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_ger, desc="Scanne Arten"):
+            for rec in future.result():
+                target_species.add(rec['en'])
+
+    query_str = f'{XC_RECORDING_LOCATION} grp:birds len:{XC_MIN_LENGTH}-{XC_MAX_LENGTH}'
+    params_eu = {'query': query_str, 'key': API_KEY, 'per_page': 500}
+
+    try:
+        num_pages_eu = requests.get(url, params=params_eu).json()['numPages']
+    except Exception as e:
+        print(f" API Error bei Xeno-Canto (Schritt 2): {e}")
+        return None
+
+    valid_recordings =[]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures =[executor.submit(fetch_page, url, params_eu.copy(), p) for p in range(1, num_pages_eu + 1)]
+        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_eu, desc="Lade Datensätze"):
+            for rec in future.result():
+
+                if rec['en'] in target_species and rec.get('q') in XC_QUALITIES:
+                    valid_recordings.append({
+                        'id': rec['id'], 'species': rec['en'], 'scientific': f"{rec['gen']} {rec['sp']}",
+                        'sex': rec['sex'], 'type': rec['type'], 'quality': rec['q'],
+                        'url': rec['file'], 'length': rec['length'], 'filename': f"XC{rec['id']}.mp3"
+                    })
+
+    df = pd.DataFrame(valid_recordings)
+
+    if len(df) == 0:
+        print(" Keine Aufnahmen gefunden, die auf die Filter passen!")
+        return None
+
+    counts = df['species'].value_counts()
+    valid_counts = counts[counts >= 10].index
+    df = df[df['species'].isin(valid_counts)]
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    df.to_csv(METADATA_FILE, index=False)
+    print(f" {len(df)} Aufnahmen in metadata.csv gespeichert (Qualitäten: {XC_QUALITIES}).")
+    return df
+
+def step2_download_audio(df):
+    print("\n Schritt 2/3: Lade fehlende Audio-Dateien herunter...")
+    os.makedirs(RAW_AUDIO_DIR, exist_ok=True)
+
+    tasks =[]
+    for _, row in df.iterrows():
+        filepath = os.path.join(RAW_AUDIO_DIR, row['filename'])
+        if not os.path.exists(filepath):
+            tasks.append((row['url'], filepath))
+
+    if not tasks:
+        print(" Alle Audio-Dateien sind bereits heruntergeladen.")
+        return
+
+    def download_file(task):
+        url, filepath = task
+        try:
+            r = requests.get(url, timeout=30)
+            if r.status_code == 200:
+                with open(filepath, 'wb') as f:
+                    f.write(r.content)
+        except:
+            pass
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        list(tqdm(executor.map(download_file, tasks), total=len(tasks), desc="Downloading"))
+
+def step3_preprocess_tensors(df):
+    print(f"\n Schritt 3/3: Generiere Tensoren ({DURATION}s Fenster, Hop-Length {HOP_LENGTH})...")
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
+
+    success = 0
+
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="Verarbeite"):
+        mp3_path = os.path.join(RAW_AUDIO_DIR, row['filename'])
+        pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
+
+        if os.path.exists(pt_path) or not os.path.exists(mp3_path):
+            continue
+
+        try:
+
+            load_duration = max(15, DURATION * 2)
+            y, sr = librosa.load(mp3_path, sr=SAMPLE_RATE, duration=load_duration)
+
+            target_len_samples = SAMPLE_RATE * DURATION
+            if len(y) < target_len_samples:
+                y = np.pad(y, (0, target_len_samples - len(y)), mode='constant')
+
+            melspec = librosa.feature.melspectrogram(
+                y=y, sr=sr, n_mels=N_MELS, fmax=FMAX, hop_length=HOP_LENGTH
+            )
+            log_melspec = librosa.power_to_db(melspec, ref=np.max)
+
+            min_val, max_val = log_melspec.min(), log_melspec.max()
+            spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+            spec_norm = np.flipud(spec_norm).copy()
+
+            tensor = torch.tensor(spec_norm, dtype=torch.float16)
+            torch.save(tensor, pt_path)
+            success += 1
+        except Exception as e:
+            pass
+
+    print(f" Fertig. {success} neue Tensoren generiert.")
+
+def main():
+    df = step1_get_metadata()
+    if df is not None:
+        step2_download_audio(df)
+        step3_preprocess_tensors(df)
+    print("\n Datenpipeline abgeschlossen. Du kannst jetzt das Training starten!")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/showcase.py">
+
+</file>
+
+<file path="src/experiments/song_vs_call.py">
+import sys
+import os
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.manifold import TSNE
+from torch.utils.data import DataLoader, Subset
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import *
+from models import get_model
+from data import SmartBirdDataset
+
+def main():
+    print(" T-SNE Visualisierung: Rufe vs. Gesänge...")
+
+    exp_name = "efficientnet_task-type_attn-False_layers-3"
+    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+
+    if not os.path.exists(model_path):
+        print(f" Bitte zuerst das Modell trainieren: python src/train.py --model efficientnet --task type")
+        return
+
+    ds = SmartBirdDataset(mode='test', task='type')
+    indices = np.random.choice(len(ds), min(1000, len(ds)), replace=False)
+    loader = DataLoader(Subset(ds, indices), batch_size=32, shuffle=False)
+
+    model = get_model("efficientnet", 2).to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+
+    features =[]
+    def hook(module, input, output):
+        features.append(input[0].cpu().numpy())
+    handle = model.classifier[1].register_forward_hook(hook)
+
+    labels_list =[]
+    with torch.no_grad():
+        for inputs, labels in loader:
+            _ = model(inputs.to(DEVICE))
+            labels_list.extend(labels.numpy())
+
+    handle.remove()
+    embeddings = np.concatenate(features)
+
+    print("Berechne T-SNE...")
+    tsne = TSNE(n_components=2, random_state=42)
+    features_2d = tsne.fit_transform(embeddings)
+
+    plt.figure(figsize=(10, 8))
+    class_names = [ds.classes[i] for i in labels_list]
+    sns.scatterplot(x=features_2d[:, 0], y=features_2d[:, 1], hue=class_names, palette={'song': '#1f77b4', 'call': '#ff7f0e'}, s=60)
+    plt.title("Internes KI-Verständnis: Ruf vs. Gesang")
+
+    out_path = os.path.join(VISUALS_DIR, "tsne_song_vs_call.png")
+    plt.savefig(out_path, dpi=300)
+    print(f" Gespeichert unter {out_path}")
 
 if __name__ == "__main__":
     main()
@@ -374,26 +419,22 @@ class SmartBirdDataset(Dataset):
     def __init__(self, mode='train', task='species', filter_sex=None, min_samples=10):
         self.mode = mode
         self.task = task
-        
+
         if not os.path.exists(METADATA_FILE):
             raise FileNotFoundError(f"Die Datei {METADATA_FILE} fehlt. Bitte 'python src/data_prep.py' ausführen.")
 
         df = pd.read_csv(METADATA_FILE)
-        
-        # Blacklist
+
         df = df[~df['species'].isin(["Identity unknown", "Soundscape", "Mystery bird", "?"])]
-        
-        # Optionaler Geschlechts-Filter (für eure Experimente)
+
         if filter_sex:
             df = df[df['sex'].astype(str).str.lower() == filter_sex.lower()]
-            
-        # Seltene Klassen filtern
+
         if task == 'species':
             counts = df['species'].value_counts()
             valid_species = counts[counts >= min_samples].index
             df = df[df['species'].isin(valid_species)]
 
-        # Nur Datensätze behalten, zu denen der Tensor (.pt) existiert
         df['pt_exists'] = df['filename'].apply(
             lambda x: os.path.exists(os.path.join(PROCESSED_DIR, x.replace('.mp3', '.pt')))
         )
@@ -402,12 +443,11 @@ class SmartBirdDataset(Dataset):
         if len(self.df) == 0:
             raise ValueError("Keine gültigen Tensoren gefunden! Stimmen die Pfade?")
 
-        # Klassen-Indizes erstellen
         if task == 'species':
             self.classes = sorted(self.df['species'].unique().tolist())
         elif task == 'type':
             self.classes = ['call', 'song']
-            
+
         self.class_to_idx = {cls: i for i, cls in enumerate(self.classes)}
         print(f"[{mode.upper()}] Dataset bereit: {len(self.df)} Samples, {len(self.classes)} Klassen.")
 
@@ -422,49 +462,41 @@ class SmartBirdDataset(Dataset):
             return self.class_to_idx['song' if 'song' in desc else 'call']
 
     def get_all_labels(self):
-        # Wird für den WeightedRandomSampler benötigt
+
         return[self._get_label(row) for _, row in self.df.iterrows()]
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
-        
-        # Tensor laden (ist in float16 gespeichert, wir konvertieren zurück zu float32)
+
         spec = torch.load(pt_path).float()
-        
-        # --- DYNAMISCHER CROP (Nutzt TARGET_WIDTH aus config.py) ---
+
         current_width = spec.shape[1]
-        
+
         if current_width > TARGET_WIDTH:
             if self.mode == 'train':
-                # Im Training: Zufälliger Startpunkt (Data Augmentation durch Verschiebung)
+
                 start = np.random.randint(0, current_width - TARGET_WIDTH)
             else:
-                # In Evaluation: Immer exakt die Mitte nehmen (für konsistente Tests)
+
                 start = (current_width - TARGET_WIDTH) // 2
-                
+
             spec = spec[:, start : start + TARGET_WIDTH]
-            
+
         elif current_width < TARGET_WIDTH:
-            # Falls die Audiodatei doch mal zu kurz ist, wird mit Stille (0) aufgefüllt
+
             pad_amount = TARGET_WIDTH - current_width
             spec = torch.nn.functional.pad(spec, (0, pad_amount))
 
-        # --- FORMATIERUNG FÜR DAS NEURONALE NETZ ---
-        # 1. Dimension aufbauen: Aus [128, X] wird [1, 128, X]
         tensor = spec.unsqueeze(0)
-        
-        # 2. Auf 3 Kanäle duplizieren (ImageNet Modelle wie ResNet erwarten RGB)
+
         tensor = tensor.repeat(3, 1, 1)
-        
-        # 3. Größe anpassen auf z.B. 224x224 (Interpolation auf der GPU)
+
         tensor = torch.nn.functional.interpolate(
             tensor.unsqueeze(0), size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False
         ).squeeze(0)
-        
-        return tensor, self._get_label(row)
 
-# --- HILFSFUNKTIONEN FÜR DAS TRAINING ---
+        return tensor, self._get_label(row)
 
 def get_spec_augmenter():
     """Erstellt den GPU-beschleunigten SpecAugment Filter"""
@@ -488,81 +520,10 @@ def get_balanced_sampler(dataset):
     """Sorgt dafür, dass seltene und häufige Vogelarten gleich oft trainiert werden"""
     labels = np.array(dataset.get_all_labels())
     counts = Counter(labels)
-    # Gewichtung: 1 / sqrt(Anzahl) ist ein guter Sweetspot
+
     weights = {cls: 1.0 / np.sqrt(c) for cls, c in counts.items()}
     sample_weights = torch.tensor([weights[l] for l in labels])
     return WeightedRandomSampler(sample_weights, len(sample_weights))
-</file>
-
-<file path="src/showcase.py">
-
-</file>
-
-<file path="src/experiments/song_vs_call.py">
-import sys
-import os
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.manifold import TSNE
-from torch.utils.data import DataLoader, Subset
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import *
-from models import get_model
-from data import SmartBirdDataset
-
-def main():
-    print("🎨 T-SNE Visualisierung: Rufe vs. Gesänge...")
-    
-    exp_name = "efficientnet_task-type_attn-False_layers-3"
-    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
-    
-    if not os.path.exists(model_path):
-        print(f"❌ Bitte zuerst das Modell trainieren: python src/train.py --model efficientnet --task type")
-        return
-
-    # Dataset laden (Nur 1000 Samples für T-SNE, sonst wird es zu unübersichtlich)
-    ds = SmartBirdDataset(mode='test', task='type')
-    indices = np.random.choice(len(ds), min(1000, len(ds)), replace=False)
-    loader = DataLoader(Subset(ds, indices), batch_size=32, shuffle=False)
-
-    model = get_model("efficientnet", 2).to(DEVICE)
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-    model.eval()
-
-    # Features VOR dem letzten Layer extrahieren
-    features =[]
-    def hook(module, input, output):
-        features.append(input[0].cpu().numpy())
-    handle = model.classifier[1].register_forward_hook(hook)
-
-    labels_list =[]
-    with torch.no_grad():
-        for inputs, labels in loader:
-            _ = model(inputs.to(DEVICE))
-            labels_list.extend(labels.numpy())
-            
-    handle.remove()
-    embeddings = np.concatenate(features)
-
-    # T-SNE
-    print("Berechne T-SNE...")
-    tsne = TSNE(n_components=2, random_state=42)
-    features_2d = tsne.fit_transform(embeddings)
-
-    plt.figure(figsize=(10, 8))
-    class_names = [ds.classes[i] for i in labels_list]
-    sns.scatterplot(x=features_2d[:, 0], y=features_2d[:, 1], hue=class_names, palette={'song': '#1f77b4', 'call': '#ff7f0e'}, s=60)
-    plt.title("Internes KI-Verständnis: Ruf vs. Gesang")
-    
-    out_path = os.path.join(VISUALS_DIR, "tsne_song_vs_call.png")
-    plt.savefig(out_path, dpi=300)
-    print(f"✅ Gespeichert unter {out_path}")
-
-if __name__ == "__main__":
-    main()
 </file>
 
 <file path="src/evaluate.py">
@@ -580,16 +541,13 @@ from models import get_model
 
 def evaluate_model(exp_name, model_type, use_attention, cnn_layers):
     print(f"Evaluatiere {exp_name}...")
-    
-    # Klassen laden
+
     with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
         classes = json.load(f)['classes']
 
-    # Daten laden (Test)
-    val_ds = SmartBirdDataset(mode='test', task='species') # Ohne Augmentation!
+    val_ds = SmartBirdDataset(mode='test', task='species')
     loader = DataLoader(val_ds, batch_size=32, shuffle=False, num_workers=4)
 
-    # Modell laden
     model = get_model(model_type, len(classes), use_attention, cnn_layers).to(DEVICE)
     model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
     model.eval()
@@ -602,28 +560,25 @@ def evaluate_model(exp_name, model_type, use_attention, cnn_layers):
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.numpy())
 
-    # Accuracy berechnen
     acc = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
-    
-    # Confusion Matrix Plot speichern
+
     cm = confusion_matrix(all_labels, all_preds)
     plt.figure(figsize=(12, 10))
-    # Um Übersicht zu wahren, Plotten wir Matrix nur, wenn es < 50 Klassen sind,
-    # ansonsten ist es ein riesiger unlesbarer Block.
+
     if len(classes) <= 50:
         sns.heatmap(cm, annot=False, cmap='Blues', xticklabels=classes, yticklabels=classes)
     else:
         sns.heatmap(cm, annot=False, cmap='Blues')
-        
+
     plt.title(f"Confusion Matrix ({exp_name}) - Acc: {acc:.1%}")
     plt.savefig(os.path.join(VISUALS_DIR, f"{exp_name}_confusion.png"), dpi=300)
     plt.close()
-    
+
     return acc
 
 def main():
     parser = argparse.ArgumentParser()
-    # Kommandozeilenargumente für das zu evaluierende Modell
+
     parser.add_argument("--model", choices=["custom", "resnet", "efficientnet"], required=True)
     parser.add_argument("--use-attention", action="store_true")
     parser.add_argument("--cnn-layers", type=int, default=3)
@@ -631,7 +586,7 @@ def main():
 
     exp_name = f"{args.model}_task-species_attn-{args.use_attention}_layers-{args.cnn_layers}"
     acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers)
-    print(f"\n✅ {exp_name} Accuracy: {acc:.2%}")
+    print(f"\n {exp_name} Accuracy: {acc:.2%}")
 
 if __name__ == "__main__":
     main()
@@ -642,7 +597,6 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
-# Das Experiment: Hilft Attention?
 class ChannelAttention(nn.Module):
     def __init__(self, channels, reduction=8):
         super().__init__()
@@ -658,15 +612,14 @@ class ChannelAttention(nn.Module):
         y = self.fc(self.avg_pool(x).view(b, c)).view(b, c, 1, 1)
         return x * y.expand_as(x)
 
-# Das CustomCNN, das sich per Argument skalieren lässt
 class CustomCNN(nn.Module):
     def __init__(self, num_classes, use_attention=False, num_layers=3):
         super().__init__()
         self.use_attention = use_attention
-        
+
         layers =[nn.Conv2d(3, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2)]
         in_channels = 32
-        
+
         for _ in range(1, num_layers):
             out_channels = in_channels * 2
             layers.extend([nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2)])
@@ -674,8 +627,7 @@ class CustomCNN(nn.Module):
 
         self.features = nn.Sequential(*layers)
         self.attention = ChannelAttention(in_channels) if use_attention else nn.Identity()
-        
-        # LazyLinear ist genial: Es berechnet die nötigen Input-Features automatisch beim ersten Durchlauf!
+
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.LazyLinear(512), nn.ReLU(), nn.Dropout(0.5),
@@ -693,7 +645,7 @@ class EmbeddingNet(nn.Module):
         self.backbone = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
         in_features = self.backbone.classifier[1].in_features
         self.backbone.classifier = nn.Identity()
-        
+
         self.head = nn.Sequential(
             nn.Linear(in_features, 1024),
             nn.BatchNorm1d(1024),
@@ -732,10 +684,8 @@ def main():
     parser.add_argument("--model", choices=["custom", "resnet", "efficientnet"], default="efficientnet")
     args = parser.parse_args()
 
-    # Wir exportieren unser bestes (Species) Modell
     exp_name = f"{args.model}_task-species_attn-False_layers-3"
-    
-    # Hier liest man eigentlich die echten Klassen aus json, der Einfachheit halber:
+
     import json
     with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
         num_classes = len(json.load(f)['classes'])
@@ -757,51 +707,10 @@ def main():
         input_names=['input'], output_names=['output'],
         dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
     )
-    print("✅ ONNX Export erfolgreich. Perfekt für den Raspberry Pi!")
+    print(" ONNX Export erfolgreich. Perfekt für den Raspberry Pi!")
 
 if __name__ == "__main__":
     main()
-</file>
-
-<file path=".gitignore">
-# Python Environments & Cache
-.venv/
-__pycache__/
-*.py[cod]
-*$py.class
-
-# OS Files
-.DS_Store
-Thumbs.db
-
-# -----------------------------------
-# DATA & MODELS (WICHTIG!)
-# -----------------------------------
-# Wir ignorieren alles im data/ Ordner...
-data/*
-
-# ... AUSSER diese speziellen Dateien/Ordner:
-!data/.gitkeep
-!data/models/
-!data/metadata.csv
-
-
-
-# Und wir stellen sicher, dass die schweren Audio- und Tensor-Dateien immer ignoriert werden
-data/raw_audio/
-data/processed_tensors/
-
-# -----------------------------------
-# LaTeX Hilfsdateien
-# -----------------------------------
-*.aux
-*.fdb_latexmk
-*.fls
-*.log
-*.out
-*.synctex.gz
-*.bbl
-*.blg
 </file>
 
 <file path="flake.lock">
@@ -865,76 +774,6 @@ data/processed_tensors/
   },
   "root": "root",
   "version": 7
-}
-</file>
-
-<file path="flake.nix">
-{
-  description = "Piepmatz Polizei - Machine Learning & LaTeX Environment";
-
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
-  };
-
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          config.allowUnfree = true;
-        };
-        
-        # Python 3.12 ist aktuell der "Sweetspot" für Machine Learning auf NixOS
-        python = pkgs.python312;
-        
-        lib-path = with pkgs; lib.makeLibraryPath[
-          stdenv.cc.cc.lib
-          zlib
-          glib
-          libsndfile
-          ffmpeg
-          cudaPackages.cudatoolkit
-          cudaPackages.cudnn
-          xorg.libX11
-          xorg.libXext
-          xorg.libSM
-          xorg.libICE
-          xorg.libXrender
-        ];
-
-        tex = pkgs.texlive.combine {
-          inherit (pkgs.texlive) scheme-full;
-        };
-
-      in
-      {
-        devShells.default = pkgs.mkShell {
-          buildInputs =[
-            python
-            python.pkgs.pip         # Nutzt exakt die Pip-Version von Python 3.12
-            python.pkgs.virtualenv
-            pkgs.libsndfile
-            pkgs.ffmpeg
-            tex
-          ];
-
-          shellHook = ''
-            export LD_LIBRARY_PATH="${lib-path}:$LD_LIBRARY_PATH"
-            
-            if [ ! -d ".venv" ]; then
-              echo "🐣 Erstelle neue Python Virtual Environment (.venv)..."
-              ${python}/bin/python -m venv .venv
-            fi
-            
-            source .venv/bin/activate
-            
-            echo ""
-            echo "🐦 Piepmatz Polizei Nix-Environment geladen (Python 3.12)!"
-          '';
-        };
-      }
-    );
 }
 </file>
 
@@ -1231,47 +1070,118 @@ Ein besonderer Dank geht an David May für die Gestaltung des Titelbildes sowie 
 \end{document}
 </file>
 
-<file path="src/config.py">
-import os
-import torch
+<file path=".gitignore">
+# Python Environments & Cache
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-METADATA_FILE = os.path.join(DATA_DIR, "metadata.csv")
-PROCESSED_DIR = os.path.join(DATA_DIR, "processed_tensors")
-MODELS_DIR = os.path.join(DATA_DIR, "models")
-VISUALS_DIR = os.path.join(BASE_DIR, "visuals", "experiments")
+# OS Files
+.DS_Store
+Thumbs.db
 
-# --- AUDIO & BILD PARAMETER ---
-SAMPLE_RATE = 32000
-DURATION = 5         # <--- Ändere das, und der ganze Code passt sich an!
-N_MELS = 128
-FMAX = 16000
-IMG_SIZE = 224
-HOP_LENGTH = 512     # Librosa Standard. Wichtig für die Zeit-Berechnung!
+# -----------------------------------
+# DATA & MODELS (WICHTIG!)
+# -----------------------------------
+# Wir ignorieren alles im data/ Ordner...
+data/*
 
-# Errechnet automatisch die nötige Breite des Spektrogramms (Pixel)
-TARGET_WIDTH = int((SAMPLE_RATE * DURATION) / HOP_LENGTH) + 1
+# ... AUSSER diese speziellen Dateien/Ordner:
+!data/.gitkeep
+!data/models/
+!data/metadata.csv
 
-# --- XENO-CANTO FILTER PARAMETER ---
-# Welche Arten wollen wir? (Gib hier einen gültigen Xeno-Canto Ort-Tag ein)
-# Beispiele: "cnt:germany" (Deutschland), "area:europe" (Ganz Europa)
-XC_SPECIES_LOCATION = "cnt:germany"  
 
-# Woher dürfen die Audio-Aufnahmen dieser Arten stammen?
-# Beispiele: "area:europe" (Europa), "cnt:germany" (Nur Deutschland)
-XC_RECORDING_LOCATION = "area:europe"    
 
-# Welche Qualitäten lassen wir zu? (A=Studio, E=Viel Rauschen)
-XC_QUALITIES =["A", "B", "C", "D"] 
+# Und wir stellen sicher, dass die schweren Audio- und Tensor-Dateien immer ignoriert werden
+data/raw_audio/
+data/processed_tensors/
 
-XC_MIN_LENGTH = 5  # in Sekunden
-XC_MAX_LENGTH = 60 # in Sekunden
+# -----------------------------------
+# LaTeX Hilfsdateien
+# -----------------------------------
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.bbl
+*.blg
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# extra stuff
+clean_code.py
+</file>
 
-os.makedirs(MODELS_DIR, exist_ok=True)
-os.makedirs(VISUALS_DIR, exist_ok=True)
+<file path="flake.nix">
+{
+  description = "Piepmatz Polizei - Machine Learning & LaTeX Environment";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+        };
+        
+        # Python 3.12 ist aktuell der "Sweetspot" für Machine Learning auf NixOS
+        python = pkgs.python312;
+        
+        lib-path = with pkgs; lib.makeLibraryPath[
+          stdenv.cc.cc.lib
+          zlib
+          glib
+          libsndfile
+          ffmpeg
+          cudaPackages.cudatoolkit
+          cudaPackages.cudnn
+          xorg.libX11
+          xorg.libXext
+          xorg.libSM
+          xorg.libICE
+          xorg.libXrender
+        ];
+
+        tex = pkgs.texlive.combine {
+          inherit (pkgs.texlive) scheme-full;
+        };
+
+      in
+      {
+        devShells.default = pkgs.mkShell {
+          buildInputs =[
+            python
+            python.pkgs.pip         # Nutzt exakt die Pip-Version von Python 3.12
+            python.pkgs.virtualenv
+            pkgs.libsndfile
+            pkgs.ffmpeg
+            tex
+          ];
+
+          shellHook = ''
+            export LD_LIBRARY_PATH="${lib-path}:$LD_LIBRARY_PATH"
+            
+            if [ ! -d ".venv" ]; then
+              echo "🐣 Erstelle neue Python Virtual Environment (.venv)..."
+              ${python}/bin/python -m venv .venv
+            fi
+            
+            source .venv/bin/activate
+            
+            echo ""
+            echo "🐦 Piepmatz Polizei Nix-Environment geladen (Python 3.12)!"
+          '';
+        };
+      }
+    );
+}
 </file>
 
 <file path="requirements.txt">
@@ -1304,6 +1214,41 @@ aiohttp
 tqdm
 </file>
 
+<file path="src/config.py">
+import os
+import torch
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+METADATA_FILE = os.path.join(DATA_DIR, "metadata.csv")
+PROCESSED_DIR = os.path.join(DATA_DIR, "processed_tensors")
+MODELS_DIR = os.path.join(DATA_DIR, "models")
+VISUALS_DIR = os.path.join(BASE_DIR, "visuals", "experiments")
+
+SAMPLE_RATE = 32000
+DURATION = 5
+N_MELS = 128
+FMAX = 16000
+IMG_SIZE = 224
+HOP_LENGTH = 512
+
+TARGET_WIDTH = int((SAMPLE_RATE * DURATION) / HOP_LENGTH) + 1
+
+XC_SPECIES_LOCATION = "cnt:germany"
+
+XC_RECORDING_LOCATION = "area:europe"
+
+XC_QUALITIES =["A", "B", "C", "D"]
+
+XC_MIN_LENGTH = 5
+XC_MAX_LENGTH = 60
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(VISUALS_DIR, exist_ok=True)
+</file>
+
 <file path="src/train.py">
 import argparse
 import time
@@ -1329,29 +1274,23 @@ def main():
     parser.add_argument("--cnn-layers", type=int, default=3, help="Anzahl Layers (nur Custom CNN)")
     args = parser.parse_args()
 
-    # Eindeutigen Namen für dieses Experiment generieren
     exp_name = f"{args.model}_task-{args.task}_attn-{args.use_attention}_layers-{args.cnn_layers}"
-    print(f"🚀 Starte Experiment: {exp_name}")
+    print(f" Starte Experiment: {exp_name}")
 
-    # 1. Daten laden
     full_ds = SmartBirdDataset(mode='train', task=args.task)
-    
-    # Klassenmapping speichern
+
     with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "w") as f:
         json.dump({'classes': full_ds.classes}, f)
 
     train_size = int(0.9 * len(full_ds))
     train_ds, val_ds = random_split(full_ds,[train_size, len(full_ds) - train_size])
-    
-    # Balanced Sampler für die 600 Klassen
+
     sampler = get_balanced_sampler(train_ds.dataset)
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=4, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
-    # 2. Modell & Architektur
     model = get_model(args.model, len(full_ds.classes), args.use_attention, args.cnn_layers).to(DEVICE)
-    
-    # Für Embedding ArcFace, sonst Label Smoothing CrossEntropy
+
     if args.model == "embedding":
         from pytorch_metric_learning import losses
         criterion = losses.SubCenterArcFaceLoss(num_classes=len(full_ds.classes), embedding_size=512).to(DEVICE)
@@ -1363,22 +1302,20 @@ def main():
     scaler = GradScaler()
     spec_augmenter = get_spec_augmenter()
 
-    # 3. Training Loop
     best_acc = 0.0
     for epoch in range(args.epochs):
         model.train()
         train_loss, correct, total = 0.0, 0, 0
-        
+
         pbar = tqdm(train_loader, desc=f"Ep {epoch+1}/{args.epochs} [Train]")
         for inputs, labels in pbar:
             inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
             optimizer.zero_grad()
-            
+
             with autocast():
-                # Augmentation
+
                 inputs = spec_augmenter(inputs)
-                
-                # MixUp (50% Chance)
+
                 if args.model != "embedding" and torch.rand(1).item() > 0.5:
                     inputs, targets_a, targets_b, lam = mixup_data(inputs, labels)
                     outputs = model(inputs)
@@ -1400,7 +1337,6 @@ def main():
 
         scheduler.step()
 
-        # Validation Loop
         model.eval()
         val_correct, val_total = 0, 0
         if args.model != "embedding":
@@ -1411,15 +1347,15 @@ def main():
                     _, preds = torch.max(outputs, 1)
                     val_correct += (preds == labels).sum().item()
                     val_total += labels.size(0)
-            
+
             val_acc = val_correct / val_total
             print(f"   => Val Acc: {val_acc:.2%}")
-            
+
             if val_acc > best_acc:
                 best_acc = val_acc
                 torch.save(model.state_dict(), os.path.join(MODELS_DIR, f"{exp_name}_best.pth"))
         else:
-            # Für Embeddings einfach immer speichern (Evaluierung ist aufwendiger, passiert im Evaluate Skript)
+
             torch.save(model.state_dict(), os.path.join(MODELS_DIR, f"{exp_name}_best.pth"))
 
 if __name__ == "__main__":
