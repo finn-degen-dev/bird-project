@@ -98,51 +98,5 @@ def main():
         output_filename="graph2_best_models_comparison.png"
     )
 
-    sliding_window_csv = os.path.join(CSV_DIR, "sliding_window_comparison.csv")
-
-    if os.path.exists(sliding_window_csv):
-        print("Erstelle Graph 3: Frame vs. Sliding Window Accuracy...")
-        df_sliding = pd.read_csv(sliding_window_csv)
-
-        frame_accs = {}
-        for file in csv_files:
-            if "sliding" in file: continue
-            m_name = os.path.basename(file).replace('.csv', '')
-            df_frame = pd.read_csv(file)
-            frame_accs[m_name] = df_frame['val_acc'].max()
-
-        plot_data =[]
-        for _, row in df_sliding.iterrows():
-            m_name = row['model_name']
-            s_acc = row['sliding_window_acc']
-            f_acc = frame_accs.get(m_name, 0.0)
-
-            display_name = m_name.replace('task_species_attn_', '')                                 .replace('false', 'NoAttn')                                 .replace('true', 'Attn')                                 .replace('_', ' ').title()
-
-            plot_data.append({"Modell": display_name, "Genauigkeit": f_acc, "Methode": "Einzelner 5s Frame"})
-            plot_data.append({"Modell": display_name, "Genauigkeit": s_acc, "Methode": "Ganze Datei (Sliding Window)"})
-
-        df_plot = pd.DataFrame(plot_data)
-
-        plt.figure(figsize=(14, 7))
-        sns.set_theme(style="whitegrid")
-        ax = sns.barplot(data=df_plot, x="Modell", y="Genauigkeit", hue="Methode", palette=["#1f77b4", "#ff7f0e"])
-
-        plt.title("Auswirkung von Sliding-Window (Zeitliche Aggregation) auf die KI-Leistung", fontsize=16, fontweight='bold')
-        plt.xlabel("KI-Architektur", fontsize=14)
-        plt.ylabel("Genauigkeit (%)", fontsize=14)
-        plt.ylim(0, 100)
-        plt.xticks(rotation=45, ha="right")
-
-        for container in ax.containers:
-            ax.bar_label(container, fmt='%.1f%%', padding=3, fontsize=10)
-
-        plt.legend(title="Evaluierungs-Methode", loc="lower right")
-        plt.tight_layout()
-
-        out_path = os.path.join(VISUALS_DIR, "graph3_sliding_window_impact.png")
-        plt.savefig(out_path, dpi=300)
-        print(f"Graph 3 gespeichert: {out_path}")
-
 if __name__ == "__main__":
     main()
