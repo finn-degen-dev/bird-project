@@ -17,7 +17,7 @@ API_KEY = os.getenv("XENOCANTO_API_KEY", "")
 def fetch_page(url, params, page):
     params['page'] = page
     try:
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(url, params=params, timeout=15)
         if r.status_code == 200:
             return r.json().get('recordings',[])
     except:
@@ -41,28 +41,42 @@ def step1_get_metadata():
         return None
 
     target_species = set()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures =[executor.submit(fetch_page, url, params_species.copy(), p) for p in range(1, num_pages + 1)]
         for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages, desc="Scanne Arten"):
             for rec in future.result():
                 target_species.add(rec['en'])
 
-    query_str = f'{XC_RECORDING_LOCATION} grp:birds len:{XC_MIN_LENGTH}-{XC_MAX_LENGTH}'
-    params_rec = {'query': query_str, 'key': API_KEY, 'per_page': 500}
-
-    try:
-        num_pages_rec = requests.get(url, params=params_rec).json()['numPages']
-    except Exception as e:
-        print(f" API Error bei Xeno-Canto (Schritt 2): {e}")
-        return None
+    print(f" Gefundene Ziel-Arten: {len(target_species)}")
 
     valid_recordings =[]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        futures =[executor.submit(fetch_page, url, params_rec.copy(), p) for p in range(1, num_pages_rec + 1)]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages_rec, desc="Lade Datensätze"):
-            for rec in future.result():
 
-                if rec['en'] in target_species and rec.get('q') in XC_QUALITIES:
+    def fetch_species_recordings(species):
+        query_str = f'"{species}" {XC_RECORDING_LOCATION} len:{XC_MIN_LENGTH}-{XC_MAX_LENGTH}'
+        params_rec = {'query': query_str, 'key': API_KEY, 'per_page': 500}
+
+        try:
+            r = requests.get(url, params=params_rec, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                pages = data['numPages']
+                recs = data['recordings']
+
+                if pages > 1:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+                        fs =[ex.submit(fetch_page, url, params_rec.copy(), p) for p in range(2, min(pages + 1, 500))]
+                        for f in concurrent.futures.as_completed(fs):
+                            recs.extend(f.result())
+                return recs
+        except:
+            pass
+        return[]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(fetch_species_recordings, sp): sp for sp in target_species}
+        for future in tqdm(concurrent.futures.as_completed(futures), total=len(target_species), desc="Lade Datensätze (Art für Art)"):
+            for rec in future.result():
+                if rec.get('q') in XC_QUALITIES:
                     valid_recordings.append({
                         'id': rec['id'], 'species': rec['en'], 'scientific': f"{rec['gen']} {rec['sp']}",
                         'sex': rec['sex'], 'type': rec['type'], 'quality': rec['q'],
@@ -125,7 +139,6 @@ def step3_preprocess_tensors(df):
             continue
 
         try:
-
             load_duration = max(15, DURATION * 2)
             y, sr = librosa.load(mp3_path, sr=SAMPLE_RATE, duration=load_duration)
 

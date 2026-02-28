@@ -79,8 +79,10 @@ src/
     gradcam.py
     song_vs_call.py
   visuals/
+    eval_embedding_with_previous_values_for_other_models.py
     generate_custom_graphs.py
     plot_graphs.py
+    quality_with_n.py
   config.py
   data_prep.py
   data.py
@@ -93,19 +95,207 @@ visuals/
   experiments/
     graph1_custom_cnn_comparison.png
     graph2_best_models_comparison.png
+    performance_by_quality.png
+    sliding_window_comparison_updated.png
+    sliding_window_comparison.png
 .gitignore
 bird_project_cover.png
+download_models.py
 flake.lock
 flake.nix
 Förderantrag.pdf
 main.tex
+README.md
 requirements.txt
 run_experiments.sh
+upload_models.sh
 USAGE.txt
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="src/visuals/eval_embedding_with_previous_values_for_other_models.py">
+import os
+import sys
+import json
+import torch
+import torch.nn.functional as F
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from tqdm import tqdm
+from torch.utils.data import DataLoader
+
+# Ensure imports from the src directory work correctly
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config import *
+from data import SmartBirdDataset
+from models import get_model
+
+def get_sliding_window_chunks(spec):
+    """Generates 5-second sliding window chunks from a full spectrogram."""
+    chunks = []
+    current_width = spec.shape[1]
+    stride = TARGET_WIDTH // 2
+
+    if current_width < TARGET_WIDTH:
+        pad_amount = TARGET_WIDTH - current_width
+        chunk = torch.nn.functional.pad(spec, (0, pad_amount))
+        chunks.append(chunk)
+    else:
+        for start in range(0, current_width - TARGET_WIDTH + 1, stride):
+            chunk = spec[:, start : start + TARGET_WIDTH]
+            chunks.append(chunk)
+        if current_width > TARGET_WIDTH and (current_width - TARGET_WIDTH) % stride != 0:
+            chunks.append(spec[:, -TARGET_WIDTH:])
+
+    formatted_chunks =[]
+    for c in chunks:
+        tensor = c.unsqueeze(0).repeat(3, 1, 1)
+        tensor = F.interpolate(tensor.unsqueeze(0), size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False).squeeze(0)
+        formatted_chunks.append(tensor)
+
+    return torch.stack(formatted_chunks)
+
+def evaluate_embedding_model():
+    exp_name = "embedding_task-species_attn-False_layers-3"
+    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+    
+    if not os.path.exists(model_path):
+        print("Embedding model not found!")
+        return 0.0
+
+    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+        classes = json.load(f)['classes']
+
+    model = get_model("embedding", len(classes)).to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+
+    ds = SmartBirdDataset(mode='test', task='species')
+    # Use a large batch size here to blast through the feature extraction fast
+    loader = DataLoader(ds, batch_size=128, shuffle=False, num_workers=4)
+
+    print("\nStep 1/2: Building class centroids (Reference points) for Embedding Model...")
+    class_sums = torch.zeros((len(classes), 512), device=DEVICE)
+    class_counts = torch.zeros(len(classes), device=DEVICE)
+
+    with torch.no_grad():
+        for inputs, labels in tqdm(loader, desc="Extracting Features"):
+            emb = model(inputs.to(DEVICE))
+            for i in range(len(labels)):
+                c = labels[i].item()
+                class_sums[c] += emb[i]
+                class_counts[c] += 1
+
+    # Calculate the average vector for each class
+    centroids = F.normalize(class_sums / class_counts.unsqueeze(1).clamp(min=1), p=2, dim=1)
+
+    print("\nStep 2/2: Sliding Window Inference for Embedding Model...")
+    correct = 0
+    total = len(ds)
+
+    with torch.no_grad():
+        for idx in tqdm(range(total), desc="Evaluating via Cosine Similarity"):
+            row = ds.df.iloc[idx]
+            pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
+            spec = torch.load(pt_path).float()
+            
+            chunks = get_sliding_window_chunks(spec).to(DEVICE)
+            if len(chunks) == 0: continue
+            
+            embs = model(chunks)
+            # Average embeddings across all chunks and re-normalize
+            avg_emb = F.normalize(embs.mean(dim=0, keepdim=True), p=2, dim=1)
+            
+            # Compare to centroids (cosine similarity)
+            sims = torch.mm(avg_emb, centroids.t())
+            pred = sims.argmax().item()
+            label = ds._get_label(row)
+            
+            if pred == label:
+                correct += 1
+
+    acc = (correct / total) * 100
+    print(f"-> Embedding Accuracy: {acc:.2f}%")
+    return acc
+
+def plot_all_with_embedding(embedding_acc):
+    print("\n--- Generating Updated Graph 1 (Including Embedding Model) ---")
+    
+    # We hardcode the results from your previous console output to save you ~30 minutes!
+    data =[
+        {"Display Name": "EfficientNet", "Accuracy": 99.02},
+        {"Display Name": "ResNet18", "Accuracy": 98.84},
+        {"Display Name": "Custom (Attn L3)", "Accuracy": 89.25},
+        {"Display Name": "Custom (NoAttn L3)", "Accuracy": 89.09},
+        {"Display Name": "Custom (NoAttn L2)", "Accuracy": 78.06},
+        {"Display Name": "Custom (NoAttn L5)", "Accuracy": 6.39},
+        {"Display Name": "Embedding (Metric Learning)", "Accuracy": embedding_acc},
+    ]
+
+    df = pd.DataFrame(data).sort_values(by='Accuracy', ascending=False)
+
+    plt.figure(figsize=(13, 7))
+    sns.set_theme(style="whitegrid")
+    
+    # Highlight the Embedding model in orange, others in blue
+    colors =['#ff7f0e' if 'Embedding' in name else '#1f77b4' for name in df['Display Name']]
+    
+    sns.barplot(data=df, x='Display Name', y='Accuracy', hue='Display Name', palette=colors, legend=False)
+    
+    plt.title("Model Comparison: Sliding Window Accuracy", fontsize=16, fontweight='bold')
+    plt.xlabel("Model Architecture", fontsize=14)
+    plt.ylabel("Accuracy (%)", fontsize=14)
+    plt.ylim(0, 110)
+    plt.xticks(rotation=35, ha="right")
+
+    for i, val in enumerate(df['Accuracy']):
+        plt.text(i, val + 1.5, f"{val:.1f}%", ha='center', fontweight='bold', fontsize=11)
+
+    plt.tight_layout()
+    out_path = os.path.join(VISUALS_DIR, "sliding_window_comparison_updated.png")
+    plt.savefig(out_path, dpi=300)
+    print(f"✅ Saved Updated Graph to {out_path}")
+
+if __name__ == "__main__":
+    emb_acc = evaluate_embedding_model()
+    plot_all_with_embedding(emb_acc)
+</file>
+
+<file path="data/models/custom_task-species_attn-False_layers-2_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/custom_task-species_attn-False_layers-3_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/custom_task-species_attn-False_layers-5_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/custom_task-species_attn-True_layers-3_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/efficientnet_task-species_attn-False_layers-3_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/efficientnet_task-type_attn-False_layers-3_classes.json">
+{"classes": ["call", "song"]}
+</file>
+
+<file path="data/models/embedding_task-species_attn-False_layers-3_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/resnet_task-species_attn-False_layers-3_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
 
 <file path="src/visuals/generate_custom_graphs.py">
 import os
@@ -120,7 +310,6 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 import sys
 
-# Add the parent 'src' directory to the path so it finds config.py
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import *
@@ -299,138 +488,186 @@ if __name__ == "__main__":
     plot_quality_top_model()
 </file>
 
-<file path="data/models/custom_task-species_attn-False_layers-2_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/custom_task-species_attn-False_layers-3_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/custom_task-species_attn-False_layers-5_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/custom_task-species_attn-True_layers-3_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/efficientnet_task-species_attn-False_layers-3_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/efficientnet_task-type_attn-False_layers-3_classes.json">
-{"classes": ["call", "song"]}
-</file>
-
-<file path="data/models/embedding_task-species_attn-False_layers-3_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/resnet_task-species_attn-False_layers-3_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="src/visuals/plot_graphs.py">
+<file path="src/visuals/quality_with_n.py">
 import os
-import glob
+import json
+import torch
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import numpy as np
+from tqdm import tqdm
+from torch.utils.data import DataLoader
+import sys
 
-CSV_DIR = "data/visuals/csv_data"
-VISUALS_DIR = "visuals/experiments"
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-os.makedirs(VISUALS_DIR, exist_ok=True)
+from config import *
+from data import SmartBirdDataset
+from models import get_model
 
-def plot_graph(csv_files, config, title, output_filename):
-    """Universelle Funktion, um basierend auf einer Konfiguration Graphen zu zeichnen."""
-    plt.figure(figsize=(12, 7))
+def plot_quality_top_model_with_counts():
+    print("\n--- Generating Graph 2: Top Model Performance by Audio Quality ---")
+    exp_name = "efficientnet_task-species_attn-False_layers-3"
+    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+
+    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+        classes = json.load(f)['classes']
+
+    dataset = SmartBirdDataset(mode='test', task='species')
+    loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
+
+    model = get_model("efficientnet", len(classes), False, 3).to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+
+    qualities = []
+    correctness =[]
+
+    print("Evaluating EfficientNet for quality breakdown (takes ~30 seconds)...")
+    with torch.no_grad():
+        for i, (inputs, labels) in enumerate(tqdm(loader, desc="Eval Quality")):
+            inputs = inputs.to(DEVICE)
+            labels = labels.numpy()
+
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            preds = preds.cpu().numpy()
+
+            start_idx = i * 32
+            end_idx = start_idx + len(labels)
+            batch_qualities = dataset.df.iloc[start_idx:end_idx]['quality'].values
+
+            for p, l, q in zip(preds, labels, batch_qualities):
+                correctness.append(1 if p == l else 0)
+                qualities.append(q)
+
+    results_df = pd.DataFrame({'Quality': qualities, 'Correct': correctness})
+    results_df = results_df[results_df['Quality'].isin(['A', 'B', 'C', 'D'])]
+
+    acc_by_quality = results_df.groupby('Quality')['Correct'].mean() * 100
+    acc_by_quality = acc_by_quality.reindex(['A', 'B', 'C', 'D'])
+
+    counts_by_quality = results_df['Quality'].value_counts().reindex(['A', 'B', 'C', 'D'])
+
+    plt.figure(figsize=(10, 6))
     sns.set_theme(style="whitegrid")
 
-    found_any = False
+    sns.barplot(
+        x=acc_by_quality.index,
+        y=acc_by_quality.values,
+        hue=acc_by_quality.index,
+        palette="viridis",
+        legend=False
+    )
 
-    for file in csv_files:
-        filename = os.path.basename(file)
+    plt.title("Performance by Audio Quality (EfficientNet)", fontsize=16, fontweight='bold')
+    plt.xlabel("Xeno-Canto Audio Quality Rating", fontsize=14)
+    plt.ylabel("Accuracy (%)", fontsize=14)
 
-        matched_label = None
-        matched_color = None
+    plt.ylim(0, 110)
 
-        for keywords, label, color in config:
+    for i, (acc, count) in enumerate(zip(acc_by_quality.values, counts_by_quality.values)):
+        text = f"{acc:.1f}%\n(n={count})"
+        plt.text(i, acc + 2, text, ha='center', fontweight='bold', fontsize=12)
 
-            if all(k in filename for k in keywords):
-                matched_label = label
-                matched_color = color
-                break
-
-        if matched_label is None:
-            continue
-
-        df = pd.read_csv(file)
-        if len(df) == 0: continue
-        found_any = True
-
-        max_acc = df['val_acc'].max()
-        plt.plot(df['epoch'], df['val_acc'],
-                 label=f"{matched_label} (Max: {max_acc:.1f}%)",
-                 color=matched_color,
-                 linewidth=2.5, marker='o', markersize=5)
-
-    if not found_any:
-        print(f" Warnung: Keine passenden Daten für '{title}' gefunden.")
-        plt.close()
-        return
-
-    plt.title(title, fontsize=16, fontweight='bold')
-    plt.xlabel("Trainingsepoche", fontsize=14)
-    plt.ylabel("Validierungs-Genauigkeit (%)", fontsize=14)
-    plt.ylim(0, 100)
-    plt.xlim(1, None)
-
-    plt.grid(True, which="both", ls="--", alpha=0.5)
-    plt.legend(title="Architekturen", fontsize=12, title_fontsize=13, loc="lower right")
-
-    out_path = os.path.join(VISUALS_DIR, output_filename)
     plt.tight_layout()
+    out_path = os.path.join(VISUALS_DIR, "performance_by_quality.png")
     plt.savefig(out_path, dpi=300)
-    print(f" Graph gespeichert: {out_path}")
-    plt.close()
+    print(f" Saved updated Graph 2 to {out_path}")
+
+if __name__ == "__main__":
+    plot_quality_top_model_with_counts()
+</file>
+
+<file path="download_models.py">
+"""
+Download pre-trained model weights from Hugging Face.
+
+Usage:
+    python download_models.py               # all models
+    python download_models.py --model efficientnet
+    python download_models.py --list
+    python download_models.py --force       # re-download existing
+"""
+import os, sys, argparse
+
+HF_REPO_ID = "BoredVoidAter/piepmatz-polizei"
+MODELS_DIR = os.path.join(os.path.dirname(__file__), "data", "models")
+
+ALL_MODELS = [
+    "efficientnet_task-species_attn-False_layers-3_best.pth",
+    "efficientnet_task-type_attn-False_layers-3_best.pth",
+    "resnet_task-species_attn-False_layers-3_best.pth",
+    "custom_task-species_attn-False_layers-2_best.pth",
+    "custom_task-species_attn-False_layers-3_best.pth",
+    "custom_task-species_attn-False_layers-5_best.pth",
+    "custom_task-species_attn-True_layers-3_best.pth",
+    "embedding_task-species_attn-False_layers-3_best.pth",
+]
+
+SHORTCUTS = {
+    "efficientnet":      "efficientnet_task-species_attn-False_layers-3_best.pth",
+    "efficientnet-type": "efficientnet_task-type_attn-False_layers-3_best.pth",
+    "resnet":            "resnet_task-species_attn-False_layers-3_best.pth",
+    "custom-2":          "custom_task-species_attn-False_layers-2_best.pth",
+    "custom-3":          "custom_task-species_attn-False_layers-3_best.pth",
+    "custom-5":          "custom_task-species_attn-False_layers-5_best.pth",
+    "custom-attn":       "custom_task-species_attn-True_layers-3_best.pth",
+    "embedding":         "embedding_task-species_attn-False_layers-3_best.pth",
+}
+
+def get_hf():
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        import subprocess
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub", "-q"])
+        from huggingface_hub import hf_hub_download
+    return hf_hub_download
+
+def download(hf_hub_download, filename, force=False):
+    dest = os.path.join(MODELS_DIR, filename)
+    if os.path.exists(dest) and not force:
+        mb = os.path.getsize(dest) / 1024 / 1024
+        print(f"  ✓ {filename} ({mb:.1f} MB) — already exists, skipping")
+        return True
+    print(f"  ↓ {filename}...")
+    try:
+        hf_hub_download(repo_id=HF_REPO_ID, filename=filename,
+                        repo_type="model", local_dir=MODELS_DIR)
+        mb = os.path.getsize(dest) / 1024 / 1024
+        print(f"    ✓ saved ({mb:.1f} MB)")
+        return True
+    except Exception as e:
+        print(f"    ✗ failed: {e}")
+        return False
 
 def main():
-    csv_files = glob.glob(os.path.join(CSV_DIR, "*.csv"))
-    if not csv_files:
-        print(f" Keine CSV-Dateien in {CSV_DIR} gefunden. Führe zuerst parse_console.py aus!")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", choices=list(SHORTCUTS.keys()))
+    parser.add_argument("--list",  action="store_true")
+    parser.add_argument("--force", action="store_true")
+    args = parser.parse_args()
+
+    if args.list:
+        print(f"\nModels at https://huggingface.co/{HF_REPO_ID}\n")
+        for k, v in SHORTCUTS.items():
+            exists = "✓" if os.path.exists(os.path.join(MODELS_DIR, v)) else " "
+            print(f"  [{exists}] --model {k:<20} → {v}")
         return
 
-    print("Erstelle Graphen aus den CSV-Daten...")
+    print(f"\n Piepmatz Polizei — Model Downloader")
+    print(f"   {HF_REPO_ID}\n")
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    hf = get_hf()
 
-    custom_cnn_config = [
-        (["custom", "task_species", "attn_true", "layers_3"], "Custom CNN (3-Layer + Attention)", "#2ca02c"),
-        (["custom", "task_species", "attn_false", "layers_5"], "Custom CNN (5-Layer)", "#d62728"),
-        (["custom", "task_species", "attn_false", "layers_3"], "Custom CNN (3-Layer Standard)", "#1f77b4"),
-        (["custom", "task_species", "attn_false", "layers_2"], "Custom CNN (2-Layer)", "#9467bd")
-    ]
+    files = [SHORTCUTS[args.model]] if args.model else ALL_MODELS
+    ok = sum(download(hf, f, args.force) for f in files)
+    failed = len(files) - ok
 
-    plot_graph(
-        csv_files=csv_files,
-        config=custom_cnn_config,
-        title="Training custom cnn",
-        output_filename="graph1_custom_cnn_comparison.png"
-    )
-
-    best_models_config = [
-        (["efficientnet", "task_species"], "EfficientNet", "#2ca02c"),
-        (["resnet", "task_species"], "ResNet18", "#1f77b4"),
-        (["custom", "task_species", "attn_false", "layers_3"], "Bestes Custom CNN (3-Layer)", "#ff7f0e")
-    ]
-
-    plot_graph(
-        csv_files=csv_files,
-        config=best_models_config,
-        title="Training custom cnn vs. pretrained cnn",
-        output_filename="graph2_best_models_comparison.png"
-    )
+    print(f"\n {ok} downloaded, {failed} failed.")
+    if not failed:
+        print("   Ready to run: python src/showcase.py --model efficientnet --live")
 
 if __name__ == "__main__":
     main()
@@ -451,6 +688,172 @@ python src/train.py --model efficientnet --task type --epochs 40
 
 # 5. Embedding / ArcFace (Dein "Profi-Feature")
 python src/train.py --model embedding --epochs 60
+</file>
+
+<file path="upload_models.sh">
+#!/usr/bin/env bash
+# =============================================================================
+# upload_models.sh
+# Uploads new/updated .pth files to Hugging Face and pushes code to GitHub.
+#
+# Usage:
+#   ./upload_models.sh                         # upload all .pth files
+#   ./upload_models.sh efficientnet            # upload one model by shortname
+#   ./upload_models.sh efficientnet resnet     # upload multiple by shortname
+#   ./upload_models.sh --pth-only              # skip the git push
+#   ./upload_models.sh --git-only              # skip the HF upload
+# =============================================================================
+
+set -e
+
+HF_REPO_ID="BoredVoidAter/piepmatz-polizei"
+MODELS_DIR="data/models"
+
+# Map shortnames → filename patterns (partial match is fine)
+declare -A SHORTCUTS=(
+    ["efficientnet"]="efficientnet_task-species_attn-False_layers-3_best.pth"
+    ["efficientnet-type"]="efficientnet_task-type_attn-False_layers-3_best.pth"
+    ["resnet"]="resnet_task-species_attn-False_layers-3_best.pth"
+    ["custom-2"]="custom_task-species_attn-False_layers-2_best.pth"
+    ["custom-3"]="custom_task-species_attn-False_layers-3_best.pth"
+    ["custom-5"]="custom_task-species_attn-False_layers-5_best.pth"
+    ["custom-attn"]="custom_task-species_attn-True_layers-3_best.pth"
+    ["embedding"]="embedding_task-species_attn-False_layers-3_best.pth"
+)
+
+# ── Arg parsing ───────────────────────────────────────────────────────────────
+DO_HF=true
+DO_GIT=true
+SPECIFIC_FILES=()
+
+for arg in "$@"; do
+    case "$arg" in
+        --pth-only)  DO_GIT=false ;;
+        --git-only)  DO_HF=false ;;
+        --help|-h)
+            echo "Usage: ./upload_models.sh [shortname...] [--pth-only] [--git-only]"
+            echo ""
+            echo "Shortnames:"
+            for k in "${!SHORTCUTS[@]}"; do
+                echo "  $k  →  ${SHORTCUTS[$k]}"
+            done
+            exit 0
+            ;;
+        -*)
+            echo "Unknown flag: $arg (use --help)"
+            exit 1
+            ;;
+        *)
+            if [[ -v SHORTCUTS["$arg"] ]]; then
+                SPECIFIC_FILES+=("${SHORTCUTS[$arg]}")
+            else
+                echo "  ✗ Unknown shortname '$arg'. Valid options:"
+                for k in "${!SHORTCUTS[@]}"; do echo "    $k"; done
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+echo ""
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║        Piepmatz Polizei — Model Uploader             ║"
+echo "╚══════════════════════════════════════════════════════╝"
+echo ""
+
+# ── HuggingFace upload ────────────────────────────────────────────────────────
+if $DO_HF; then
+    echo "▶ Uploading models to Hugging Face..."
+
+    python -c "import huggingface_hub" 2>/dev/null || pip install huggingface_hub -q
+
+    # Build the file list to pass into python
+    if [ ${#SPECIFIC_FILES[@]} -gt 0 ]; then
+        FILES_JSON=$(python -c "
+import json, sys
+files = sys.argv[1:]
+print(json.dumps(files))
+" "${SPECIFIC_FILES[@]}")
+    else
+        FILES_JSON="[]"  # empty = upload all
+    fi
+
+    python - <<EOF
+import os, glob, json
+from huggingface_hub import HfApi
+
+api = HfApi()
+models_dir = "${MODELS_DIR}"
+specific = json.loads("""${FILES_JSON}""")
+
+if specific:
+    files = [os.path.join(models_dir, f) for f in specific]
+    missing = [f for f in files if not os.path.exists(f)]
+    if missing:
+        for m in missing:
+            print(f"  ✗ File not found: {m}")
+        raise SystemExit(1)
+else:
+    files = glob.glob(os.path.join(models_dir, "*.pth"))
+
+if not files:
+    print("  ⚠ No .pth files found — nothing to upload.")
+else:
+    print(f"  Uploading {len(files)} file(s) to {api.whoami()['name']}/{os.path.basename('${HF_REPO_ID}')}...")
+    print()
+    for path in sorted(files):
+        name = os.path.basename(path)
+        mb = os.path.getsize(path) / 1024 / 1024
+        print(f"  ↑ {name} ({mb:.1f} MB)...")
+        api.upload_file(
+            path_or_fileobj=path,
+            path_in_repo=name,
+            repo_id="${HF_REPO_ID}",
+            repo_type="model",
+        )
+        print(f"    ✓ done")
+    print()
+    print(f"  ✓ Upload complete → https://huggingface.co/${HF_REPO_ID}")
+EOF
+    echo ""
+fi
+
+# ── Git push ──────────────────────────────────────────────────────────────────
+if $DO_GIT; then
+    echo "▶ Pushing code changes to GitHub..."
+
+    # Stage everything except .pth (already gitignored, but be explicit)
+    git add --all -- ':!data/models/*.pth' ':!data/models/*.onnx'
+
+    if git diff --cached --quiet; then
+        echo "  (nothing new to commit — working tree clean)"
+    else
+        echo "  Staged changes:"
+        git diff --cached --name-only | sed 's/^/    /'
+        echo ""
+        # Use provided message or auto-generate one from changed files
+        if [ -n "$COMMIT_MSG" ]; then
+            MSG="$COMMIT_MSG"
+        else
+            CHANGED=$(git diff --cached --name-only | head -5 | tr '\n' ' ')
+            MSG="update models and code: ${CHANGED}"
+        fi
+        git commit -m "$MSG"
+    fi
+
+    BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    git push origin "${BRANCH}"
+    echo "  ✓ Pushed to GitHub (${BRANCH})"
+    echo ""
+fi
+
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║                      All done!                      ║"
+echo "╚══════════════════════════════════════════════════════╝"
+echo ""
+echo "  Models : https://huggingface.co/${HF_REPO_ID}"
+echo "  GitHub : $(git remote get-url origin)"
+echo ""
 </file>
 
 <file path="USAGE.txt">
@@ -585,6 +988,111 @@ def main():
     plt.xlabel("Zeit")
     plt.savefig("docs/poster/gradcam_amsel.png", dpi=300)
     print("Heatmap gespeichert unter docs/poster/gradcam_amsel.png")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/visuals/plot_graphs.py">
+import os
+import glob
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+
+CSV_DIR = "data/visuals/csv_data"
+VISUALS_DIR = "visuals/experiments"
+
+os.makedirs(VISUALS_DIR, exist_ok=True)
+
+def plot_graph(csv_files, config, title, output_filename):
+    """Universelle Funktion, um basierend auf einer Konfiguration Graphen zu zeichnen."""
+    plt.figure(figsize=(12, 7))
+    sns.set_theme(style="whitegrid")
+
+    found_any = False
+
+    for file in csv_files:
+        filename = os.path.basename(file)
+
+        matched_label = None
+        matched_color = None
+
+        for keywords, label, color in config:
+
+            if all(k in filename for k in keywords):
+                matched_label = label
+                matched_color = color
+                break
+
+        if matched_label is None:
+            continue
+
+        df = pd.read_csv(file)
+        if len(df) == 0: continue
+        found_any = True
+
+        max_acc = df['val_acc'].max()
+        plt.plot(df['epoch'], df['val_acc'],
+                 label=f"{matched_label} (Max: {max_acc:.1f}%)",
+                 color=matched_color,
+                 linewidth=2.5, marker='o', markersize=5)
+
+    if not found_any:
+        print(f" Warnung: Keine passenden Daten für '{title}' gefunden.")
+        plt.close()
+        return
+
+    plt.title(title, fontsize=16, fontweight='bold')
+    plt.xlabel("Trainingsepoche", fontsize=14)
+    plt.ylabel("Validierungs-Genauigkeit (%)", fontsize=14)
+    plt.ylim(0, 100)
+    plt.xlim(1, None)
+
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.legend(title="Architekturen", fontsize=12, title_fontsize=13, loc="lower right")
+
+    out_path = os.path.join(VISUALS_DIR, output_filename)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300)
+    print(f" Graph gespeichert: {out_path}")
+    plt.close()
+
+def main():
+    csv_files = glob.glob(os.path.join(CSV_DIR, "*.csv"))
+    if not csv_files:
+        print(f" Keine CSV-Dateien in {CSV_DIR} gefunden. Führe zuerst parse_console.py aus!")
+        return
+
+    print("Erstelle Graphen aus den CSV-Daten...")
+
+    custom_cnn_config = [
+        (["custom", "task_species", "attn_true", "layers_3"], "Custom CNN (3-Layer + Attention)", "#2ca02c"),
+        (["custom", "task_species", "attn_false", "layers_5"], "Custom CNN (5-Layer)", "#d62728"),
+        (["custom", "task_species", "attn_false", "layers_3"], "Custom CNN (3-Layer Standard)", "#1f77b4"),
+        (["custom", "task_species", "attn_false", "layers_2"], "Custom CNN (2-Layer)", "#9467bd")
+    ]
+
+    plot_graph(
+        csv_files=csv_files,
+        config=custom_cnn_config,
+        title="Training custom cnn",
+        output_filename="graph1_custom_cnn_comparison.png"
+    )
+
+    best_models_config = [
+        (["efficientnet", "task_species"], "EfficientNet", "#2ca02c"),
+        (["resnet", "task_species"], "ResNet18", "#1f77b4"),
+        (["custom", "task_species", "attn_false", "layers_3"], "Bestes Custom CNN (3-Layer)", "#ff7f0e")
+    ]
+
+    plot_graph(
+        csv_files=csv_files,
+        config=best_models_config,
+        title="Training custom cnn vs. pretrained cnn",
+        output_filename="graph2_best_models_comparison.png"
+    )
 
 if __name__ == "__main__":
     main()
@@ -1757,6 +2265,23 @@ if __name__ == "__main__":
 }
 </file>
 
+<file path="README.md">
+# 🐦 Piepmatz Polizei
+> Jugend forscht 2026 — Finn Degen, Jonathan Ledwon
+
+## Schnellstart
+```bash
+git clone https://github.com/BoredVoidAter/bird-project
+cd bird-project
+pip install -r requirements.txt
+python download_models.py          # pull weights from Hugging Face
+python src/showcase.py --model efficientnet --live
+```
+
+## Vortrainierte Modelle
+Weights are hosted on 🤗 **[BoredVoidAter/piepmatz-polizei](https://huggingface.co/BoredVoidAter/piepmatz-polizei)**
+</file>
+
 <file path=".gitignore">
 # Python Environments & Cache
 .venv/
@@ -1805,39 +2330,9 @@ clean_code.py
 .repomixignore
 repomix-output.xml
 repomix.config.json
-</file>
 
-<file path="requirements.txt">
-# KI & Mathe
-torch
-torchaudio
-torchvision
-numpy<2.0
-pandas
-scikit-learn
-
-# Neue Algorithmen & Experimente
-pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
-umap-learn                # Für Clustering Visualisierungen
-onnx                      # Für den Export auf den Raspberry Pi
-onnxruntime               # Für lokale Inferenz-Tests
-
-# Audio Verarbeitung
-librosa
-soundfile
-audiomentations
-sounddevice
-
-# Visualisierung
-matplotlib
-seaborn
-opencv-python-headless<4.10
-
-# Datenbeschaffung (Xeno-Canto)
-aiohttp
-tqdm
-
-python-dotenv
+data/models/*.pth
+data/models/*.onnx
 </file>
 
 <file path="src/config.py">
@@ -1879,15 +2374,51 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 os.makedirs(VISUALS_DIR, exist_ok=True)
 </file>
 
+<file path="requirements.txt">
+# KI & Mathe
+torch
+torchaudio
+torchvision
+numpy<2.0
+pandas
+scikit-learn
+
+# Neue Algorithmen & Experimente
+pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
+umap-learn                # Für Clustering Visualisierungen
+onnx                      # Für den Export auf den Raspberry Pi
+onnxruntime               # Für lokale Inferenz-Tests
+
+# Audio Verarbeitung
+librosa
+soundfile
+audiomentations
+sounddevice
+
+# Visualisierung
+matplotlib
+seaborn
+opencv-python-headless<4.10
+
+# Datenbeschaffung (Xeno-Canto)
+aiohttp
+tqdm
+
+python-dotenv
+
+huggingface_hub
+</file>
+
 <file path="src/train.py">
 import argparse
 import time
 import json
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from tqdm import tqdm
 
 from config import *
@@ -1939,16 +2470,20 @@ def main():
 
     if args.model == "embedding":
         from pytorch_metric_learning import losses
-        criterion = losses.SubCenterArcFaceLoss(num_classes=len(full_ds.classes), embedding_size=512).to(DEVICE)
+        # Wir nutzen Standard ArcFace, da SubCenter anfälliger für Instabilität ist
+        criterion = losses.ArcFaceLoss(num_classes=len(full_ds.classes), embedding_size=512).to(DEVICE)
     else:
         criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
 
     optimizer = optim.AdamW(list(model.parameters()) + list(criterion.parameters()), lr=0.001, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
-    scaler = GradScaler()
+    
+    # Updated to fix PyTorch 2.0+ warnings
+    scaler = GradScaler('cuda')
     spec_augmenter = get_spec_augmenter()
 
-    best_acc = 0.0
+    best_metric = 0.0 if args.model != "embedding" else float('inf')
+
     for epoch in range(args.epochs):
         model.train()
         train_loss, correct, total = 0.0, 0, 0
@@ -1958,17 +2493,22 @@ def main():
             inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
             optimizer.zero_grad()
 
-            with autocast():
-
+            with autocast('cuda'):
                 inputs = spec_augmenter(inputs)
 
-                if args.model not in ["embedding", "custom"] and torch.rand(1).item() > 0.5:
+                if args.model not in["embedding", "custom"] and torch.rand(1).item() > 0.5:
                     inputs, targets_a, targets_b, lam = mixup_data(inputs, labels)
                     outputs = model(inputs)
                     loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
                 else:
                     outputs = model(inputs)
-                    loss = criterion(outputs, labels)
+                    # Für Embedding berechnen wir den Loss außerhalb von Autocast!
+                    if args.model != "embedding":
+                        loss = criterion(outputs, labels)
+
+            # WICHTIG: ArcFace MUST be calculated outside autocast in fp32 to prevent NaN explosion!
+            if args.model == "embedding":
+                loss = criterion(outputs.float(), labels)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -1980,12 +2520,17 @@ def main():
                 correct += (preds == labels).sum().item()
                 total += labels.size(0)
                 pbar.set_postfix({'loss': f"{loss.item():.3f}", 'acc': f"{correct/total:.2%}"})
+            else:
+                # Jetzt sehen wir auch beim Embedding-Modell, ob es lernt!
+                pbar.set_postfix({'loss': f"{loss.item():.3f}"})
 
         scheduler.step()
 
+        # --- VALIDATION PHASE ---
         model.eval()
-        val_correct, val_total = 0, 0
+        
         if args.model != "embedding":
+            val_correct, val_total = 0, 0
             with torch.no_grad():
                 for inputs, labels in val_loader:
                     inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
@@ -1997,12 +2542,25 @@ def main():
             val_acc = val_correct / val_total
             print(f"   => Val Acc: {val_acc:.2%}")
 
-            if val_acc > best_acc:
-                best_acc = val_acc
+            if val_acc > best_metric:
+                best_metric = val_acc
                 torch.save(model.state_dict(), os.path.join(MODELS_DIR, f"{exp_name}_best.pth"))
         else:
-
-            torch.save(model.state_dict(), os.path.join(MODELS_DIR, f"{exp_name}_best.pth"))
+            val_loss = 0.0
+            with torch.no_grad():
+                for inputs, labels in val_loader:
+                    inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+                    outputs = model(inputs)
+                    loss = criterion(outputs.float(), labels)
+                    val_loss += loss.item()
+            
+            avg_val_loss = val_loss / len(val_loader)
+            print(f"   => Val ArcFace Loss: {avg_val_loss:.4f}")
+            
+            # Bei Loss ist kleiner = besser!
+            if avg_val_loss < best_metric:
+                best_metric = avg_val_loss
+                torch.save(model.state_dict(), os.path.join(MODELS_DIR, f"{exp_name}_best.pth"))
 
 if __name__ == "__main__":
     main()
