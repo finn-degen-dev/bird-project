@@ -64,13 +64,12 @@ def main():
 
     optimizer = optim.AdamW(list(model.parameters()) + list(criterion.parameters()), lr=0.001, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
-    
+
     scaler = GradScaler('cuda')
     spec_augmenter = get_spec_augmenter()
 
     best_metric = 0.0 if args.model != "embedding" else float('inf')
-    
-    # --- JSON LOGGING SETUP ---
+
     LOGS_DIR = os.path.join(VISUALS_DIR, "logs")
     os.makedirs(LOGS_DIR, exist_ok=True)
     history_log =[]
@@ -96,7 +95,6 @@ def main():
                     if args.model != "embedding":
                         loss = criterion(outputs, labels)
 
-            # ArcFace Loss MUST be in fp32
             if args.model == "embedding":
                 loss = criterion(outputs.float(), labels)
 
@@ -116,13 +114,12 @@ def main():
         scheduler.step()
         avg_train_loss = train_loss / len(train_loader)
 
-        # --- VALIDATION PHASE ---
         model.eval()
         epoch_stats = {
             "epoch": epoch + 1,
             "train_loss": avg_train_loss
         }
-        
+
         if args.model != "embedding":
             val_correct, val_total, val_loss = 0, 0, 0.0
             with torch.no_grad():
@@ -138,7 +135,7 @@ def main():
             val_acc = val_correct / val_total
             avg_val_loss = val_loss / len(val_loader)
             print(f"   => Val Acc: {val_acc:.2%} | Val Loss: {avg_val_loss:.4f}")
-            
+
             epoch_stats["val_acc"] = val_acc * 100
             epoch_stats["val_loss"] = avg_val_loss
 
@@ -153,17 +150,16 @@ def main():
                     outputs = model(inputs)
                     loss = criterion(outputs.float(), labels)
                     val_loss += loss.item()
-            
+
             avg_val_loss = val_loss / len(val_loader)
             print(f"   => Val ArcFace Loss: {avg_val_loss:.4f}")
-            
+
             epoch_stats["val_loss"] = avg_val_loss
-            
+
             if avg_val_loss < best_metric:
                 best_metric = avg_val_loss
                 torch.save(model.state_dict(), os.path.join(MODELS_DIR, f"{exp_name}_best.pth"))
-                
-        # Save to JSON
+
         history_log.append(epoch_stats)
         with open(os.path.join(LOGS_DIR, f"{exp_name}_history.json"), "w") as f:
             json.dump(history_log, f, indent=4)

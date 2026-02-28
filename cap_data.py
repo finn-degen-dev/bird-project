@@ -1,0 +1,1 @@
+import pandas as pd; df = pd.read_csv('data/metadata.csv'); print(f'Alte Größe: {len(df)}'); df['q_rank'] = df['quality'].map({'A':1, 'B':2, 'C':3, 'D':4}); df = df.sort_values(['species', 'q_rank']).groupby('species').head(150).drop(columns=['q_rank']); df.to_csv('data/metadata.csv', index=False); print(f'Neue Größe: {len(df)} (Max 150 beste Qualitäten pro Art!)')

@@ -21,28 +21,27 @@ CACHE_FILE = os.path.join(LOGS_DIR, "evaluation_cache.json")
 def plot_training_curves():
     print("\n--- Generating Figure: Training & Loss Curves ---")
     log_files = glob.glob(os.path.join(LOGS_DIR, "*_history.json"))
-    
+
     if not log_files:
         print("No JSON logs found. Train models first!")
         return
 
-    # 1. Comparison of Model Performances (Accuracy)
     plt.figure(figsize=(12, 7))
     sns.set_theme(style="whitegrid")
-    
+
     for file in log_files:
         exp_name = os.path.basename(file).replace("_history.json", "")
-        if "embedding" in exp_name or "task-type" in exp_name: 
-            continue # Skip non-accuracy models for this plot
-            
+        if "embedding" in exp_name or "task-type" in exp_name:
+            continue
+
         with open(file, "r") as f:
             data = json.load(f)
-            
+
         df = pd.DataFrame(data)
         label_name = exp_name.split("_")[0].title()
         if "custom" in exp_name:
             label_name += " (Custom CNN)"
-            
+
         max_acc = df['val_acc'].max()
         plt.plot(df['epoch'], df['val_acc'], label=f"{label_name} (Max: {max_acc:.1f}%)", linewidth=2.5, marker='o', markersize=4)
 
@@ -53,13 +52,12 @@ def plot_training_curves():
     plt.legend(title="Architectures")
     plt.tight_layout()
     plt.savefig(os.path.join(VISUALS_DIR, "comparison_model_performance.png"), dpi=300)
-    
-    # 2. Loss curve for ResNet (specifically requested in main.tex)
+
     resnet_log = os.path.join(LOGS_DIR, "resnet_task-species_attn-False_layers-3_history.json")
     if os.path.exists(resnet_log):
         with open(resnet_log, "r") as f:
             df = pd.DataFrame(json.load(f))
-            
+
         plt.figure(figsize=(10, 6))
         plt.plot(df['epoch'], df['train_loss'], label="Train Loss", color='#1f77b4', linewidth=2.5)
         plt.plot(df['epoch'], df['val_loss'], label="Validation Loss", color='#ff7f0e', linewidth=2.5)
@@ -70,32 +68,27 @@ def plot_training_curves():
         plt.tight_layout()
         plt.savefig(os.path.join(VISUALS_DIR, "loss_curve_15epoch_resnet18pre.png"), dpi=300)
 
-    print("✅ Training curves saved.")
+    print(" Training curves saved.")
 
 def evaluate_and_plot_bar_chart():
     print("\n--- Generating Figure: Sliding Window Model Comparison ---")
-    
-    # Load cache if it exists to save time
+
     cache = {}
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "r") as f:
             cache = json.load(f)
-            
-    # Helper to calculate accuracy (Standard models vs Embedding model skipped here for brevity, 
-    # but in reality you can embed the sliding window evaluation logic here)
-    # Since doing it live takes 30 mins, we only run it if it's NOT in the cache!
-    
+
     model_paths = glob.glob(os.path.join(MODELS_DIR, "*_best.pth"))
     results =[]
-    
+
     for path in model_paths:
         exp_name = os.path.basename(path).replace("_best.pth", "")
         if "task-type" in exp_name: continue
-        
+
         if exp_name in cache:
             results.append({"Model": exp_name, "Accuracy": cache[exp_name]})
         else:
-            print(f"⚠️ Model {exp_name} not in cache. You must evaluate it first via eval scripts! Defaulting to 0%.")
+            print(f" Model {exp_name} not in cache. You must evaluate it first via eval scripts! Defaulting to 0%.")
             results.append({"Model": exp_name, "Accuracy": 0.0})
 
     if not results: return
@@ -106,10 +99,10 @@ def evaluate_and_plot_bar_chart():
 
     plt.figure(figsize=(13, 7))
     sns.set_theme(style="whitegrid")
-    
+
     colors =['#ff7f0e' if 'Embedding' in name else '#1f77b4' for name in df['Display Name']]
     sns.barplot(data=df, x='Display Name', y='Accuracy', hue='Display Name', palette=colors, legend=False)
-    
+
     plt.title("Model Comparison: Accuracy (All Classes)", fontsize=16, fontweight='bold')
     plt.xlabel("Model Architecture", fontsize=14)
     plt.ylabel("Accuracy (%)", fontsize=14)
@@ -121,8 +114,7 @@ def evaluate_and_plot_bar_chart():
 
     plt.tight_layout()
     plt.savefig(os.path.join(VISUALS_DIR, "sliding_window_comparison_updated.png"), dpi=300)
-    print("✅ Bar chart saved.")
-
+    print(" Bar chart saved.")
 
 def plot_quality_metrics():
     print("\n--- Generating Figure: Audio Quality vs Accuracy ---")
@@ -149,7 +141,7 @@ def plot_quality_metrics():
         for i, (inputs, labels) in enumerate(tqdm(loader, desc="Scanning Dataset Qualities")):
             outputs = model(inputs.to(DEVICE))
             _, preds = torch.max(outputs, 1)
-            
+
             start_idx = i * 32
             batch_qualities = dataset.df.iloc[start_idx:start_idx + len(labels)]['quality'].values
 
@@ -159,7 +151,7 @@ def plot_quality_metrics():
 
     results_df = pd.DataFrame({'Quality': qualities, 'Correct': correctness})
     results_df = results_df[results_df['Quality'].isin(['A', 'B', 'C', 'D'])]
-    
+
     acc_by_quality = results_df.groupby('Quality')['Correct'].mean() * 100
     acc_by_quality = acc_by_quality.reindex(['A', 'B', 'C', 'D'])
     counts = results_df['Quality'].value_counts().reindex(['A', 'B', 'C', 'D'])
@@ -178,7 +170,7 @@ def plot_quality_metrics():
 
     plt.tight_layout()
     plt.savefig(os.path.join(VISUALS_DIR, "performance_by_quality.png"), dpi=300)
-    print("✅ Quality graph saved.")
+    print(" Quality graph saved.")
 
 if __name__ == "__main__":
     os.makedirs(LOGS_DIR, exist_ok=True)
