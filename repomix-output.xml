@@ -40,6 +40,16 @@ The content is organized as follows:
 </file_summary>
 
 <directory_structure>
+data/
+  models/
+    custom_task-species_attn-False_layers-2_classes.json
+    custom_task-species_attn-False_layers-3_classes.json
+    custom_task-species_attn-False_layers-5_classes.json
+    custom_task-species_attn-True_layers-3_classes.json
+    efficientnet_task-species_attn-False_layers-3_classes.json
+    efficientnet_task-type_attn-False_layers-3_classes.json
+    embedding_task-species_attn-False_layers-3_classes.json
+    resnet_task-species_attn-False_layers-3_classes.json
 OnshapeImages/
   OnshapeModelView_CasingWithParts.png
   OnshapeModelView_OnlyCasing.png
@@ -68,26 +78,1324 @@ src/
   experiments/
     gradcam.py
     song_vs_call.py
+  visuals/
+    parse_console.py
+    plot_graphs.py
   config.py
   data_prep.py
   data.py
+  evaluate_sliding_window.py
   evaluate.py
   models.py
   quantize.py
   showcase.py
   train.py
+visuals/
+  experiments/
+    graph1_custom_cnn_comparison.png
+    graph2_best_models_comparison.png
 .gitignore
 bird_project_cover.png
+console_output.txt
 flake.lock
 flake.nix
 Förderantrag.pdf
 main.tex
 requirements.txt
+run_experiments.sh
 USAGE.txt
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="data/models/custom_task-species_attn-False_layers-2_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/custom_task-species_attn-False_layers-3_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/custom_task-species_attn-False_layers-5_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/custom_task-species_attn-True_layers-3_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/efficientnet_task-type_attn-False_layers-3_classes.json">
+{"classes": ["call", "song"]}
+</file>
+
+<file path="data/models/embedding_task-species_attn-False_layers-3_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="data/models/resnet_task-species_attn-False_layers-3_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
+
+<file path="src/visuals/parse_console.py">
+import os
+import re
+import pandas as pd
+
+INPUT_FILE = "console_output.txt"
+CSV_OUT_DIR = "data/visuals/csv_data"
+
+def clean_filename(name):
+    """Macht aus dem Konsolentext einen sicheren Dateinamen (Kleinbuchstaben & Unterstriche)"""
+
+    name = re.sub(r'\x1b\[.*?m', '', name)
+
+    name = re.sub(r'[^a-zA-Z0-9]', '_', name)
+
+    name = re.sub(r'_+', '_', name).strip('_')
+    return name.lower()
+
+def main():
+    if not os.path.exists(INPUT_FILE):
+        print(f" Datei {INPUT_FILE} nicht gefunden. Bitte speichere den Output dort ab.")
+        return
+
+    os.makedirs(CSV_OUT_DIR, exist_ok=True)
+
+    with open(INPUT_FILE, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    model_pattern = re.compile(r"Starte Experiment:\s*(.+)")
+    acc_pattern = re.compile(r"=> Val Acc:\s*([0-9.]+)%")
+
+    current_model = None
+    model_data = {}
+
+    for line in lines:
+        model_match = model_pattern.search(line)
+        if model_match:
+            raw_name = model_match.group(1).strip()
+            current_model = clean_filename(raw_name)
+            if current_model not in model_data:
+                model_data[current_model] =[]
+            continue
+
+        acc_match = acc_pattern.search(line)
+        if acc_match and current_model is not None:
+            accuracy = float(acc_match.group(1))
+            model_data[current_model].append(accuracy)
+
+    saved_count = 0
+    for model_name, accuracies in model_data.items():
+        if not accuracies:
+            continue
+
+        df = pd.DataFrame({
+            "epoch": range(1, len(accuracies) + 1),
+            "val_acc": accuracies
+        })
+
+        csv_path = os.path.join(CSV_OUT_DIR, f"{model_name}.csv")
+        df.to_csv(csv_path, index=False)
+        print(f" Speichere Daten für: {model_name} -> {csv_path}")
+        saved_count += 1
+
+    print(f"\n Fertig! {saved_count} Modelle erfolgreich in CSV-Dateien konvertiert.")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/visuals/plot_graphs.py">
+import os
+import glob
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+
+CSV_DIR = "data/visuals/csv_data"
+VISUALS_DIR = "visuals/experiments"
+
+os.makedirs(VISUALS_DIR, exist_ok=True)
+
+def plot_graph(csv_files, config, title, output_filename):
+    """Universelle Funktion, um basierend auf einer Konfiguration Graphen zu zeichnen."""
+    plt.figure(figsize=(12, 7))
+    sns.set_theme(style="whitegrid")
+
+    found_any = False
+
+    for file in csv_files:
+        filename = os.path.basename(file)
+
+        matched_label = None
+        matched_color = None
+
+        for keywords, label, color in config:
+
+            if all(k in filename for k in keywords):
+                matched_label = label
+                matched_color = color
+                break
+
+        if matched_label is None:
+            continue
+
+        df = pd.read_csv(file)
+        if len(df) == 0: continue
+        found_any = True
+
+        max_acc = df['val_acc'].max()
+        plt.plot(df['epoch'], df['val_acc'],
+                 label=f"{matched_label} (Max: {max_acc:.1f}%)",
+                 color=matched_color,
+                 linewidth=2.5, marker='o', markersize=5)
+
+    if not found_any:
+        print(f" Warnung: Keine passenden Daten für '{title}' gefunden.")
+        plt.close()
+        return
+
+    plt.title(title, fontsize=16, fontweight='bold')
+    plt.xlabel("Trainingsepoche", fontsize=14)
+    plt.ylabel("Validierungs-Genauigkeit (%)", fontsize=14)
+    plt.ylim(0, 100)
+    plt.xlim(1, None)
+
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.legend(title="Architekturen", fontsize=12, title_fontsize=13, loc="lower right")
+
+    out_path = os.path.join(VISUALS_DIR, output_filename)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300)
+    print(f" Graph gespeichert: {out_path}")
+    plt.close()
+
+def main():
+    csv_files = glob.glob(os.path.join(CSV_DIR, "*.csv"))
+    if not csv_files:
+        print(f" Keine CSV-Dateien in {CSV_DIR} gefunden. Führe zuerst parse_console.py aus!")
+        return
+
+    print("Erstelle Graphen aus den CSV-Daten...")
+
+    custom_cnn_config = [
+        (["custom", "task_species", "attn_true", "layers_3"], "Custom CNN (3-Layer + Attention)", "#2ca02c"),
+        (["custom", "task_species", "attn_false", "layers_5"], "Custom CNN (5-Layer)", "#d62728"),
+        (["custom", "task_species", "attn_false", "layers_3"], "Custom CNN (3-Layer Standard)", "#1f77b4"),
+        (["custom", "task_species", "attn_false", "layers_2"], "Custom CNN (2-Layer)", "#9467bd")
+    ]
+
+    plot_graph(
+        csv_files=csv_files,
+        config=custom_cnn_config,
+        title="Training custom cnn",
+        output_filename="graph1_custom_cnn_comparison.png"
+    )
+
+    best_models_config = [
+        (["efficientnet", "task_species"], "EfficientNet", "#2ca02c"),
+        (["resnet", "task_species"], "ResNet18", "#1f77b4"),
+        (["custom", "task_species", "attn_false", "layers_3"], "Bestes Custom CNN (3-Layer)", "#ff7f0e")
+    ]
+
+    plot_graph(
+        csv_files=csv_files,
+        config=best_models_config,
+        title="Training custom cnn vs. pretrained cnn",
+        output_filename="graph2_best_models_comparison.png"
+    )
+
+    sliding_window_csv = os.path.join(CSV_DIR, "sliding_window_comparison.csv")
+
+    if os.path.exists(sliding_window_csv):
+        print("Erstelle Graph 3: Frame vs. Sliding Window Accuracy...")
+        df_sliding = pd.read_csv(sliding_window_csv)
+
+        frame_accs = {}
+        for file in csv_files:
+            if "sliding" in file: continue
+            m_name = os.path.basename(file).replace('.csv', '')
+            df_frame = pd.read_csv(file)
+            frame_accs[m_name] = df_frame['val_acc'].max()
+
+        plot_data =[]
+        for _, row in df_sliding.iterrows():
+            m_name = row['model_name']
+            s_acc = row['sliding_window_acc']
+            f_acc = frame_accs.get(m_name, 0.0)
+
+            display_name = m_name.replace('task_species_attn_', '')                                 .replace('false', 'NoAttn')                                 .replace('true', 'Attn')                                 .replace('_', ' ').title()
+
+            plot_data.append({"Modell": display_name, "Genauigkeit": f_acc, "Methode": "Einzelner 5s Frame"})
+            plot_data.append({"Modell": display_name, "Genauigkeit": s_acc, "Methode": "Ganze Datei (Sliding Window)"})
+
+        df_plot = pd.DataFrame(plot_data)
+
+        plt.figure(figsize=(14, 7))
+        sns.set_theme(style="whitegrid")
+        ax = sns.barplot(data=df_plot, x="Modell", y="Genauigkeit", hue="Methode", palette=["#1f77b4", "#ff7f0e"])
+
+        plt.title("Auswirkung von Sliding-Window (Zeitliche Aggregation) auf die KI-Leistung", fontsize=16, fontweight='bold')
+        plt.xlabel("KI-Architektur", fontsize=14)
+        plt.ylabel("Genauigkeit (%)", fontsize=14)
+        plt.ylim(0, 100)
+        plt.xticks(rotation=45, ha="right")
+
+        for container in ax.containers:
+            ax.bar_label(container, fmt='%.1f%%', padding=3, fontsize=10)
+
+        plt.legend(title="Evaluierungs-Methode", loc="lower right")
+        plt.tight_layout()
+
+        out_path = os.path.join(VISUALS_DIR, "graph3_sliding_window_impact.png")
+        plt.savefig(out_path, dpi=300)
+        print(f"Graph 3 gespeichert: {out_path}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/evaluate_sliding_window.py">
+import os
+import glob
+import torch
+import pandas as pd
+from tqdm import tqdm
+import re
+
+try:
+    from src.models import get_model
+except ImportError:
+    from models import get_model
+
+MODELS_DIR = "data/models"
+VAL_TENSORS_DIR = "data/tensors/val"
+CSV_OUT_DIR = "data/visuals/csv_data"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+NUM_CLASSES = 55
+
+os.makedirs(CSV_OUT_DIR, exist_ok=True)
+
+def parse_model_params_from_name(filename):
+    """Liest die Modell-Architektur aus dem Dateinamen ab."""
+    name = filename.lower()
+
+    if "efficientnet" in name: model_type = "efficientnet"
+    elif "resnet" in name: model_type = "resnet"
+    else: model_type = "custom"
+
+    use_attention = "attn_true" in name
+
+    cnn_layers = 3
+    layer_match = re.search(r'layers_(\d+)', name)
+    if layer_match:
+        cnn_layers = int(layer_match.group(1))
+
+    return model_type, use_attention, cnn_layers
+
+def group_chunks_to_files(val_dir):
+    """
+    Sucht alle 5s-Chunks (.pt) und gruppiert sie nach der Original-Audiodatei.
+    Erwartetes Format: data/tensors/val/<Klasse>/<Datei_ID>_<ChunkNummer>.pt
+    """
+    file_groups = {}
+    class_to_idx = {}
+
+    classes = sorted([d for d in os.listdir(val_dir) if os.path.isdir(os.path.join(val_dir, d))])
+    for idx, cls_name in enumerate(classes):
+        class_to_idx[cls_name] = idx
+
+        cls_dir = os.path.join(val_dir, cls_name)
+        chunks = glob.glob(os.path.join(cls_dir, "*.pt"))
+
+        for chunk_path in chunks:
+            filename = os.path.basename(chunk_path)
+
+            base_file_id = "_".join(filename.split("_")[:-1])
+
+            group_key = f"{cls_name}/{base_file_id}"
+
+            if group_key not in file_groups:
+                file_groups[group_key] = {
+                    "class_idx": idx,
+                    "chunks":[]
+                }
+            file_groups[group_key]["chunks"].append(chunk_path)
+
+    return file_groups, classes
+
+def main():
+    print(f" Suche nach Modellen in {MODELS_DIR}...")
+    model_files = glob.glob(os.path.join(MODELS_DIR, "*.pth"))
+
+    if not model_files:
+        print(" Keine trainierten Modelle (.pth) gefunden!")
+        return
+
+    print(" Gruppiere Tensor-Chunks zu Original-Audiodateien (Sliding Window)...")
+    file_groups, classes = group_chunks_to_files(VAL_TENSORS_DIR)
+    print(f"   => {len(file_groups)} komplette Audiodateien aus {len(classes)} Klassen gefunden.")
+
+    results =[]
+
+    for model_path in model_files:
+        model_filename = os.path.basename(model_path)
+
+        if "best" not in model_filename and "task_species" not in model_filename:
+            continue
+
+        print(f"\n Evaluiere Modell: {model_filename}")
+
+        m_type, use_attn, m_layers = parse_model_params_from_name(model_filename)
+
+        try:
+            model = get_model(m_type, len(classes), use_attn, m_layers).to(DEVICE)
+            model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+            model.eval()
+        except Exception as e:
+            print(f" Konnte {model_filename} nicht laden. Fehler: {e}")
+            continue
+
+        correct_files = 0
+        total_files = len(file_groups)
+
+        with torch.no_grad():
+            for group_key, data in tqdm(file_groups.items(), desc="Audio-Dateien"):
+                true_class = data["class_idx"]
+                chunk_paths = data["chunks"]
+
+                batch =[]
+                for p in chunk_paths:
+                    tensor = torch.load(p)
+
+                    if tensor.ndim == 3:
+                        batch.append(tensor)
+
+                if not batch: continue
+
+                batch = torch.stack(batch).to(DEVICE)
+                outputs = model(batch)
+
+                avg_output = outputs.mean(dim=0)
+                predicted_class = avg_output.argmax().item()
+
+                if predicted_class == true_class:
+                    correct_files += 1
+
+        file_accuracy = (correct_files / total_files) * 100 if total_files > 0 else 0
+        print(f" Sliding Window Acc: {file_accuracy:.2f}%")
+
+        clean_name = model_filename.replace('.pth', '').replace('best_', '')
+
+        results.append({
+            "model_name": clean_name,
+            "sliding_window_acc": file_accuracy
+        })
+
+    df = pd.DataFrame(results)
+    out_csv = os.path.join(CSV_OUT_DIR, "sliding_window_comparison.csv")
+    df.to_csv(out_csv, index=False)
+    print(f"\n Alle Sliding-Window Ergebnisse gespeichert in: {out_csv}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="console_output.txt">
+(.venv)
+[boredvoidater@nixos:~/bird-project]$ systemd-inhibit --why="KI-Training für Jugend forscht" --who="Gemini-Script" --mode=block ./run_experiments.sh
+ Starte Experiment: efficientnet_task-species_attn-False_layers-3
+[TRAIN] Dataset bereit: 19537 Samples, 55 Klassen.
+ Berechne Klassen-Gewichte...
+/home/boredvoidater/bird-project/src/train.py:62: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = GradScaler()
+Ep 1/80 [Train]:   0%|                      | 0/550 [00:00<?, ?it/s]/home/boredvoidater/bird-project/src/train.py:75: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with autocast():
+Ep 1/80 [Train]: 100%|█| 550/550 [01:02<00:00,  8.77it/s, loss=2.276
+   => Val Acc: 71.70%
+Ep 2/80 [Train]: 100%|█| 550/550 [00:48<00:00, 11.44it/s, loss=1.953
+   => Val Acc: 76.66%
+Ep 3/80 [Train]: 100%|█| 550/550 [00:48<00:00, 11.35it/s, loss=2.801
+   => Val Acc: 79.63%
+Ep 4/80 [Train]: 100%|█| 550/550 [00:48<00:00, 11.32it/s, loss=3.175
+   => Val Acc: 82.04%
+Ep 5/80 [Train]: 100%|█| 550/550 [00:48<00:00, 11.27it/s, loss=1.583
+   => Val Acc: 82.24%
+Ep 6/80 [Train]: 100%|█| 550/550 [00:49<00:00, 11.21it/s, loss=2.289
+   => Val Acc: 82.24%
+Ep 7/80 [Train]: 100%|█| 550/550 [00:49<00:00, 11.20it/s, loss=1.255
+   => Val Acc: 83.06%
+Ep 8/80 [Train]: 100%|█| 550/550 [00:49<00:00, 11.17it/s, loss=2.696
+   => Val Acc: 82.65%
+Ep 9/80 [Train]: 100%|█| 550/550 [00:49<00:00, 11.13it/s, loss=1.331
+   => Val Acc: 82.96%
+Ep 10/80 [Train]: 100%|█| 550/550 [00:49<00:00, 11.08it/s, loss=1.46
+   => Val Acc: 83.47%
+Ep 11/80 [Train]: 100%|█| 550/550 [00:49<00:00, 11.00it/s, loss=2.88
+   => Val Acc: 84.24%
+Ep 12/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.94it/s, loss=1.18
+   => Val Acc: 85.21%
+Ep 13/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.98it/s, loss=1.57
+   => Val Acc: 84.24%
+Ep 14/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.99it/s, loss=1.97
+   => Val Acc: 85.16%
+Ep 15/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.97it/s, loss=2.44
+   => Val Acc: 84.24%
+Ep 16/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.89it/s, loss=1.44
+   => Val Acc: 84.34%
+Ep 17/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.96it/s, loss=2.52
+   => Val Acc: 86.49%
+Ep 18/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.90it/s, loss=2.01
+   => Val Acc: 84.70%
+Ep 19/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.89it/s, loss=1.51
+   => Val Acc: 85.01%
+Ep 20/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.88it/s, loss=2.08
+   => Val Acc: 85.47%
+Ep 21/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.91it/s, loss=1.62
+   => Val Acc: 84.34%
+Ep 22/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.82it/s, loss=2.25
+   => Val Acc: 84.95%
+Ep 23/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.91it/s, loss=1.07
+   => Val Acc: 85.72%
+Ep 24/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.89it/s, loss=2.52
+   => Val Acc: 85.52%
+Ep 25/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.84it/s, loss=0.89
+   => Val Acc: 85.82%
+Ep 26/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.86it/s, loss=0.91
+   => Val Acc: 85.01%
+Ep 27/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.85it/s, loss=0.99
+   => Val Acc: 85.88%
+Ep 28/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.87it/s, loss=1.00
+   => Val Acc: 86.18%
+Ep 29/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.84it/s, loss=1.70
+   => Val Acc: 85.82%
+Ep 30/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.83it/s, loss=2.30
+   => Val Acc: 84.70%
+Ep 31/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.86it/s, loss=1.39
+   => Val Acc: 85.62%
+Ep 32/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.78it/s, loss=1.80
+   => Val Acc: 86.39%
+Ep 33/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.84it/s, loss=1.25
+   => Val Acc: 86.75%
+Ep 34/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.78it/s, loss=0.92
+   => Val Acc: 86.69%
+Ep 35/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.84it/s, loss=2.65
+   => Val Acc: 85.98%
+Ep 36/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.84it/s, loss=1.44
+   => Val Acc: 86.64%
+Ep 37/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.81it/s, loss=1.33
+   => Val Acc: 86.69%
+Ep 38/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.80it/s, loss=0.95
+   => Val Acc: 86.39%
+Ep 39/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.80it/s, loss=2.54
+   => Val Acc: 86.49%
+Ep 40/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.85it/s, loss=0.80
+   => Val Acc: 86.44%
+Ep 41/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.81it/s, loss=1.49
+   => Val Acc: 87.31%
+Ep 42/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.79it/s, loss=2.49
+   => Val Acc: 86.13%
+Ep 43/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.83it/s, loss=2.52
+   => Val Acc: 87.36%
+Ep 44/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.82it/s, loss=0.82
+   => Val Acc: 87.36%
+Ep 45/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.78it/s, loss=0.96
+   => Val Acc: 86.54%
+Ep 46/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.84it/s, loss=2.11
+   => Val Acc: 85.36%
+Ep 47/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.76it/s, loss=1.98
+   => Val Acc: 86.95%
+Ep 48/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.82it/s, loss=1.71
+   => Val Acc: 86.59%
+Ep 49/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.77it/s, loss=1.40
+   => Val Acc: 87.21%
+Ep 50/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.81it/s, loss=0.89
+   => Val Acc: 87.31%
+Ep 51/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.84it/s, loss=1.99
+   => Val Acc: 86.59%
+Ep 52/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.81it/s, loss=0.86
+   => Val Acc: 87.41%
+Ep 53/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.80it/s, loss=0.77
+   => Val Acc: 86.59%
+Ep 54/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.77it/s, loss=0.98
+   => Val Acc: 87.41%
+Ep 55/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.84it/s, loss=0.80
+   => Val Acc: 87.41%
+Ep 56/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.77it/s, loss=0.74
+   => Val Acc: 87.05%
+Ep 57/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.72it/s, loss=2.21
+   => Val Acc: 86.95%
+Ep 58/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.82it/s, loss=0.73
+   => Val Acc: 87.51%
+Ep 59/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.80it/s, loss=0.82
+   => Val Acc: 87.67%
+Ep 60/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.83it/s, loss=0.76
+   => Val Acc: 87.97%
+Ep 61/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.79it/s, loss=1.96
+   => Val Acc: 87.92%
+Ep 62/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.77it/s, loss=1.37
+   => Val Acc: 88.18%
+Ep 63/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.81it/s, loss=0.83
+   => Val Acc: 86.95%
+Ep 64/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.83it/s, loss=0.80
+   => Val Acc: 87.92%
+Ep 65/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.70it/s, loss=0.75
+   => Val Acc: 87.82%
+Ep 66/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.75it/s, loss=1.59
+   => Val Acc: 86.44%
+Ep 67/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.84it/s, loss=1.77
+   => Val Acc: 87.92%
+Ep 68/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.76it/s, loss=0.76
+   => Val Acc: 87.97%
+Ep 69/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.80it/s, loss=0.94
+   => Val Acc: 87.36%
+Ep 70/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.80it/s, loss=0.88
+   => Val Acc: 87.21%
+Ep 71/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.83it/s, loss=1.38
+   => Val Acc: 87.15%
+Ep 72/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.83it/s, loss=0.82
+   => Val Acc: 87.36%
+Ep 73/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.77it/s, loss=1.72
+   => Val Acc: 87.46%
+Ep 74/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.77it/s, loss=1.13
+   => Val Acc: 87.92%
+Ep 75/80 [Train]: 100%|█| 550/550 [00:51<00:00, 10.76it/s, loss=1.64
+   => Val Acc: 87.10%
+Ep 76/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.80it/s, loss=0.85
+   => Val Acc: 87.21%
+Ep 77/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.79it/s, loss=2.52
+   => Val Acc: 86.95%
+Ep 78/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.84it/s, loss=0.74
+   => Val Acc: 88.13%
+Ep 79/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.81it/s, loss=1.89
+   => Val Acc: 87.46%
+Ep 80/80 [Train]: 100%|█| 550/550 [00:50<00:00, 10.80it/s, loss=0.74
+   => Val Acc: 86.39%
+ Starte Experiment: resnet_task-species_attn-False_layers-3
+[TRAIN] Dataset bereit: 19537 Samples, 55 Klassen.
+ Berechne Klassen-Gewichte...
+Downloading: "https://download.pytorch.org/models/resnet18-f37072fd.pth" to /home/boredvoidater/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth
+100%|██████████████████████████| 44.7M/44.7M [00:04<00:00, 9.53MB/s]
+/home/boredvoidater/bird-project/src/train.py:62: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = GradScaler()
+Ep 1/50 [Train]:   0%|                      | 0/550 [00:00<?, ?it/s]/home/boredvoidater/bird-project/src/train.py:75: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with autocast():
+Ep 1/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.20it/s, loss=1.767
+   => Val Acc: 61.26%
+Ep 2/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.53it/s, loss=1.509
+   => Val Acc: 67.40%
+Ep 3/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.42it/s, loss=1.958
+   => Val Acc: 68.27%
+Ep 4/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.33it/s, loss=1.488
+   => Val Acc: 74.67%
+Ep 5/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.22it/s, loss=2.886
+   => Val Acc: 64.59%
+Ep 6/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.32it/s, loss=2.201
+   => Val Acc: 75.44%
+Ep 7/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.40it/s, loss=2.123
+   => Val Acc: 76.71%
+Ep 8/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.34it/s, loss=1.506
+   => Val Acc: 80.40%
+Ep 9/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.20it/s, loss=1.663
+   => Val Acc: 80.19%
+Ep 10/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.36it/s, loss=1.75
+   => Val Acc: 79.22%
+Ep 11/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.25it/s, loss=2.70
+   => Val Acc: 81.17%
+Ep 12/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.27it/s, loss=2.38
+   => Val Acc: 79.84%
+Ep 13/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.22it/s, loss=1.10
+   => Val Acc: 77.69%
+Ep 14/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.38it/s, loss=0.84
+   => Val Acc: 81.93%
+Ep 15/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.24it/s, loss=0.95
+   => Val Acc: 83.01%
+Ep 16/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.32it/s, loss=2.31
+   => Val Acc: 82.45%
+Ep 17/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.30it/s, loss=1.50
+   => Val Acc: 82.91%
+Ep 18/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.28it/s, loss=0.98
+   => Val Acc: 82.04%
+Ep 19/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.35it/s, loss=2.18
+   => Val Acc: 81.73%
+Ep 20/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.28it/s, loss=0.92
+   => Val Acc: 82.91%
+Ep 21/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.21it/s, loss=1.31
+   => Val Acc: 82.50%
+Ep 22/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.25it/s, loss=0.97
+   => Val Acc: 84.85%
+Ep 23/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.40it/s, loss=0.81
+   => Val Acc: 84.08%
+Ep 24/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.30it/s, loss=1.33
+   => Val Acc: 85.06%
+Ep 25/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.33it/s, loss=0.93
+   => Val Acc: 82.50%
+Ep 26/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.27it/s, loss=1.91
+   => Val Acc: 84.60%
+Ep 27/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.29it/s, loss=0.94
+   => Val Acc: 84.65%
+Ep 28/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.28it/s, loss=0.83
+   => Val Acc: 84.24%
+Ep 29/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.35it/s, loss=0.88
+   => Val Acc: 84.24%
+Ep 30/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.43it/s, loss=2.34
+   => Val Acc: 83.52%
+Ep 31/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.29it/s, loss=0.76
+   => Val Acc: 84.08%
+Ep 32/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.27it/s, loss=0.82
+   => Val Acc: 84.70%
+Ep 33/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.29it/s, loss=1.10
+   => Val Acc: 85.06%
+Ep 34/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.28it/s, loss=0.82
+   => Val Acc: 84.80%
+Ep 35/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.24it/s, loss=1.71
+   => Val Acc: 85.26%
+Ep 36/50 [Train]: 100%|█| 550/550 [00:34<00:00, 16.17it/s, loss=1.21
+   => Val Acc: 84.24%
+Ep 37/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.23it/s, loss=0.75
+   => Val Acc: 85.93%
+Ep 38/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.29it/s, loss=1.34
+   => Val Acc: 85.77%
+Ep 39/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.31it/s, loss=1.11
+   => Val Acc: 85.52%
+Ep 40/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.22it/s, loss=1.96
+   => Val Acc: 86.03%
+Ep 41/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.24it/s, loss=0.75
+   => Val Acc: 85.98%
+Ep 42/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.22it/s, loss=0.88
+   => Val Acc: 85.31%
+Ep 43/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.24it/s, loss=2.11
+   => Val Acc: 85.47%
+Ep 44/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.20it/s, loss=0.81
+   => Val Acc: 85.82%
+Ep 45/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.31it/s, loss=1.79
+   => Val Acc: 85.41%
+Ep 46/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.37it/s, loss=0.83
+   => Val Acc: 86.13%
+Ep 47/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.18it/s, loss=1.70
+   => Val Acc: 85.98%
+Ep 48/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.30it/s, loss=0.74
+   => Val Acc: 86.13%
+Ep 49/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.21it/s, loss=0.74
+   => Val Acc: 86.75%
+Ep 50/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.24it/s, loss=0.75
+   => Val Acc: 85.06%
+ Starte Experiment: efficientnet_task-type_attn-False_layers-3
+[TRAIN] Dataset bereit: 19537 Samples, 2 Klassen.
+ Berechne Klassen-Gewichte...
+/home/boredvoidater/bird-project/src/train.py:62: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = GradScaler()
+Ep 1/40 [Train]:   0%|                      | 0/550 [00:00<?, ?it/s]/home/boredvoidater/bird-project/src/train.py:75: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with autocast():
+Ep 1/40 [Train]: 100%|█| 550/550 [01:05<00:00,  8.42it/s, loss=0.356
+   => Val Acc: 86.44%
+Ep 2/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.17it/s, loss=0.586
+   => Val Acc: 88.74%
+Ep 3/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.15it/s, loss=0.437
+   => Val Acc: 89.10%
+Ep 4/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.08it/s, loss=0.525
+   => Val Acc: 87.46%
+Ep 5/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.06it/s, loss=0.421
+   => Val Acc: 87.21%
+Ep 6/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.03it/s, loss=0.406
+   => Val Acc: 89.66%
+Ep 7/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.04it/s, loss=0.274
+   => Val Acc: 88.28%
+Ep 8/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.04it/s, loss=0.392
+   => Val Acc: 89.10%
+Ep 9/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.02it/s, loss=0.782
+   => Val Acc: 89.92%
+Ep 10/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.02it/s, loss=0.40
+   => Val Acc: 89.00%
+Ep 11/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.02it/s, loss=0.60
+   => Val Acc: 89.10%
+Ep 12/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.03it/s, loss=0.44
+   => Val Acc: 89.82%
+Ep 13/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.02it/s, loss=0.40
+   => Val Acc: 88.13%
+Ep 14/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.03it/s, loss=0.35
+   => Val Acc: 87.56%
+Ep 15/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.03it/s, loss=0.68
+   => Val Acc: 88.33%
+Ep 16/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.03it/s, loss=0.31
+   => Val Acc: 88.74%
+Ep 17/40 [Train]: 100%|█| 550/550 [00:50<00:00, 10.99it/s, loss=0.52
+   => Val Acc: 89.10%
+Ep 18/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.05it/s, loss=0.38
+   => Val Acc: 87.51%
+Ep 19/40 [Train]: 100%|█| 550/550 [00:50<00:00, 10.98it/s, loss=0.23
+   => Val Acc: 87.21%
+Ep 20/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.01it/s, loss=0.43
+   => Val Acc: 85.88%
+Ep 21/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.02it/s, loss=0.64
+   => Val Acc: 88.89%
+Ep 22/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.02it/s, loss=0.27
+   => Val Acc: 89.15%
+Ep 23/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.03it/s, loss=0.20
+   => Val Acc: 89.46%
+Ep 24/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.03it/s, loss=0.51
+   => Val Acc: 89.25%
+Ep 25/40 [Train]: 100%|█| 550/550 [00:50<00:00, 10.98it/s, loss=0.21
+   => Val Acc: 88.08%
+Ep 26/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.01it/s, loss=0.40
+   => Val Acc: 88.49%
+Ep 27/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.02it/s, loss=0.33
+   => Val Acc: 89.56%
+Ep 28/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.01it/s, loss=0.42
+   => Val Acc: 88.74%
+Ep 29/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.02it/s, loss=0.24
+   => Val Acc: 87.62%
+Ep 30/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.03it/s, loss=0.23
+   => Val Acc: 88.95%
+Ep 31/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.01it/s, loss=0.37
+   => Val Acc: 88.84%
+Ep 32/40 [Train]: 100%|█| 550/550 [00:50<00:00, 10.98it/s, loss=0.21
+   => Val Acc: 88.33%
+Ep 33/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.04it/s, loss=0.43
+   => Val Acc: 89.41%
+Ep 34/40 [Train]: 100%|█| 550/550 [00:50<00:00, 10.98it/s, loss=0.52
+   => Val Acc: 89.00%
+Ep 35/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.04it/s, loss=0.20
+   => Val Acc: 89.30%
+Ep 36/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.02it/s, loss=0.51
+   => Val Acc: 89.25%
+Ep 37/40 [Train]: 100%|█| 550/550 [00:50<00:00, 10.98it/s, loss=0.25
+   => Val Acc: 90.02%
+Ep 38/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.03it/s, loss=0.45
+   => Val Acc: 88.84%
+Ep 39/40 [Train]: 100%|█| 550/550 [00:49<00:00, 11.02it/s, loss=0.20
+   => Val Acc: 88.74%
+Ep 40/40 [Train]: 100%|█| 550/550 [00:50<00:00, 11.00it/s, loss=0.36
+   => Val Acc: 88.74%
+ Starte Experiment: embedding_task-species_attn-False_layers-3
+[TRAIN] Dataset bereit: 19537 Samples, 55 Klassen.
+ Berechne Klassen-Gewichte...
+/home/boredvoidater/bird-project/src/train.py:62: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = GradScaler()
+Ep 1/60 [Train]:   0%|                      | 0/550 [00:00<?, ?it/s]/home/boredvoidater/bird-project/src/train.py:75: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with autocast():
+Ep 1/60 [Train]: 100%|████████████| 550/550 [01:06<00:00,  8.24it/s]
+Ep 2/60 [Train]: 100%|████████████| 550/550 [00:50<00:00, 10.85it/s]
+Ep 3/60 [Train]: 100%|████████████| 550/550 [00:50<00:00, 10.82it/s]
+Ep 4/60 [Train]: 100%|████████████| 550/550 [00:51<00:00, 10.78it/s]
+Ep 5/60 [Train]: 100%|████████████| 550/550 [00:51<00:00, 10.77it/s]
+Ep 6/60 [Train]: 100%|████████████| 550/550 [00:51<00:00, 10.76it/s]
+Ep 7/60 [Train]: 100%|████████████| 550/550 [00:51<00:00, 10.74it/s]
+Ep 8/60 [Train]: 100%|████████████| 550/550 [00:51<00:00, 10.75it/s]
+Ep 9/60 [Train]: 100%|████████████| 550/550 [00:51<00:00, 10.72it/s]
+Ep 10/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.74it/s]
+Ep 11/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.74it/s]
+Ep 12/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.72it/s]
+Ep 13/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.75it/s]
+Ep 14/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.75it/s]
+Ep 15/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.74it/s]
+Ep 16/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.73it/s]
+Ep 17/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.76it/s]
+Ep 18/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.74it/s]
+Ep 19/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.69it/s]
+Ep 20/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.75it/s]
+Ep 21/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.75it/s]
+Ep 22/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.75it/s]
+Ep 23/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.71it/s]
+Ep 24/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.77it/s]
+Ep 25/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.77it/s]
+Ep 26/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.76it/s]
+Ep 27/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.74it/s]
+Ep 28/60 [Train]: 100%|███████████| 550/550 [00:51<00:00, 10.78it/s]
+Ep 29/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.79it/s]
+Ep 30/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.82it/s]
+Ep 31/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.79it/s]
+Ep 32/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.79it/s]
+Ep 33/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.87it/s]
+Ep 34/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.86it/s]
+Ep 35/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.89it/s]
+Ep 36/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.86it/s]
+Ep 37/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.87it/s]
+Ep 38/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.84it/s]
+Ep 39/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.86it/s]
+Ep 40/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.90it/s]
+Ep 41/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.85it/s]
+Ep 42/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.88it/s]
+Ep 43/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.85it/s]
+Ep 44/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.87it/s]
+Ep 45/60 [Train]: 100%|███████████| 550/550 [00:50<00:00, 10.94it/s]
+Ep 46/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.32it/s]
+Ep 47/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.39it/s]
+Ep 48/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.31it/s]
+Ep 49/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.33it/s]
+Ep 50/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.34it/s]
+Ep 51/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.39it/s]
+Ep 52/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.33it/s]
+Ep 53/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.34it/s]
+Ep 54/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.36it/s]
+Ep 55/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.33it/s]
+Ep 56/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.39it/s]
+Ep 57/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.38it/s]
+Ep 58/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.36it/s]
+Ep 59/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.35it/s]
+Ep 60/60 [Train]: 100%|███████████| 550/550 [00:48<00:00, 11.36it/s]
+(.venv)
+[boredvoidater@nixos:~/bird-project]$  python src/train.py --model custom --cnn-layers 3 --epochs 50
+ Starte Experiment: custom_task-species_attn-False_layers-3
+[TRAIN] Dataset bereit: 19537 Samples, 55 Klassen.
+ Berechne Klassen-Gewichte...
+/home/boredvoidater/bird-project/src/train.py:67: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = GradScaler()
+Ep 1/50 [Train]:   0%|                      | 0/550 [00:00<?, ?it/s]/home/boredvoidater/bird-project/src/train.py:80: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with autocast():
+Ep 1/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.57it/s, loss=3.422
+   => Val Acc: 28.92%
+Ep 2/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.66it/s, loss=2.481
+   => Val Acc: 46.67%
+Ep 3/50 [Train]: 100%|█| 550/550 [00:32<00:00, 17.15it/s, loss=2.360
+   => Val Acc: 51.13%
+Ep 4/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.85it/s, loss=2.443
+   => Val Acc: 55.22%
+Ep 5/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.95it/s, loss=2.919
+   => Val Acc: 57.47%
+Ep 6/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.22it/s, loss=2.992
+   => Val Acc: 60.44%
+Ep 7/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.26it/s, loss=2.289
+   => Val Acc: 58.96%
+Ep 8/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.40it/s, loss=2.447
+   => Val Acc: 63.00%
+Ep 9/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.28it/s, loss=2.004
+   => Val Acc: 62.33%
+Ep 10/50 [Train]: 100%|█| 550/550 [00:32<00:00, 17.15it/s, loss=1.84
+   => Val Acc: 64.23%
+Ep 11/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.21it/s, loss=2.60
+   => Val Acc: 65.15%
+Ep 12/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.98it/s, loss=1.89
+   => Val Acc: 65.30%
+Ep 13/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.94it/s, loss=1.72
+   => Val Acc: 66.63%
+Ep 14/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.84it/s, loss=1.49
+   => Val Acc: 67.30%
+Ep 15/50 [Train]: 100%|█| 550/550 [00:32<00:00, 17.16it/s, loss=2.15
+   => Val Acc: 67.55%
+Ep 16/50 [Train]: 100%|█| 550/550 [00:32<00:00, 17.13it/s, loss=1.99
+   => Val Acc: 67.35%
+Ep 17/50 [Train]: 100%|█| 550/550 [00:32<00:00, 17.17it/s, loss=2.30
+   => Val Acc: 68.12%
+Ep 18/50 [Train]: 100%|█| 550/550 [00:32<00:00, 17.14it/s, loss=2.60
+   => Val Acc: 68.99%
+Ep 19/50 [Train]: 100%|█| 550/550 [00:40<00:00, 13.59it/s, loss=2.21
+   => Val Acc: 68.17%
+Ep 20/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.96it/s, loss=1.55
+   => Val Acc: 68.47%
+Ep 21/50 [Train]: 100%|█| 550/550 [00:34<00:00, 16.10it/s, loss=1.54
+   => Val Acc: 68.17%
+Ep 22/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.78it/s, loss=1.41
+   => Val Acc: 69.60%
+Ep 23/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.95it/s, loss=2.48
+   => Val Acc: 69.86%
+Ep 24/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.90it/s, loss=1.74
+   => Val Acc: 69.70%
+Ep 25/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.90it/s, loss=1.85
+   => Val Acc: 69.70%
+Ep 26/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.68it/s, loss=2.22
+   => Val Acc: 70.73%
+Ep 27/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.56it/s, loss=1.68
+   => Val Acc: 70.27%
+Ep 28/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.25it/s, loss=2.00
+   => Val Acc: 69.50%
+Ep 29/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.26it/s, loss=1.81
+   => Val Acc: 70.06%
+Ep 30/50 [Train]: 100%|█| 550/550 [00:35<00:00, 15.70it/s, loss=1.88
+   => Val Acc: 70.47%
+Ep 31/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.20it/s, loss=1.72
+   => Val Acc: 71.49%
+Ep 32/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.85it/s, loss=2.28
+   => Val Acc: 70.47%
+Ep 33/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.97it/s, loss=1.49
+   => Val Acc: 70.68%
+Ep 34/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.83it/s, loss=1.77
+   => Val Acc: 71.14%
+Ep 35/50 [Train]: 100%|█| 550/550 [00:32<00:00, 17.04it/s, loss=1.48
+   => Val Acc: 71.49%
+Ep 36/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.98it/s, loss=1.63
+   => Val Acc: 72.06%
+Ep 37/50 [Train]: 100%|█| 550/550 [00:32<00:00, 17.03it/s, loss=1.53
+   => Val Acc: 71.34%
+Ep 38/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.60it/s, loss=1.66
+   => Val Acc: 72.67%
+Ep 39/50 [Train]: 100%|█| 550/550 [00:34<00:00, 16.00it/s, loss=1.96
+   => Val Acc: 71.80%
+Ep 40/50 [Train]: 100%|█| 550/550 [00:34<00:00, 15.78it/s, loss=1.51
+   => Val Acc: 72.77%
+Ep 41/50 [Train]: 100%|█| 550/550 [00:34<00:00, 15.89it/s, loss=1.44
+   => Val Acc: 72.57%
+Ep 42/50 [Train]: 100%|█| 550/550 [00:34<00:00, 16.11it/s, loss=1.72
+   => Val Acc: 72.82%
+Ep 43/50 [Train]: 100%|█| 550/550 [00:35<00:00, 15.63it/s, loss=1.55
+   => Val Acc: 72.01%
+Ep 44/50 [Train]: 100%|█| 550/550 [00:35<00:00, 15.66it/s, loss=1.72
+   => Val Acc: 71.90%
+Ep 45/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.58it/s, loss=1.39
+   => Val Acc: 72.21%
+Ep 46/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.69it/s, loss=1.24
+   => Val Acc: 72.77%
+Ep 47/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.81it/s, loss=1.27
+   => Val Acc: 71.39%
+Ep 48/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.77it/s, loss=1.79
+   => Val Acc: 71.75%
+Ep 49/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.82it/s, loss=1.22
+   => Val Acc: 72.26%
+Ep 50/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.95it/s, loss=1.45
+   => Val Acc: 72.16%
+(.venv)
+[boredvoidater@nixos:~/bird-project]$  python src/train.py --model custom --cnn-layers 5 --epochs 50
+ Starte Experiment: custom_task-species_attn-False_layers-5
+[TRAIN] Dataset bereit: 19537 Samples, 55 Klassen.
+ Berechne Klassen-Gewichte...
+/home/boredvoidater/bird-project/src/train.py:66: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = GradScaler()
+Ep 1/50 [Train]:   0%|                      | 0/550 [00:00<?, ?it/s]/home/boredvoidater/bird-project/src/train.py:79: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with autocast():
+Ep 1/50 [Train]: 100%|█| 550/550 [00:26<00:00, 20.99it/s, loss=3.890
+   => Val Acc: 4.86%
+Ep 2/50 [Train]: 100%|█| 550/550 [00:25<00:00, 21.19it/s, loss=3.888
+   => Val Acc: 4.86%
+Ep 3/50 [Train]: 100%|█| 550/550 [00:26<00:00, 21.02it/s, loss=3.931
+   => Val Acc: 6.40%
+Ep 4/50 [Train]: 100%|█| 550/550 [00:26<00:00, 20.97it/s, loss=4.007
+   => Val Acc: 6.04%
+Ep 5/50 [Train]: 100%|█| 550/550 [00:26<00:00, 20.72it/s, loss=3.885
+   => Val Acc: 6.04%
+Ep 6/50 [Train]: 100%|█| 550/550 [00:27<00:00, 20.06it/s, loss=3.922
+   => Val Acc: 5.12%
+Ep 7/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.46it/s, loss=3.855
+   => Val Acc: 5.12%
+Ep 8/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.23it/s, loss=4.034
+   => Val Acc: 6.40%
+Ep 9/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.20it/s, loss=4.009
+   => Val Acc: 6.40%
+Ep 10/50 [Train]: 100%|█| 550/550 [00:27<00:00, 19.72it/s, loss=3.84
+   => Val Acc: 6.04%
+Ep 11/50 [Train]: 100%|█| 550/550 [00:29<00:00, 18.89it/s, loss=3.77
+   => Val Acc: 6.04%
+Ep 12/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.20it/s, loss=3.98
+   => Val Acc: 6.40%
+Ep 13/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.42it/s, loss=3.91
+   => Val Acc: 6.40%
+Ep 14/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.42it/s, loss=3.80
+   => Val Acc: 6.40%
+Ep 15/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.09it/s, loss=3.81
+   => Val Acc: 5.37%
+Ep 16/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.20it/s, loss=3.83
+   => Val Acc: 6.04%
+Ep 17/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.04it/s, loss=4.01
+   => Val Acc: 6.40%
+Ep 18/50 [Train]: 100%|█| 550/550 [00:27<00:00, 19.68it/s, loss=3.82
+   => Val Acc: 6.40%
+Ep 19/50 [Train]: 100%|█| 550/550 [00:27<00:00, 19.76it/s, loss=4.03
+   => Val Acc: 6.40%
+Ep 20/50 [Train]: 100%|█| 550/550 [00:27<00:00, 19.84it/s, loss=3.88
+   => Val Acc: 6.40%
+Ep 21/50 [Train]: 100%|█| 550/550 [00:27<00:00, 19.67it/s, loss=3.85
+   => Val Acc: 6.04%
+Ep 22/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.27it/s, loss=3.90
+   => Val Acc: 6.40%
+Ep 23/50 [Train]: 100%|█| 550/550 [00:27<00:00, 19.66it/s, loss=3.82
+   => Val Acc: 6.40%
+Ep 24/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.52it/s, loss=3.93
+   => Val Acc: 6.40%
+Ep 25/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.20it/s, loss=3.82
+   => Val Acc: 6.40%
+Ep 26/50 [Train]: 100%|█| 550/550 [00:27<00:00, 19.71it/s, loss=3.99
+   => Val Acc: 6.40%
+Ep 27/50 [Train]: 100%|█| 550/550 [00:27<00:00, 19.70it/s, loss=3.78
+   => Val Acc: 6.04%
+Ep 28/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.63it/s, loss=3.75
+   => Val Acc: 6.40%
+Ep 29/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.45it/s, loss=3.96
+   => Val Acc: 6.40%
+Ep 30/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.34it/s, loss=3.92
+   => Val Acc: 6.40%
+Ep 31/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.43it/s, loss=3.82
+   => Val Acc: 6.04%
+Ep 32/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.46it/s, loss=3.95
+   => Val Acc: 6.04%
+Ep 33/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.41it/s, loss=3.73
+   => Val Acc: 6.04%
+Ep 34/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.28it/s, loss=3.80
+   => Val Acc: 6.40%
+Ep 35/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.63it/s, loss=3.92
+   => Val Acc: 6.40%
+Ep 36/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.37it/s, loss=3.86
+   => Val Acc: 6.40%
+Ep 37/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.40it/s, loss=4.02
+   => Val Acc: 6.40%
+Ep 38/50 [Train]: 100%|█| 550/550 [00:29<00:00, 18.96it/s, loss=3.89
+   => Val Acc: 6.40%
+Ep 39/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.01it/s, loss=3.85
+   => Val Acc: 6.40%
+Ep 40/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.37it/s, loss=3.97
+   => Val Acc: 6.40%
+Ep 41/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.32it/s, loss=3.93
+   => Val Acc: 6.40%
+Ep 42/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.16it/s, loss=3.82
+   => Val Acc: 6.40%
+Ep 43/50 [Train]: 100%|█| 550/550 [00:27<00:00, 19.68it/s, loss=3.78
+   => Val Acc: 6.40%
+Ep 44/50 [Train]: 100%|█| 550/550 [00:27<00:00, 19.68it/s, loss=3.69
+   => Val Acc: 6.40%
+Ep 45/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.53it/s, loss=4.06
+   => Val Acc: 6.40%
+Ep 46/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.27it/s, loss=3.89
+   => Val Acc: 6.40%
+Ep 47/50 [Train]: 100%|█| 550/550 [00:29<00:00, 18.95it/s, loss=3.89
+   => Val Acc: 6.40%
+Ep 48/50 [Train]: 100%|█| 550/550 [00:29<00:00, 18.73it/s, loss=3.84
+   => Val Acc: 6.40%
+Ep 49/50 [Train]: 100%|█| 550/550 [00:29<00:00, 18.68it/s, loss=3.84
+   => Val Acc: 6.40%
+Ep 50/50 [Train]: 100%|█| 550/550 [00:28<00:00, 19.38it/s, loss=3.87
+   => Val Acc: 6.40%
+(.venv)
+[boredvoidater@nixos:~/bird-project]$  python src/train.py --model custom --cnn-layers 2 --epochs 50
+ Starte Experiment: custom_task-species_attn-False_layers-2
+[TRAIN] Dataset bereit: 19537 Samples, 55 Klassen.
+ Berechne Klassen-Gewichte...
+/home/boredvoidater/bird-project/src/train.py:66: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = GradScaler()
+Ep 1/50 [Train]:   0%|                      | 0/550 [00:00<?, ?it/s]/home/boredvoidater/bird-project/src/train.py:79: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with autocast():
+Ep 1/50 [Train]: 100%|█| 550/550 [00:40<00:00, 13.47it/s, loss=3.399
+   => Val Acc: 27.28%
+Ep 2/50 [Train]: 100%|█| 550/550 [00:40<00:00, 13.49it/s, loss=2.988
+   => Val Acc: 36.49%
+Ep 3/50 [Train]: 100%|█| 550/550 [00:40<00:00, 13.45it/s, loss=3.061
+   => Val Acc: 41.40%
+Ep 4/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.41it/s, loss=2.246
+   => Val Acc: 39.76%
+Ep 5/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.31it/s, loss=2.770
+   => Val Acc: 47.39%
+Ep 6/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.17it/s, loss=2.682
+   => Val Acc: 48.93%
+Ep 7/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.16it/s, loss=3.104
+   => Val Acc: 50.26%
+Ep 8/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.21it/s, loss=2.722
+   => Val Acc: 50.67%
+Ep 9/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.22it/s, loss=2.799
+   => Val Acc: 51.33%
+Ep 10/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.25it/s, loss=2.85
+   => Val Acc: 52.00%
+Ep 11/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.10it/s, loss=2.30
+   => Val Acc: 51.48%
+Ep 12/50 [Train]: 100%|█| 550/550 [00:42<00:00, 13.08it/s, loss=3.10
+   => Val Acc: 52.87%
+Ep 13/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.13it/s, loss=2.16
+   => Val Acc: 54.35%
+Ep 14/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.27it/s, loss=2.13
+   => Val Acc: 53.94%
+Ep 15/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.12it/s, loss=2.01
+   => Val Acc: 54.09%
+Ep 16/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.14it/s, loss=2.38
+   => Val Acc: 55.12%
+Ep 17/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.10it/s, loss=2.35
+   => Val Acc: 55.73%
+Ep 18/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.10it/s, loss=2.46
+   => Val Acc: 56.91%
+Ep 19/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.20it/s, loss=2.68
+   => Val Acc: 56.76%
+Ep 20/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.28it/s, loss=1.94
+   => Val Acc: 57.06%
+Ep 21/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.33it/s, loss=2.44
+   => Val Acc: 57.06%
+Ep 22/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.34it/s, loss=1.96
+   => Val Acc: 57.16%
+Ep 23/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.33it/s, loss=2.55
+   => Val Acc: 57.73%
+Ep 24/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.34it/s, loss=2.56
+   => Val Acc: 58.19%
+Ep 25/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.32it/s, loss=2.58
+   => Val Acc: 57.83%
+Ep 26/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.34it/s, loss=1.60
+   => Val Acc: 57.57%
+Ep 27/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.35it/s, loss=2.09
+   => Val Acc: 58.60%
+Ep 28/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.36it/s, loss=1.93
+   => Val Acc: 58.50%
+Ep 29/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.34it/s, loss=2.36
+   => Val Acc: 58.65%
+Ep 30/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.35it/s, loss=2.09
+   => Val Acc: 59.62%
+Ep 31/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.37it/s, loss=2.14
+   => Val Acc: 57.73%
+Ep 32/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.36it/s, loss=2.19
+   => Val Acc: 58.39%
+Ep 33/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.34it/s, loss=1.58
+   => Val Acc: 59.47%
+Ep 34/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.36it/s, loss=2.19
+   => Val Acc: 59.26%
+Ep 35/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.36it/s, loss=1.89
+   => Val Acc: 59.52%
+Ep 36/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.38it/s, loss=1.64
+   => Val Acc: 59.06%
+Ep 37/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.37it/s, loss=2.31
+   => Val Acc: 58.85%
+Ep 38/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.36it/s, loss=2.66
+   => Val Acc: 59.77%
+Ep 39/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.39it/s, loss=1.71
+   => Val Acc: 59.11%
+Ep 40/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.37it/s, loss=2.11
+   => Val Acc: 59.42%
+Ep 41/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.38it/s, loss=2.06
+   => Val Acc: 61.36%
+Ep 42/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.37it/s, loss=1.72
+   => Val Acc: 59.47%
+Ep 43/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.38it/s, loss=2.60
+   => Val Acc: 60.54%
+Ep 44/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.38it/s, loss=1.70
+   => Val Acc: 60.44%
+Ep 45/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.38it/s, loss=1.66
+   => Val Acc: 61.00%
+Ep 46/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.40it/s, loss=2.21
+   => Val Acc: 62.38%
+Ep 47/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.38it/s, loss=1.89
+   => Val Acc: 59.57%
+Ep 48/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.37it/s, loss=2.55
+   => Val Acc: 60.29%
+Ep 49/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.37it/s, loss=1.57
+   => Val Acc: 59.77%
+Ep 50/50 [Train]: 100%|█| 550/550 [00:41<00:00, 13.39it/s, loss=2.26
+   => Val Acc: 60.44%
+(.venv)
+[boredvoidater@nixos:~/bird-project]$  python src/train.py --model custom --cnn-layers 3 --epochs 50 --use-attention
+ Starte Experiment: custom_task-species_attn-True_layers-3
+[TRAIN] Dataset bereit: 19537 Samples, 55 Klassen.
+ Berechne Klassen-Gewichte...
+/home/boredvoidater/bird-project/src/train.py:66: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = GradScaler()
+Ep 1/50 [Train]:   0%|                      | 0/550 [00:00<?, ?it/s]/home/boredvoidater/bird-project/src/train.py:79: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with autocast():
+Ep 1/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.49it/s, loss=3.052
+   => Val Acc: 42.68%
+Ep 2/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.50it/s, loss=2.339
+   => Val Acc: 49.39%
+Ep 3/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.28it/s, loss=2.671
+   => Val Acc: 55.78%
+Ep 4/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.32it/s, loss=1.735
+   => Val Acc: 58.39%
+Ep 5/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.27it/s, loss=2.630
+   => Val Acc: 61.16%
+Ep 6/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.27it/s, loss=2.027
+   => Val Acc: 61.62%
+Ep 7/50 [Train]: 100%|█| 550/550 [00:31<00:00, 17.21it/s, loss=2.532
+   => Val Acc: 62.44%
+Ep 8/50 [Train]: 100%|█| 550/550 [00:32<00:00, 17.09it/s, loss=1.782
+   => Val Acc: 64.43%
+Ep 9/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.87it/s, loss=1.976
+   => Val Acc: 65.25%
+Ep 10/50 [Train]: 100%|█| 550/550 [00:32<00:00, 17.12it/s, loss=1.76
+   => Val Acc: 66.07%
+Ep 11/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.78it/s, loss=1.86
+   => Val Acc: 67.20%
+Ep 12/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.74it/s, loss=2.61
+   => Val Acc: 66.58%
+Ep 13/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.71it/s, loss=1.55
+   => Val Acc: 68.99%
+Ep 14/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.76it/s, loss=1.72
+   => Val Acc: 69.29%
+Ep 15/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.83it/s, loss=1.62
+   => Val Acc: 69.14%
+Ep 16/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.81it/s, loss=2.03
+   => Val Acc: 68.68%
+Ep 17/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.65it/s, loss=1.87
+   => Val Acc: 68.94%
+Ep 18/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.67it/s, loss=2.01
+   => Val Acc: 70.06%
+Ep 19/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.69it/s, loss=1.64
+   => Val Acc: 69.91%
+Ep 20/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.75it/s, loss=1.35
+   => Val Acc: 70.37%
+Ep 21/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.59it/s, loss=1.75
+   => Val Acc: 71.19%
+Ep 22/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.49it/s, loss=1.87
+   => Val Acc: 70.93%
+Ep 23/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.51it/s, loss=1.46
+   => Val Acc: 69.96%
+Ep 24/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.57it/s, loss=1.78
+   => Val Acc: 71.14%
+Ep 25/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.52it/s, loss=2.07
+   => Val Acc: 71.55%
+Ep 26/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.61it/s, loss=1.89
+   => Val Acc: 72.16%
+Ep 27/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.29it/s, loss=2.23
+   => Val Acc: 72.26%
+Ep 28/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.23it/s, loss=1.31
+   => Val Acc: 73.23%
+Ep 29/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.68it/s, loss=1.29
+   => Val Acc: 72.82%
+Ep 30/50 [Train]: 100%|█| 550/550 [00:34<00:00, 16.17it/s, loss=1.27
+   => Val Acc: 71.49%
+Ep 31/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.40it/s, loss=1.66
+   => Val Acc: 72.21%
+Ep 32/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.61it/s, loss=2.07
+   => Val Acc: 72.42%
+Ep 33/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.72it/s, loss=1.56
+   => Val Acc: 73.44%
+Ep 34/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.49it/s, loss=1.87
+   => Val Acc: 71.85%
+Ep 35/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.72it/s, loss=1.48
+   => Val Acc: 72.77%
+Ep 36/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.58it/s, loss=1.60
+   => Val Acc: 72.57%
+Ep 37/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.47it/s, loss=1.79
+   => Val Acc: 72.82%
+Ep 38/50 [Train]: 100%|█| 550/550 [00:33<00:00, 16.66it/s, loss=1.66
+   => Val Acc: 73.39%
+Ep 39/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.84it/s, loss=1.75
+   => Val Acc: 71.19%
+Ep 40/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.87it/s, loss=1.46
+   => Val Acc: 73.69%
+Ep 41/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.92it/s, loss=1.66
+   => Val Acc: 73.08%
+Ep 42/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.88it/s, loss=1.69
+   => Val Acc: 72.42%
+Ep 43/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.86it/s, loss=1.67
+   => Val Acc: 72.62%
+Ep 44/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.83it/s, loss=1.57
+   => Val Acc: 73.03%
+Ep 45/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.88it/s, loss=1.24
+   => Val Acc: 72.62%
+Ep 46/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.93it/s, loss=1.70
+   => Val Acc: 74.36%
+Ep 47/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.94it/s, loss=1.70
+   => Val Acc: 72.36%
+Ep 48/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.87it/s, loss=1.64
+   => Val Acc: 73.54%
+Ep 49/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.85it/s, loss=2.06
+   => Val Acc: 72.67%
+Ep 50/50 [Train]: 100%|█| 550/550 [00:32<00:00, 16.95it/s, loss=1.40
+   => Val Acc: 72.16%
+(.venv)
+[boredvoidater@nixos:~/bird-project]$
+</file>
+
+<file path="run_experiments.sh">
+# 1. Hauptmodell (Sehr gründlich trainiert)
+python src/train.py --model efficientnet --epochs 80
+
+# 2. ResNet Vergleich
+python src/train.py --model resnet --epochs 50
+
+# 3. Custom CNN (Vergleich für die Theorie-Sektion)
+python src/train.py --model custom --cnn-layers 5 --epochs 50
+
+# 4. Song vs Call (Für die t-SNE Grafiken)
+python src/train.py --model efficientnet --task type --epochs 40
+
+# 5. Embedding / ArcFace (Dein "Profi-Feature")
+python src/train.py --model embedding --epochs 60
+</file>
+
+<file path="data/models/efficientnet_task-species_attn-False_layers-3_classes.json">
+{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
+</file>
 
 <file path="USAGE.txt">
 1. Daten Vorbereiten (src/data_prep.py)
@@ -1186,7 +2494,7 @@ def fetch_page(url, params, page):
     return[]
 
 def step1_get_metadata():
-    print(f" Schritt 1/3: Erfasse Metadaten (Vögel aus {XC_SPECIES_COUNTRY}, Audio aus {XC_RECORDING_AREA})...")
+    print(f" Schritt 1/3: Erfasse Metadaten (Vögel aus {XC_SPECIES_LOCATION}, Audio aus {XC_RECORDING_LOCATION})...")
 
     if os.path.exists(METADATA_FILE):
         print(" Metadaten existieren bereits. (Lösche die metadata.csv, falls du Filter geändert hast!)")
@@ -1328,6 +2636,7 @@ if __name__ == "__main__":
 __pycache__/
 *.py[cod]
 *$py.class
+.env
 
 # OS Files
 .DS_Store
@@ -1364,6 +2673,11 @@ data/processed_tensors/
 
 # extra stuff
 clean_code.py
+
+# repomix
+.repomixignore
+repomix-output.xml
+repomix.config.json
 </file>
 
 <file path="flake.nix">
@@ -1466,15 +2780,21 @@ opencv-python-headless<4.10
 # Datenbeschaffung (Xeno-Canto)
 aiohttp
 tqdm
+
+python-dotenv
 </file>
 
 <file path="src/config.py">
 import os
 import torch
+from dotenv import load_dotenv
+
+load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 METADATA_FILE = os.path.join(DATA_DIR, "metadata.csv")
+RAW_AUDIO_DIR = os.path.join(DATA_DIR, "raw_audio")
 PROCESSED_DIR = os.path.join(DATA_DIR, "processed_tensors")
 MODELS_DIR = os.path.join(DATA_DIR, "models")
 VISUALS_DIR = os.path.join(BASE_DIR, "visuals", "experiments")
@@ -1543,7 +2863,10 @@ def main():
     import numpy as np
     from torch.utils.data import WeightedRandomSampler
 
-    train_labels = [full_ds.get_all_labels()[i] for i in train_ds.indices]
+    print(" Berechne Klassen-Gewichte...")
+    all_labels = full_ds.get_all_labels()
+    train_labels = [all_labels[i] for i in train_ds.indices]
+
     counts = Counter(train_labels)
     weights = {cls: 1.0 / np.sqrt(c) for cls, c in counts.items()}
     sample_weights = torch.tensor([weights[l] for l in train_labels])
@@ -1553,6 +2876,10 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     model = get_model(args.model, len(full_ds.classes), args.use_attention, args.cnn_layers).to(DEVICE)
+
+    with torch.no_grad():
+        dummy_input = torch.randn(1, 3, IMG_SIZE, IMG_SIZE).to(DEVICE)
+        model(dummy_input)
 
     if args.model == "embedding":
         from pytorch_metric_learning import losses
@@ -1579,7 +2906,7 @@ def main():
 
                 inputs = spec_augmenter(inputs)
 
-                if args.model != "embedding" and torch.rand(1).item() > 0.5:
+                if args.model not in ["embedding", "custom"] and torch.rand(1).item() > 0.5:
                     inputs, targets_a, targets_b, lam = mixup_data(inputs, labels)
                     outputs = model(inputs)
                     loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)

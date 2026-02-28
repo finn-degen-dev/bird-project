@@ -38,7 +38,7 @@ def main():
     from torch.utils.data import WeightedRandomSampler
 
     print(" Berechne Klassen-Gewichte...")
-    all_labels = full_ds.get_all_labels()  # Nur EINMAL aufrufen!
+    all_labels = full_ds.get_all_labels()
     train_labels = [all_labels[i] for i in train_ds.indices]
 
     counts = Counter(train_labels)
@@ -50,6 +50,10 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     model = get_model(args.model, len(full_ds.classes), args.use_attention, args.cnn_layers).to(DEVICE)
+
+    with torch.no_grad():
+        dummy_input = torch.randn(1, 3, IMG_SIZE, IMG_SIZE).to(DEVICE)
+        model(dummy_input)
 
     if args.model == "embedding":
         from pytorch_metric_learning import losses
@@ -76,7 +80,7 @@ def main():
 
                 inputs = spec_augmenter(inputs)
 
-                if args.model != "embedding" and torch.rand(1).item() > 0.5:
+                if args.model not in ["embedding", "custom"] and torch.rand(1).item() > 0.5:
                     inputs, targets_a, targets_b, lam = mixup_data(inputs, labels)
                     outputs = model(inputs)
                     loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)

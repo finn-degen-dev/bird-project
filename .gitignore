@@ -40,3 +40,11 @@ data/processed_tensors/
 
 # extra stuff
 clean_code.py
+
+# repomix
+.repomixignore
+repomix-output.xml
+repomix.config.json
+
+data/models/*.pth
+data/models/*.onnx
