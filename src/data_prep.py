@@ -136,16 +136,13 @@ def process_audio_pipeline(df):
     def pipeline_worker(task):
         url, mp3_path, pt_path = task
 
-        # 1. CHECK: Ist der fertige Tensor schon da?
         if os.path.exists(pt_path):
-            # Wenn der Tensor da ist, die MP3 aber noch rumliegt -> Platz machen!
+
             if os.path.exists(mp3_path):
                 try: os.remove(mp3_path)
                 except: pass
             return
 
-        # 2. DOWNLOAD: Wenn die MP3 fehlt -> Lade sie runter!
-        # (Wenn die Datei schon da ist, weil du sie beim ersten Mal geladen hast, wird das übersprungen!)
         if not os.path.exists(mp3_path):
             session = get_session()
             try:
@@ -159,10 +156,9 @@ def process_audio_pipeline(df):
             except:
                 return
 
-        # 3. UMWANDELN
         if os.path.exists(mp3_path):
             try:
-                # Librosa Tensor-Erstellung aus dem alten Schritt 3
+
                 load_duration = max(15, DURATION * 2)
                 y, sr = librosa.load(mp3_path, sr=SAMPLE_RATE, duration=load_duration)
 
@@ -182,15 +178,14 @@ def process_audio_pipeline(df):
                 tensor = torch.tensor(spec_norm, dtype=torch.float16)
                 torch.save(tensor, pt_path)
             except Exception as e:
-                # MP3 war kaputt/unlesbar
+
                 pass
             finally:
-                # 4. LÖSCHEN (Garbage Collection für den Festplattenspeicher)
+
                 if os.path.exists(mp3_path):
                     try: os.remove(mp3_path)
                     except: pass
 
-    # Wir nutzen 10 Worker, das ist der Sweet-Spot für Download-Bandbreite + CPU für Librosa
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         list(tqdm(executor.map(pipeline_worker, tasks), total=len(tasks), desc="Verarbeite Audios"))
 

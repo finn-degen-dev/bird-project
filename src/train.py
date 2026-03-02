@@ -47,13 +47,13 @@ def main():
     sample_weights = torch.tensor([weights[l] for l in train_labels])
 
     sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=0, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
     model = get_model(args.model, len(full_ds.classes), args.use_attention, args.cnn_layers).to(DEVICE)
 
     with torch.no_grad():
-        dummy_input = torch.randn(1, 3, IMG_SIZE, IMG_SIZE).to(DEVICE)
+        dummy_input = torch.randn(2, 3, IMG_SIZE, IMG_SIZE).to(DEVICE)
         model(dummy_input)
 
     if args.model == "embedding":

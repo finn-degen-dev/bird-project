@@ -94,6 +94,12 @@ def live_showcase(model, classes, threshold, model_type):
                 if conf >= threshold:
                     current_time = time.time() - start_time
                     bird_name = classes[idx]
+
+                    non_birds =['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper']
+                    if any(x in bird_name.lower() for x in non_birds):
+                        print(f"[{current_time:04.1f}s]  Ignoriere Insekt/Amphibie: {bird_name}")
+                        continue
+
                     results.append({"Zeit (s)": current_time, "Vogelart": bird_name, "Konfidenz": conf})
                     print(f"[{current_time:04.1f}s]  {bird_name:<20} | Sicherheit: {conf:.1%}")
 

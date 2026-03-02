@@ -7,26 +7,26 @@ echo " 🐦 Piepmatz Polizei - The Big European Overnight Training"
 echo "============================================================"
 
 # --- 1. TRAINING ALLER MODELLE ---
-echo -e "\n>>> 1/8: Training EfficientNet (Hauptmodell) ..."
-python src/train.py --model efficientnet --epochs 80
+#echo -e "\n>>> 1/8: Training EfficientNet (Hauptmodell) ..."
+#python src/train.py --model efficientnet --epochs 80
 
-echo -e "\n>>> 2/8: Training ResNet (Vergleichsmodell) ..."
-python src/train.py --model resnet --epochs 50
+#echo -e "\n>>> 2/8: Training ResNet (Vergleichsmodell) ..."
+#python src/train.py --model resnet --epochs 50
 
-echo -e "\n>>> 3/8: Training Custom CNN (2 Layers) ..."
-python src/train.py --model custom --cnn-layers 2 --epochs 50
+#echo -e "\n>>> 3/8: Training Custom CNN (2 Layers) ..."
+#python src/train.py --model custom --cnn-layers 2 --epochs 50
 
-echo -e "\n>>> 4/8: Training Custom CNN (3 Layers) ..."
-python src/train.py --model custom --cnn-layers 3 --epochs 50
+#echo -e "\n>>> 4/8: Training Custom CNN (3 Layers) ..."
+#python src/train.py --model custom --cnn-layers 3 --epochs 50
 
-echo -e "\n>>> 5/8: Training Custom CNN (5 Layers) ..."
-python src/train.py --model custom --cnn-layers 5 --epochs 50
+#echo -e "\n>>> 5/8: Training Custom CNN (5 Layers) ..."
+#python src/train.py --model custom --cnn-layers 5 --epochs 50
 
-echo -e "\n>>> 6/8: Training Custom CNN (3 Layers + Attention) ..."
-python src/train.py --model custom --cnn-layers 3 --use-attention --epochs 50
+#echo -e "\n>>> 6/8: Training Custom CNN (3 Layers + Attention) ..."
+#python src/train.py --model custom --cnn-layers 3 --use-attention --epochs 50
 
-echo -e "\n>>> 7/8: Training Song vs. Call Classifier ..."
-python src/train.py --model efficientnet --task type --epochs 40
+#echo -e "\n>>> 7/8: Training Song vs. Call Classifier ..."
+#python src/train.py --model efficientnet --task type --epochs 40
 
 echo -e "\n>>> 8/8: Training Metric Learning (ArcFace Embedding) ..."
 python src/train.py --model embedding --epochs 60

@@ -59,18 +59,17 @@ def main():
     acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers)
     print(f"\n {exp_name} Accuracy: {acc:.2%}")
 
-    # --- NEU: Speichert das Ergebnis für generate_figures.py ---
     logs_dir = os.path.join(VISUALS_DIR, "logs")
     os.makedirs(logs_dir, exist_ok=True)
     cache_file = os.path.join(logs_dir, "evaluation_cache.json")
-    
+
     cache = {}
     if os.path.exists(cache_file):
         with open(cache_file, "r") as f:
             cache = json.load(f)
-            
+
     cache[exp_name] = acc * 100
-    
+
     with open(cache_file, "w") as f:
         json.dump(cache, f, indent=4)
 

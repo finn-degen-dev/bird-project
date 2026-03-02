@@ -40,16 +40,6 @@ The content is organized as follows:
 </file_summary>
 
 <directory_structure>
-data/
-  models/
-    custom_task-species_attn-False_layers-2_classes.json
-    custom_task-species_attn-False_layers-3_classes.json
-    custom_task-species_attn-False_layers-5_classes.json
-    custom_task-species_attn-True_layers-3_classes.json
-    efficientnet_task-species_attn-False_layers-3_classes.json
-    efficientnet_task-type_attn-False_layers-3_classes.json
-    embedding_task-species_attn-False_layers-3_classes.json
-    resnet_task-species_attn-False_layers-3_classes.json
 OnshapeImages/
   OnshapeModelView_CasingWithParts.png
   OnshapeModelView_OnlyCasing.png
@@ -77,10 +67,12 @@ Pictures/
 src/
   experiments/
     gradcam.py
+    plot_top_errors.py
     song_vs_call.py
   visuals/
     generate_figures.py
   config.py
+  count_birds.py
   data_prep.py
   data.py
   evaluate.py
@@ -90,11 +82,25 @@ src/
   train.py
 visuals/
   experiments/
-    graph1_custom_cnn_comparison.png
-    graph2_best_models_comparison.png
-    performance_by_quality.png
-    sliding_window_comparison_updated.png
-    sliding_window_comparison.png
+    europe/
+      comparison_model_performance.png
+      custom_task-species_attn-False_layers-2_confusion.png
+      custom_task-species_attn-False_layers-3_confusion.png
+      custom_task-species_attn-False_layers-5_confusion.png
+      custom_task-species_attn-True_layers-3_confusion.png
+      efficientnet_task-species_attn-False_layers-3_confusion.png
+      gradcam_5_birds.png
+      gradcam_sliding_window.png
+      loss_curve_15epoch_resnet18pre.png
+      performance_by_quality.png
+      resnet_task-species_attn-False_layers-3_confusion.png
+      sliding_window_comparison_updated.png
+      top_errors.png
+      tsne_song_vs_call.png
+    germany/
+      graph1_custom_cnn_comparison.png
+      graph2_best_models_comparison.png
+      sliding_window_comparison.png
 .gitignore
 bird_project_cover.png
 cap_data.py
@@ -113,222 +119,177 @@ USAGE.txt
 <files>
 This section contains the contents of the repository's files.
 
-<file path="cap_data.py">
-import pandas as pd; df = pd.read_csv('data/metadata.csv'); print(f'Alte Größe: {len(df)}'); df['q_rank'] = df['quality'].map({'A':1, 'B':2, 'C':3, 'D':4}); df = df.sort_values(['species', 'q_rank']).groupby('species').head(150).drop(columns=['q_rank']); df.to_csv('data/metadata.csv', index=False); print(f'Neue Größe: {len(df)} (Max 150 beste Qualitäten pro Art!)')
-</file>
-
-<file path="data/models/custom_task-species_attn-False_layers-2_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/custom_task-species_attn-False_layers-3_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/custom_task-species_attn-False_layers-5_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/custom_task-species_attn-True_layers-3_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/efficientnet_task-species_attn-False_layers-3_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/efficientnet_task-type_attn-False_layers-3_classes.json">
-{"classes": ["call", "song"]}
-</file>
-
-<file path="data/models/embedding_task-species_attn-False_layers-3_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="data/models/resnet_task-species_attn-False_layers-3_classes.json">
-{"classes": ["Alpine Swift", "Bar-headed Goose", "Barnacle Goose", "Black Grouse", "Black Swan", "Brant Goose", "Canada Goose", "Common Cuckoo", "Common Eider", "Common Goldeneye", "Common Merganser", "Common Pheasant", "Common Pochard", "Common Quail", "Common Scoter", "Common Shelduck", "Common Swift", "Common Wood Pigeon", "Egyptian Goose", "Eurasian Collared Dove", "Eurasian Teal", "Eurasian Wigeon", "European Nightjar", "European Turtle Dove", "Ferruginous Duck", "Gadwall", "Garganey", "Greater White-fronted Goose", "Grey Partridge", "Greylag Goose", "Hazel Grouse", "Indian Peafowl", "Lesser White-fronted Goose", "Long-tailed Duck", "Mallard", "Mandarin Duck", "Mute Swan", "Northern Pintail", "Northern Shoveler", "Pink-footed Goose", "Red-breasted Merganser", "Red-crested Pochard", "Rock Dove", "Rock Ptarmigan", "Ruddy Shelduck", "Stock Dove", "Swan Goose", "Taiga Bean Goose", "Tufted Duck", "Tundra Bean Goose", "Tundra Swan", "Velvet Scoter", "Water Rail", "Western Capercaillie", "Whooper Swan"]}
-</file>
-
-<file path="src/visuals/generate_figures.py">
+<file path="src/experiments/plot_top_errors.py">
+import sys
 import os
-import glob
 import json
 import torch
-import torch.nn.functional as F
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from tqdm import tqdm
 from torch.utils.data import DataLoader
-import sys
+from collections import Counter
+from tqdm import tqdm
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import *
 from data import SmartBirdDataset
 from models import get_model
 
-LOGS_DIR = os.path.join(VISUALS_DIR, "logs")
-CACHE_FILE = os.path.join(LOGS_DIR, "evaluation_cache.json")
-
-def plot_training_curves():
-    print("\n--- Generating Figure: Training & Loss Curves ---")
-    log_files = glob.glob(os.path.join(LOGS_DIR, "*_history.json"))
-
-    if not log_files:
-        print("No JSON logs found. Train models first!")
-        return
-
-    plt.figure(figsize=(12, 7))
-    sns.set_theme(style="whitegrid")
-
-    for file in log_files:
-        exp_name = os.path.basename(file).replace("_history.json", "")
-        if "embedding" in exp_name or "task-type" in exp_name:
-            continue
-
-        with open(file, "r") as f:
-            data = json.load(f)
-
-        df = pd.DataFrame(data)
-        label_name = exp_name.split("_")[0].title()
-        if "custom" in exp_name:
-            label_name += " (Custom CNN)"
-
-        max_acc = df['val_acc'].max()
-        plt.plot(df['epoch'], df['val_acc'], label=f"{label_name} (Max: {max_acc:.1f}%)", linewidth=2.5, marker='o', markersize=4)
-
-    plt.title("Training Progress: Validation Accuracy", fontsize=16, fontweight='bold')
-    plt.xlabel("Epoch", fontsize=14)
-    plt.ylabel("Validation Accuracy (%)", fontsize=14)
-    plt.ylim(0, 100)
-    plt.legend(title="Architectures")
-    plt.tight_layout()
-    plt.savefig(os.path.join(VISUALS_DIR, "comparison_model_performance.png"), dpi=300)
-
-    resnet_log = os.path.join(LOGS_DIR, "resnet_task-species_attn-False_layers-3_history.json")
-    if os.path.exists(resnet_log):
-        with open(resnet_log, "r") as f:
-            df = pd.DataFrame(json.load(f))
-
-        plt.figure(figsize=(10, 6))
-        plt.plot(df['epoch'], df['train_loss'], label="Train Loss", color='#1f77b4', linewidth=2.5)
-        plt.plot(df['epoch'], df['val_loss'], label="Validation Loss", color='#ff7f0e', linewidth=2.5)
-        plt.title("ResNet18: Training vs Validation Loss (Impact of SpecAugment)", fontsize=16)
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(os.path.join(VISUALS_DIR, "loss_curve_15epoch_resnet18pre.png"), dpi=300)
-
-    print(" Training curves saved.")
-
-def evaluate_and_plot_bar_chart():
-    print("\n--- Generating Figure: Sliding Window Model Comparison ---")
-
-    cache = {}
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as f:
-            cache = json.load(f)
-
-    model_paths = glob.glob(os.path.join(MODELS_DIR, "*_best.pth"))
-    results =[]
-
-    for path in model_paths:
-        exp_name = os.path.basename(path).replace("_best.pth", "")
-        if "task-type" in exp_name: continue
-
-        if exp_name in cache:
-            results.append({"Model": exp_name, "Accuracy": cache[exp_name]})
+def get_distractor_indices(classes):
+    non_bird_keywords =[
+        'cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper', 
+        'katydid', 'roesel', 'mouse', 'mole', 'shrew', 'squirrel', 
+        'deer', 'fox', 'wolf', 'marmot', 'locust', 'insect', 'bush-cricket'
+    ]
+    bird_idx, distractor_idx = [],[]
+    for i, c in enumerate(classes):
+        if any(kw in c.lower() for kw in non_bird_keywords):
+            distractor_idx.append(i)
         else:
-            print(f" Model {exp_name} not in cache. You must evaluate it first via eval scripts! Defaulting to 0%.")
-            results.append({"Model": exp_name, "Accuracy": 0.0})
+            bird_idx.append(i)
+    return set(bird_idx), distractor_idx
 
-    if not results: return
-
-    df = pd.DataFrame(results)
-    df['Display Name'] = df['Model'].str.replace('task-species_attn-', '').str.replace('False', 'NoAttn').str.replace('True', 'Attn').str.replace('layers-', 'L').str.replace('_', ' ').str.title()
-    df = df.sort_values(by='Accuracy', ascending=False)
-
-    plt.figure(figsize=(13, 7))
-    sns.set_theme(style="whitegrid")
-
-    colors =['#ff7f0e' if 'Embedding' in name else '#1f77b4' for name in df['Display Name']]
-    sns.barplot(data=df, x='Display Name', y='Accuracy', hue='Display Name', palette=colors, legend=False)
-
-    plt.title("Model Comparison: Accuracy (All Classes)", fontsize=16, fontweight='bold')
-    plt.xlabel("Model Architecture", fontsize=14)
-    plt.ylabel("Accuracy (%)", fontsize=14)
-    plt.ylim(0, 110)
-    plt.xticks(rotation=35, ha="right")
-
-    for i, val in enumerate(df['Accuracy']):
-        plt.text(i, val + 1.5, f"{val:.1f}%", ha='center', fontweight='bold', fontsize=11)
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(VISUALS_DIR, "sliding_window_comparison_updated.png"), dpi=300)
-    print(" Bar chart saved.")
-
-def plot_quality_metrics():
-    print("\n--- Generating Figure: Audio Quality vs Accuracy ---")
+def main():
+    print("Lade Datensatz und Modell für Fehleranalyse...")
+    
     exp_name = "efficientnet_task-species_attn-False_layers-3"
-    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
-
-    if not os.path.exists(model_path):
-        print("EfficientNet not found. Train it first!")
-        return
-
-    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+    classes_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
+    
+    with open(classes_path, "r") as f:
         classes = json.load(f)['classes']
+        
+    bird_idx_set, distractor_idx = get_distractor_indices(classes)
 
-    dataset = SmartBirdDataset(mode='test', task='species')
-    loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
-
-    model = get_model("efficientnet", len(classes), False, 3).to(DEVICE)
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model = get_model("efficientnet", len(classes)).to(DEVICE)
+    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
     model.eval()
 
-    qualities, correctness = [],[]
+    # Nutze das Test-Set
+    dataset = SmartBirdDataset(mode='test', task='species')
+    loader = DataLoader(dataset, batch_size=64, shuffle=False, num_workers=4)
+    
+    error_counter = Counter()
 
+    print("\nScanne Testdaten und sammle Verwechslungen...")
     with torch.no_grad():
-        for i, (inputs, labels) in enumerate(tqdm(loader, desc="Scanning Dataset Qualities")):
-            outputs = model(inputs.to(DEVICE))
-            _, preds = torch.max(outputs, 1)
+        for inputs, labels in tqdm(loader, desc="Evaluiere"):
+            inputs = inputs.to(DEVICE)
+            logits = model(inputs)
+            
+            # WICHTIG: Setze die Wahrscheinlichkeit für Insekten/Amphibien auf minus unendlich!
+            # Dadurch WIRD das Modell gezwungen, einen Vogel zu raten.
+            logits[:, distractor_idx] = -float('inf')
+            
+            preds = logits.argmax(dim=1).cpu().numpy()
+            labels = labels.numpy()
+            
+            for true_idx, pred_idx in zip(labels, preds):
+                # Wir werten nur Aufnahmen aus, auf denen wirklich ein Vogel zu hören ist
+                if true_idx in bird_idx_set:
+                    if true_idx != pred_idx:
+                        true_name = classes[true_idx]
+                        pred_name = classes[pred_idx]
+                        # Erstelle einen lesbaren String für das Diagramm
+                        pair_str = f"Wahr: {true_name}\nKI rät: {pred_name}"
+                        error_counter[pair_str] += 1
 
-            start_idx = i * 32
-            batch_qualities = dataset.df.iloc[start_idx:start_idx + len(labels)]['quality'].values
-
-            for p, l, q in zip(preds.cpu().numpy(), labels.numpy(), batch_qualities):
-                correctness.append(1 if p == l else 0)
-                qualities.append(q)
-
-    results_df = pd.DataFrame({'Quality': qualities, 'Correct': correctness})
-    results_df = results_df[results_df['Quality'].isin(['A', 'B', 'C', 'D'])]
-
-    acc_by_quality = results_df.groupby('Quality')['Correct'].mean() * 100
-    acc_by_quality = acc_by_quality.reindex(['A', 'B', 'C', 'D'])
-    counts = results_df['Quality'].value_counts().reindex(['A', 'B', 'C', 'D'])
-
-    plt.figure(figsize=(10, 6))
+    # Hole die Top 15 Verwechslungen
+    top_errors = error_counter.most_common(15)
+    
+    if not top_errors:
+        print("Keine Fehler gefunden?! Dein Modell ist zu gut.")
+        return
+        
+    # Daten für Plotting vorbereiten
+    error_labels = [item[0] for item in top_errors]
+    error_counts = [item[1] for item in top_errors]
+    
+    # --- PLOTTING ---
+    plt.figure(figsize=(12, 10))
     sns.set_theme(style="whitegrid")
-    sns.barplot(x=acc_by_quality.index, y=acc_by_quality.values, hue=acc_by_quality.index, palette="viridis", legend=False)
+    
+    # Farbverlauf von Rot (häufigster Fehler) zu Orange
+    palette = sns.color_palette("flare", len(error_labels))[::-1]
+    
+    ax = sns.barplot(x=error_counts, y=error_labels, palette=palette)
+    
+    plt.title("Die 15 häufigsten KI-Verwechslungen (Nur Vögel)", fontsize=16, fontweight='bold', pad=20)
+    plt.xlabel("Anzahl der Fehlklassifikationen im Test-Set", fontsize=14)
+    plt.ylabel("", fontsize=12)
+    
+    # Zahlenwerte an die Balken schreiben
+    for i, v in enumerate(error_counts):
+        ax.text(v + 0.5, i + 0.1, str(v), color='black', fontweight='bold', fontsize=12)
 
-    plt.title("Performance by Audio Quality (EfficientNet)", fontsize=16, fontweight='bold')
-    plt.xlabel("Xeno-Canto Audio Quality Rating", fontsize=14)
-    plt.ylabel("Accuracy (%)", fontsize=14)
-    plt.ylim(0, 110)
-
-    for i, (acc, count) in enumerate(zip(acc_by_quality.values, counts.values)):
-        plt.text(i, acc + 2, f"{acc:.1f}%\n(n={count})", ha='center', fontweight='bold', fontsize=12)
-
+    # Etwas Platz rechts lassen, damit die Zahlen nicht abgeschnitten werden
+    plt.xlim(0, max(error_counts) * 1.15)
+    
     plt.tight_layout()
-    plt.savefig(os.path.join(VISUALS_DIR, "performance_by_quality.png"), dpi=300)
-    print(" Quality graph saved.")
+    out_path = os.path.join(VISUALS_DIR, "top_errors.png")
+    plt.savefig(out_path, dpi=300)
+    print(f"\n✅ Erfolgreich gespeichert! Schau dir: {out_path} an.")
+    print("Tipp: Du kannst das Bild direkt in dein LaTeX Dokument (main.tex) einbinden!")
 
 if __name__ == "__main__":
-    os.makedirs(LOGS_DIR, exist_ok=True)
-    plot_training_curves()
-    evaluate_and_plot_bar_chart()
-    plot_quality_metrics()
+    main()
+</file>
+
+<file path="src/count_birds.py">
+import json
+import glob
+
+def main():
+
+    class_files = glob.glob("data/models/*task-species*_classes.json")
+
+    if not class_files:
+        print("Konnte keine classes.json finden. Hast du Modelle trainiert?")
+        return
+
+    file_to_read = class_files[0]
+    print(f"Lese Klassen aus: {file_to_read}\n")
+
+    with open(file_to_read, 'r') as f:
+        classes = json.load(f)['classes']
+
+    non_bird_keywords =[
+        'cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper',
+        'katydid', 'roesel', 'mouse', 'mole', 'shrew', 'squirrel',
+        'deer', 'fox', 'wolf', 'marmot', 'locust', 'insect', 'bush-cricket'
+    ]
+
+    birds = []
+    distractors =[]
+
+    for species in classes:
+
+        if any(keyword in species.lower() for keyword in non_bird_keywords):
+            distractors.append(species)
+        else:
+            birds.append(species)
+
+    print("="*50)
+    print("  PIEPMATZ POLIZEI - DATENSATZ ANALYSE")
+    print("="*50)
+    print(f"Gesamte Klassen im Modell:      {len(classes)}")
+    print(f"➔ Echte Vogelarten:             {len(birds)}")
+    print(f"➔ Insekten/Amphibien (Filter):  {len(distractors)}")
+    print("="*50)
+
+    print("\nBeispiele für herausgefilterte 'Distractor Classes':")
+    for d in distractors[:15]:
+        print(f" - {d}")
+
+    print("\nDiese Störgeräusche wird die KI im Wald nun erfolgreich ignorieren! ")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="cap_data.py">
+import pandas as pd; df = pd.read_csv('data/metadata.csv'); print(f'Alte Größe: {len(df)}'); df['q_rank'] = df['quality'].map({'A':1, 'B':2, 'C':3, 'D':4}); df = df.sort_values(['species', 'q_rank']).groupby('species').head(150).drop(columns=['q_rank']); df.to_csv('data/metadata.csv', index=False); print(f'Neue Größe: {len(df)} (Max 150 beste Qualitäten pro Art!)')
 </file>
 
 <file path="download_models.py">
@@ -423,23 +384,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-</file>
-
-<file path="run_experiments.sh">
-# 1. Hauptmodell (Sehr gründlich trainiert)
-python src/train.py --model efficientnet --epochs 80
-
-# 2. ResNet Vergleich
-python src/train.py --model resnet --epochs 50
-
-# 3. Custom CNN (Vergleich für die Theorie-Sektion)
-python src/train.py --model custom --cnn-layers 5 --epochs 50
-
-# 4. Song vs Call (Für die t-SNE Grafiken)
-python src/train.py --model efficientnet --task type --epochs 40
-
-# 5. Embedding / ArcFace (Dein "Profi-Feature")
-python src/train.py --model embedding --epochs 60
 </file>
 
 <file path="upload_models.sh">
@@ -672,13 +616,14 @@ import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import numpy as np
-import librosa
-import librosa.display
-from PIL import Image
+import cv2
+import json
+import random
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models import get_model
 from config import *
+from data import SmartBirdDataset
 
 class GradCAM:
     def __init__(self, model, target_layer):
@@ -695,54 +640,397 @@ class GradCAM:
     def save_gradient(self, module, grad_input, grad_output):
         self.gradients = grad_output[0]
 
-    def __call__(self, x, class_idx):
-        output = self.model(x)
-        self.model.zero_grad()
-        output[0, class_idx].backward()
-
-        weights = torch.mean(self.gradients, dim=(2, 3), keepdim=True)
-        cam = torch.sum(weights * self.activations, dim=1).squeeze()
-        cam = F.relu(cam)
-
-        cam -= cam.min()
-        cam /= cam.max()
-        return cam.cpu().detach().numpy()
-
 def main():
+    print("Lade Datensatz und Modell für hochauflösendes Grad-CAM...")
 
-    model = get_model("resnet", len(CLASSES)).to(DEVICE)
-    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, "resnet_best.pth"), map_location=DEVICE))
+    exp_name = "resnet_task-species_attn-False_layers-3"
+    classes_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
+
+    with open(classes_path, "r") as f:
+        classes = json.load(f)['classes']
+
+    model = get_model("resnet", len(classes)).to(DEVICE)
+    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
     model.eval()
 
-    cam_extractor = GradCAM(model, model.layer4[-1])
+    cam_extractor = GradCAM(model, model.layer3[-1])
 
-    sample_path = os.path.join(RAW_AUDIO_DIR, "Amsel/beispiel.mp3")
-    y, sr = librosa.load(sample_path, sr=SAMPLE_RATE, duration=DURATION)
+    dataset = SmartBirdDataset(mode='test', task='species')
 
-    melspec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=N_MELS, fmax=FMAX)
-    log_melspec = librosa.power_to_db(melspec, ref=np.max)
-    log_melspec = (log_melspec - log_melspec.min()) / (log_melspec.max() - log_melspec.min())
+    all_indices = list(range(len(dataset)))
+    random.shuffle(all_indices)
 
-    tensor = torch.tensor(log_melspec, dtype=torch.float32).unsqueeze(0).repeat(3, 1, 1).unsqueeze(0).to(DEVICE)
-    tensor = F.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False)
+    selected_indices =[]
+    seen_classes = set()
 
-    heatmap = cam_extractor(tensor, class_idx=0)
+    non_birds =['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper', 'katydid', 'roesel', 'mouse']
 
-    plt.figure(figsize=(10, 5))
-    plt.imshow(log_melspec, origin='lower', aspect='auto', cmap='gray')
+    for idx in all_indices:
+        row = dataset.df.iloc[idx]
+        pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
 
-    import cv2
-    heatmap_resized = cv2.resize(heatmap, (log_melspec.shape[1], log_melspec.shape[0]))
-    plt.imshow(heatmap_resized, origin='lower', aspect='auto', cmap='jet', alpha=0.5)
+        species_name = row['species'].lower()
+        is_bird = not any(ignore_word in species_name for ignore_word in non_birds)
 
-    plt.title("Grad-CAM: Worauf achtet die KI?")
-    plt.ylabel("Frequenz")
-    plt.xlabel("Zeit")
-    plt.savefig("docs/poster/gradcam_amsel.png", dpi=300)
-    print("Heatmap gespeichert unter docs/poster/gradcam_amsel.png")
+        if os.path.exists(pt_path) and is_bird:
+            true_label = dataset.class_to_idx[row['species']]
+            if true_label not in seen_classes:
+                seen_classes.add(true_label)
+                selected_indices.append((idx, pt_path, true_label))
+        if len(selected_indices) >= 5:
+            break
+
+    fig, axes = plt.subplots(5, 1, figsize=(14, 22))
+
+    target_width = TARGET_WIDTH
+    stride = target_width // 2
+
+    for i, (idx, pt_path, true_label) in enumerate(selected_indices):
+        true_name = classes[true_label]
+
+        spec = torch.load(pt_path).float()
+        current_width = spec.shape[1]
+
+        global_cam = np.zeros((128, current_width))
+        counts = np.zeros((128, current_width))
+
+        windows =[]
+        if current_width < target_width:
+            pad_amount = target_width - current_width
+            spec_padded = torch.nn.functional.pad(spec, (0, pad_amount))
+            windows.append((0, current_width, spec_padded))
+        else:
+            for start in range(0, current_width - target_width + 1, stride):
+                windows.append((start, start + target_width, spec[:, start:start+target_width]))
+            if (current_width - target_width) % stride != 0:
+                start = current_width - target_width
+                windows.append((start, current_width, spec[:, start:current_width]))
+
+        max_window_conf = 0.0
+
+        for start, end, window_spec in windows:
+            tensor = window_spec.unsqueeze(0).repeat(3, 1, 1).unsqueeze(0)
+            tensor = F.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False)
+            tensor = tensor.to(DEVICE)
+            tensor.requires_grad_(True)
+
+            model.zero_grad()
+            logits = model(tensor)
+            probs = F.softmax(logits, dim=1)
+
+            conf = probs[0, true_label].item()
+            if conf > max_window_conf:
+                max_window_conf = conf
+
+            logits[0, true_label].backward()
+
+            if cam_extractor.gradients is not None and cam_extractor.activations is not None:
+                weights = torch.mean(cam_extractor.gradients, dim=(2, 3), keepdim=True)
+                cam = torch.sum(weights * cam_extractor.activations, dim=1).squeeze()
+                cam = F.relu(cam).cpu().detach().numpy()
+
+                cam_min, cam_max = cam.min(), cam.max()
+                if cam_max > cam_min:
+                    cam = (cam - cam_min) / (cam_max - cam_min)
+                elif cam_max > 0:
+                    cam = cam / cam_max
+
+                cam = cam * conf
+                cam_resized = cv2.resize(cam, (target_width, 128))
+                valid_len = end - start
+                global_cam[:, start:end] += cam_resized[:, :valid_len]
+                counts[:, start:end] += 1
+
+        global_cam = global_cam / np.maximum(counts, 1)
+
+        g_min, g_max = global_cam.min(), global_cam.max()
+        if g_max > g_min:
+            global_cam = (global_cam - g_min) / (g_max - g_min)
+        elif g_max > 0:
+            global_cam = global_cam / g_max
+
+        spectrogram = spec.cpu().numpy()
+        spectrogram = np.flipud(spectrogram)
+        spectrogram = (spectrogram - spectrogram.min()) / (spectrogram.max() - spectrogram.min() + 1e-8)
+
+        global_cam_flipped = np.flipud(global_cam)
+
+        audio_seconds = current_width * (HOP_LENGTH / SAMPLE_RATE)
+        extent =[0, audio_seconds, 0, FMAX/1000]
+
+        cmap = plt.get_cmap('magma')
+        heatmap_rgba = cmap(global_cam_flipped)
+
+        heatmap_rgba[..., 3] = (global_cam_flipped ** 1.5) * 0.9
+
+        ax = axes[i]
+        ax.imshow(spectrogram, origin='lower', aspect='auto', cmap='gray', extent=extent)
+        ax.imshow(heatmap_rgba, origin='lower', aspect='auto', extent=extent)
+
+        title = f"Art: {true_name} | Max. Konfidenz: {max_window_conf:.1%}"
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.set_ylabel("Frequenz (kHz)", fontsize=12)
+
+    axes[-1].set_xlabel("Zeitachse (Sekunden)", fontsize=12)
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, "gradcam_sliding_window.png")
+    plt.savefig(out_path, dpi=300)
+    print(f"\n Hochauflösende Sliding-Window Heatmaps erfolgreich generiert unter: {out_path}")
 
 if __name__ == "__main__":
     main()
+</file>
+
+<file path="src/visuals/generate_figures.py">
+import os
+import glob
+import json
+import torch
+import torch.nn.functional as F
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from tqdm import tqdm
+from torch.utils.data import DataLoader
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import *
+from data import SmartBirdDataset
+from models import get_model
+
+LOGS_DIR = os.path.join(VISUALS_DIR, "logs")
+CACHE_FILE = os.path.join(LOGS_DIR, "evaluation_cache.json")
+
+def plot_training_curves():
+    print("\n--- Generating Figure: Training & Loss Curves ---")
+    log_files = glob.glob(os.path.join(LOGS_DIR, "*_history.json"))
+
+    if not log_files:
+        print("No JSON logs found. Train models first!")
+        return
+
+    plt.figure(figsize=(12, 7))
+    sns.set_theme(style="whitegrid")
+
+    for file in log_files:
+        exp_name = os.path.basename(file).replace("_history.json", "")
+        if "embedding" in exp_name or "task-type" in exp_name:
+            continue
+
+        with open(file, "r") as f:
+            data = json.load(f)
+
+        df = pd.DataFrame(data)
+        label_name = exp_name.split("_")[0].title()
+        if "custom" in exp_name:
+            label_name += " (Custom CNN)"
+
+        max_acc = df['val_acc'].max()
+        plt.plot(df['epoch'], df['val_acc'], label=f"{label_name} (Max: {max_acc:.1f}%)", linewidth=2.5, marker='o', markersize=4)
+
+    plt.title("Training Progress: Validation Accuracy", fontsize=16, fontweight='bold')
+    plt.xlabel("Epoch", fontsize=14)
+    plt.ylabel("Validation Accuracy (%)", fontsize=14)
+    plt.ylim(0, 100)
+    plt.legend(title="Architectures")
+    plt.tight_layout()
+    plt.savefig(os.path.join(VISUALS_DIR, "comparison_model_performance.png"), dpi=300)
+
+    resnet_log = os.path.join(LOGS_DIR, "resnet_task-species_attn-False_layers-3_history.json")
+    if os.path.exists(resnet_log):
+        with open(resnet_log, "r") as f:
+            df = pd.DataFrame(json.load(f))
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(df['epoch'], df['train_loss'], label="Train Loss", color='#1f77b4', linewidth=2.5)
+        plt.plot(df['epoch'], df['val_loss'], label="Validation Loss", color='#ff7f0e', linewidth=2.5)
+        plt.title("ResNet18: Training vs Validation Loss (Impact of SpecAugment)", fontsize=16)
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(VISUALS_DIR, "loss_curve_15epoch_resnet18pre.png"), dpi=300)
+
+    print(" Training curves saved.")
+
+def evaluate_and_plot_bar_chart():
+    print("\n--- Generating Figure: Sliding Window Model Comparison ---")
+
+    cache = {}
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as f:
+            cache = json.load(f)
+
+    model_paths = glob.glob(os.path.join(MODELS_DIR, "*_best.pth"))
+    results =[]
+
+    for path in model_paths:
+        exp_name = os.path.basename(path).replace("_best.pth", "")
+        if "task-type" in exp_name: continue
+
+        if exp_name in cache:
+            results.append({"Model": exp_name, "Accuracy": cache[exp_name]})
+        else:
+            print(f" Model {exp_name} not in cache. You must evaluate it first via eval scripts! Defaulting to 0%.")
+            results.append({"Model": exp_name, "Accuracy": 0.0})
+
+    if not results: return
+
+    df = pd.DataFrame(results)
+    df['Display Name'] = df['Model'].str.replace('task-species_attn-', '').str.replace('False', 'NoAttn').str.replace('True', 'Attn').str.replace('layers-', 'L').str.replace('_', ' ').str.title()
+    df = df.sort_values(by='Accuracy', ascending=False)
+
+    plt.figure(figsize=(13, 7))
+    sns.set_theme(style="whitegrid")
+
+    colors =['#ff7f0e' if 'Embedding' in name else '#1f77b4' for name in df['Display Name']]
+    sns.barplot(data=df, x='Display Name', y='Accuracy', hue='Display Name', palette=colors, legend=False)
+
+    plt.title("Model Comparison: Accuracy (All Classes)", fontsize=16, fontweight='bold')
+    plt.xlabel("Model Architecture", fontsize=14)
+    plt.ylabel("Accuracy (%)", fontsize=14)
+    plt.ylim(0, 110)
+    plt.xticks(rotation=35, ha="right")
+
+    for i, val in enumerate(df['Accuracy']):
+        plt.text(i, val + 1.5, f"{val:.1f}%", ha='center', fontweight='bold', fontsize=11)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(VISUALS_DIR, "sliding_window_comparison_updated.png"), dpi=300)
+    print(" Bar chart saved.")
+
+def plot_quality_metrics():
+    print("\n--- Generating Figure: Audio Quality vs Accuracy ---")
+    exp_name = "efficientnet_task-species_attn-False_layers-3"
+    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+
+    if not os.path.exists(model_path):
+        print("EfficientNet not found. Train it first!")
+        return
+
+    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+        classes = json.load(f)['classes']
+
+    dataset = SmartBirdDataset(mode='test', task='species')
+    loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
+
+    model = get_model("efficientnet", len(classes), False, 3).to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+
+    qualities, correctness = [],[]
+
+    with torch.no_grad():
+        for i, (inputs, labels) in enumerate(tqdm(loader, desc="Scanning Dataset Qualities")):
+            outputs = model(inputs.to(DEVICE))
+            _, preds = torch.max(outputs, 1)
+
+            start_idx = i * 32
+            batch_qualities = dataset.df.iloc[start_idx:start_idx + len(labels)]['quality'].values
+
+            for p, l, q in zip(preds.cpu().numpy(), labels.numpy(), batch_qualities):
+                correctness.append(1 if p == l else 0)
+                qualities.append(q)
+
+    results_df = pd.DataFrame({'Quality': qualities, 'Correct': correctness})
+    results_df = results_df[results_df['Quality'].isin(['A', 'B', 'C', 'D'])]
+
+    acc_by_quality = results_df.groupby('Quality')['Correct'].mean() * 100
+    acc_by_quality = acc_by_quality.reindex(['A', 'B', 'C', 'D'])
+    counts = results_df['Quality'].value_counts().reindex(['A', 'B', 'C', 'D'])
+
+    plt.figure(figsize=(10, 6))
+    sns.set_theme(style="whitegrid")
+    sns.barplot(x=acc_by_quality.index, y=acc_by_quality.values, hue=acc_by_quality.index, palette="viridis", legend=False)
+
+    plt.title("Performance by Audio Quality (EfficientNet)", fontsize=16, fontweight='bold')
+    plt.xlabel("Xeno-Canto Audio Quality Rating", fontsize=14)
+    plt.ylabel("Accuracy (%)", fontsize=14)
+    plt.ylim(0, 110)
+
+    for i, (acc, count) in enumerate(zip(acc_by_quality.values, counts.values)):
+        plt.text(i, acc + 2, f"{acc:.1f}%\n(n={count})", ha='center', fontweight='bold', fontsize=12)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(VISUALS_DIR, "performance_by_quality.png"), dpi=300)
+    print(" Quality graph saved.")
+
+if __name__ == "__main__":
+    os.makedirs(LOGS_DIR, exist_ok=True)
+    plot_training_curves()
+    evaluate_and_plot_bar_chart()
+    plot_quality_metrics()
+</file>
+
+<file path="run_experiments.sh">
+#!/usr/bin/env bash
+# Stoppt das Skript sofort, falls ein Fehler auftritt
+set -e 
+
+echo "============================================================"
+echo " 🐦 Piepmatz Polizei - The Big European Overnight Training"
+echo "============================================================"
+
+# --- 1. TRAINING ALLER MODELLE ---
+#echo -e "\n>>> 1/8: Training EfficientNet (Hauptmodell) ..."
+#python src/train.py --model efficientnet --epochs 80
+
+#echo -e "\n>>> 2/8: Training ResNet (Vergleichsmodell) ..."
+#python src/train.py --model resnet --epochs 50
+
+#echo -e "\n>>> 3/8: Training Custom CNN (2 Layers) ..."
+#python src/train.py --model custom --cnn-layers 2 --epochs 50
+
+#echo -e "\n>>> 4/8: Training Custom CNN (3 Layers) ..."
+#python src/train.py --model custom --cnn-layers 3 --epochs 50
+
+#echo -e "\n>>> 5/8: Training Custom CNN (5 Layers) ..."
+#python src/train.py --model custom --cnn-layers 5 --epochs 50
+
+#echo -e "\n>>> 6/8: Training Custom CNN (3 Layers + Attention) ..."
+#python src/train.py --model custom --cnn-layers 3 --use-attention --epochs 50
+
+#echo -e "\n>>> 7/8: Training Song vs. Call Classifier ..."
+#python src/train.py --model efficientnet --task type --epochs 40
+
+echo -e "\n>>> 8/8: Training Metric Learning (ArcFace Embedding) ..."
+python src/train.py --model embedding --epochs 60
+
+
+# --- 2. EVALUATION & CONFUSION MATRIZEN ---
+echo -e "\n============================================================"
+echo " 📊 Starte Evaluation (Test-Set) & Cache Generierung..."
+echo "============================================================"
+
+python src/evaluate.py --model efficientnet
+python src/evaluate.py --model resnet
+python src/evaluate.py --model custom --cnn-layers 2
+python src/evaluate.py --model custom --cnn-layers 3
+python src/evaluate.py --model custom --cnn-layers 5
+python src/evaluate.py --model custom --cnn-layers 3 --use-attention
+
+
+# --- 3. GRAFIKEN UND EXPERIMENTE NEU GENERIEREN ---
+echo -e "\n============================================================"
+echo " 🎨 Generiere finale Grafiken für das JuFo Poster..."
+echo "============================================================"
+
+# Erstellt Performance-, Accuracy- und Quality-Graphen
+python src/visuals/generate_figures.py
+
+# Generiert den t-SNE Plot (Song vs Call)
+python src/experiments/song_vs_call.py
+
+# Optional: GradCAM (Achtung: Prüfe ob "Amsel/beispiel.mp3" in src/experiments/gradcam.py existiert!)
+if[ -f "data/raw_audio/Amsel/beispiel.mp3" ]; then
+    python src/experiments/gradcam.py
+else
+    echo "Überspringe GradCAM (Beispiel-MP3 fehlt in data/raw_audio/Amsel/beispiel.mp3)"
+fi
+
+echo -e "\n🎉 ALLES FERTIG! Gute Nacht und viel Erfolg mit den neuen Resultaten! 🚀"
 </file>
 
 <file path="src/experiments/song_vs_call.py">
@@ -928,72 +1216,6 @@ def get_balanced_sampler(dataset):
     weights = {cls: 1.0 / np.sqrt(c) for cls, c in counts.items()}
     sample_weights = torch.tensor([weights[l] for l in labels])
     return WeightedRandomSampler(sample_weights, len(sample_weights))
-</file>
-
-<file path="src/evaluate.py">
-import argparse
-import json
-import torch
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-from torch.utils.data import DataLoader
-from sklearn.metrics import classification_report, confusion_matrix
-from config import *
-from data import SmartBirdDataset
-from models import get_model
-
-def evaluate_model(exp_name, model_type, use_attention, cnn_layers):
-    print(f"Evaluatiere {exp_name}...")
-
-    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
-        classes = json.load(f)['classes']
-
-    val_ds = SmartBirdDataset(mode='test', task='species')
-    loader = DataLoader(val_ds, batch_size=32, shuffle=False, num_workers=4)
-
-    model = get_model(model_type, len(classes), use_attention, cnn_layers).to(DEVICE)
-    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
-    model.eval()
-
-    all_preds, all_labels = [],[]
-    with torch.no_grad():
-        for inputs, labels in loader:
-            outputs = model(inputs.to(DEVICE))
-            _, preds = torch.max(outputs, 1)
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.numpy())
-
-    acc = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
-
-    cm = confusion_matrix(all_labels, all_preds)
-    plt.figure(figsize=(12, 10))
-
-    if len(classes) <= 50:
-        sns.heatmap(cm, annot=False, cmap='Blues', xticklabels=classes, yticklabels=classes)
-    else:
-        sns.heatmap(cm, annot=False, cmap='Blues')
-
-    plt.title(f"Confusion Matrix ({exp_name}) - Acc: {acc:.1%}")
-    plt.savefig(os.path.join(VISUALS_DIR, f"{exp_name}_confusion.png"), dpi=300)
-    plt.close()
-
-    return acc
-
-def main():
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet"], required=True)
-    parser.add_argument("--use-attention", action="store_true")
-    parser.add_argument("--cnn-layers", type=int, default=3)
-    args = parser.parse_args()
-
-    exp_name = f"{args.model}_task-species_attn-{args.use_attention}_layers-{args.cnn_layers}"
-    acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers)
-    print(f"\n {exp_name} Accuracy: {acc:.2%}")
-
-if __name__ == "__main__":
-    main()
 </file>
 
 <file path="src/models.py">
@@ -1214,6 +1436,12 @@ def live_showcase(model, classes, threshold, model_type):
                 if conf >= threshold:
                     current_time = time.time() - start_time
                     bird_name = classes[idx]
+
+                    non_birds =['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper']
+                    if any(x in bird_name.lower() for x in non_birds):
+                        print(f"[{current_time:04.1f}s]  Ignoriere Insekt/Amphibie: {bird_name}")
+                        continue
+
                     results.append({"Zeit (s)": current_time, "Vogelart": bird_name, "Konfidenz": conf})
                     print(f"[{current_time:04.1f}s]  {bird_name:<20} | Sicherheit: {conf:.1%}")
 
@@ -1677,6 +1905,86 @@ Ein besonderer Dank geht an David May für die Gestaltung des Titelbildes sowie 
 \end{document}
 </file>
 
+<file path="src/evaluate.py">
+import argparse
+import json
+import torch
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from torch.utils.data import DataLoader
+from sklearn.metrics import classification_report, confusion_matrix
+from config import *
+from data import SmartBirdDataset
+from models import get_model
+
+def evaluate_model(exp_name, model_type, use_attention, cnn_layers):
+    print(f"Evaluatiere {exp_name}...")
+
+    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+        classes = json.load(f)['classes']
+
+    val_ds = SmartBirdDataset(mode='test', task='species')
+    loader = DataLoader(val_ds, batch_size=32, shuffle=False, num_workers=4)
+
+    model = get_model(model_type, len(classes), use_attention, cnn_layers).to(DEVICE)
+    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
+    model.eval()
+
+    all_preds, all_labels = [],[]
+    with torch.no_grad():
+        for inputs, labels in loader:
+            outputs = model(inputs.to(DEVICE))
+            _, preds = torch.max(outputs, 1)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.numpy())
+
+    acc = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
+
+    cm = confusion_matrix(all_labels, all_preds)
+    plt.figure(figsize=(12, 10))
+
+    if len(classes) <= 50:
+        sns.heatmap(cm, annot=False, cmap='Blues', xticklabels=classes, yticklabels=classes)
+    else:
+        sns.heatmap(cm, annot=False, cmap='Blues')
+
+    plt.title(f"Confusion Matrix ({exp_name}) - Acc: {acc:.1%}")
+    plt.savefig(os.path.join(VISUALS_DIR, f"{exp_name}_confusion.png"), dpi=300)
+    plt.close()
+
+    return acc
+
+def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet"], required=True)
+    parser.add_argument("--use-attention", action="store_true")
+    parser.add_argument("--cnn-layers", type=int, default=3)
+    args = parser.parse_args()
+
+    exp_name = f"{args.model}_task-species_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers)
+    print(f"\n {exp_name} Accuracy: {acc:.2%}")
+
+    logs_dir = os.path.join(VISUALS_DIR, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    cache_file = os.path.join(logs_dir, "evaluation_cache.json")
+
+    cache = {}
+    if os.path.exists(cache_file):
+        with open(cache_file, "r") as f:
+            cache = json.load(f)
+
+    cache[exp_name] = acc * 100
+
+    with open(cache_file, "w") as f:
+        json.dump(cache, f, indent=4)
+
+if __name__ == "__main__":
+    main()
+</file>
+
 <file path="flake.nix">
 {
   description = "Piepmatz Polizei - Machine Learning & LaTeX Environment";
@@ -1763,6 +2071,59 @@ python src/showcase.py --model efficientnet --live
 
 ## Vortrainierte Modelle
 Weights are hosted on 🤗 **[BoredVoidAter/piepmatz-polizei](https://huggingface.co/BoredVoidAter/piepmatz-polizei)**
+</file>
+
+<file path=".gitignore">
+# Python Environments & Cache
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# -----------------------------------
+# DATA & MODELS (WICHTIG!)
+# -----------------------------------
+# Wir ignorieren alles im data/ Ordner...
+data/*
+
+# ... AUSSER diese speziellen Dateien/Ordner:
+!data/.gitkeep
+!data/models/
+!data/metadata.csv
+
+
+
+# Und wir stellen sicher, dass die schweren Audio- und Tensor-Dateien immer ignoriert werden
+data/raw_audio/
+data/processed_tensors/
+
+# -----------------------------------
+# LaTeX Hilfsdateien
+# -----------------------------------
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.bbl
+*.blg
+
+# extra stuff
+clean_code.py
+
+# repomix
+.repomixignore
+repomix-output.xml
+repomix.config.json
+
+data/models/*.pth
+data/models/*.onnx
 </file>
 
 <file path="src/data_prep.py">
@@ -1904,16 +2265,13 @@ def process_audio_pipeline(df):
     def pipeline_worker(task):
         url, mp3_path, pt_path = task
 
-        # 1. CHECK: Ist der fertige Tensor schon da?
         if os.path.exists(pt_path):
-            # Wenn der Tensor da ist, die MP3 aber noch rumliegt -> Platz machen!
+
             if os.path.exists(mp3_path):
                 try: os.remove(mp3_path)
                 except: pass
             return
 
-        # 2. DOWNLOAD: Wenn die MP3 fehlt -> Lade sie runter!
-        # (Wenn die Datei schon da ist, weil du sie beim ersten Mal geladen hast, wird das übersprungen!)
         if not os.path.exists(mp3_path):
             session = get_session()
             try:
@@ -1927,10 +2285,9 @@ def process_audio_pipeline(df):
             except:
                 return
 
-        # 3. UMWANDELN
         if os.path.exists(mp3_path):
             try:
-                # Librosa Tensor-Erstellung aus dem alten Schritt 3
+
                 load_duration = max(15, DURATION * 2)
                 y, sr = librosa.load(mp3_path, sr=SAMPLE_RATE, duration=load_duration)
 
@@ -1950,15 +2307,14 @@ def process_audio_pipeline(df):
                 tensor = torch.tensor(spec_norm, dtype=torch.float16)
                 torch.save(tensor, pt_path)
             except Exception as e:
-                # MP3 war kaputt/unlesbar
+
                 pass
             finally:
-                # 4. LÖSCHEN (Garbage Collection für den Festplattenspeicher)
+
                 if os.path.exists(mp3_path):
                     try: os.remove(mp3_path)
                     except: pass
 
-    # Wir nutzen 10 Worker, das ist der Sweet-Spot für Download-Bandbreite + CPU für Librosa
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         list(tqdm(executor.map(pipeline_worker, tasks), total=len(tasks), desc="Verarbeite Audios"))
 
@@ -1973,57 +2329,39 @@ if __name__ == "__main__":
     main()
 </file>
 
-<file path=".gitignore">
-# Python Environments & Cache
-.venv/
-__pycache__/
-*.py[cod]
-*$py.class
-.env
+<file path="requirements.txt">
+# KI & Mathe
+torch
+torchaudio
+torchvision
+numpy<2.0
+pandas
+scikit-learn
 
-# OS Files
-.DS_Store
-Thumbs.db
+# Neue Algorithmen & Experimente
+pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
+umap-learn                # Für Clustering Visualisierungen
+onnx                      # Für den Export auf den Raspberry Pi
+onnxruntime               # Für lokale Inferenz-Tests
 
-# -----------------------------------
-# DATA & MODELS (WICHTIG!)
-# -----------------------------------
-# Wir ignorieren alles im data/ Ordner...
-data/*
+# Audio Verarbeitung
+librosa
+soundfile
+audiomentations
+sounddevice
 
-# ... AUSSER diese speziellen Dateien/Ordner:
-!data/.gitkeep
-!data/models/
-!data/metadata.csv
+# Visualisierung
+matplotlib
+seaborn
+opencv-python-headless<4.10
 
+# Datenbeschaffung (Xeno-Canto)
+aiohttp
+tqdm
 
+python-dotenv
 
-# Und wir stellen sicher, dass die schweren Audio- und Tensor-Dateien immer ignoriert werden
-data/raw_audio/
-data/processed_tensors/
-
-# -----------------------------------
-# LaTeX Hilfsdateien
-# -----------------------------------
-*.aux
-*.fdb_latexmk
-*.fls
-*.log
-*.out
-*.synctex.gz
-*.bbl
-*.blg
-
-# extra stuff
-clean_code.py
-
-# repomix
-.repomixignore
-repomix-output.xml
-repomix.config.json
-
-data/models/*.pth
-data/models/*.onnx
+huggingface_hub
 </file>
 
 <file path="src/config.py">
@@ -2063,41 +2401,6 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 os.makedirs(MODELS_DIR, exist_ok=True)
 os.makedirs(VISUALS_DIR, exist_ok=True)
-</file>
-
-<file path="requirements.txt">
-# KI & Mathe
-torch
-torchaudio
-torchvision
-numpy<2.0
-pandas
-scikit-learn
-
-# Neue Algorithmen & Experimente
-pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
-umap-learn                # Für Clustering Visualisierungen
-onnx                      # Für den Export auf den Raspberry Pi
-onnxruntime               # Für lokale Inferenz-Tests
-
-# Audio Verarbeitung
-librosa
-soundfile
-audiomentations
-sounddevice
-
-# Visualisierung
-matplotlib
-seaborn
-opencv-python-headless<4.10
-
-# Datenbeschaffung (Xeno-Canto)
-aiohttp
-tqdm
-
-python-dotenv
-
-huggingface_hub
 </file>
 
 <file path="src/train.py">
@@ -2150,13 +2453,13 @@ def main():
     sample_weights = torch.tensor([weights[l] for l in train_labels])
 
     sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=0, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
     model = get_model(args.model, len(full_ds.classes), args.use_attention, args.cnn_layers).to(DEVICE)
 
     with torch.no_grad():
-        dummy_input = torch.randn(1, 3, IMG_SIZE, IMG_SIZE).to(DEVICE)
+        dummy_input = torch.randn(2, 3, IMG_SIZE, IMG_SIZE).to(DEVICE)
         model(dummy_input)
 
     if args.model == "embedding":

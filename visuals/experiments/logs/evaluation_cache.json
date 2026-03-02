@@ -1,0 +1,8 @@
+{
+    "efficientnet_task-species_attn-False_layers-3": 96.72444383785998,
+    "resnet_task-species_attn-False_layers-3": 94.62111217263394,
+    "custom_task-species_attn-False_layers-2": 40.78825652457425,
+    "custom_task-species_attn-False_layers-3": 59.856239479550524,
+    "custom_task-species_attn-False_layers-5": 61.46520479808319,
+    "custom_task-species_attn-True_layers-3": 60.55229516400528
+}
