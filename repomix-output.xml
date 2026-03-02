@@ -89,6 +89,7 @@ visuals/
       custom_task-species_attn-False_layers-5_confusion.png
       custom_task-species_attn-True_layers-3_confusion.png
       efficientnet_task-species_attn-False_layers-3_confusion.png
+      embedding_task-species_attn-False_layers-3_confusion.png
       gradcam_5_birds.png
       gradcam_sliding_window.png
       loss_curve_15epoch_resnet18pre.png
@@ -108,7 +109,9 @@ download_models.py
 flake.lock
 flake.nix
 Förderantrag.pdf
+main.pdf
 main.tex
+main.toc
 README.md
 requirements.txt
 run_experiments.sh
@@ -118,123 +121,6 @@ USAGE.txt
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="src/experiments/plot_top_errors.py">
-import sys
-import os
-import json
-import torch
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from torch.utils.data import DataLoader
-from collections import Counter
-from tqdm import tqdm
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import *
-from data import SmartBirdDataset
-from models import get_model
-
-def get_distractor_indices(classes):
-    non_bird_keywords =[
-        'cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper', 
-        'katydid', 'roesel', 'mouse', 'mole', 'shrew', 'squirrel', 
-        'deer', 'fox', 'wolf', 'marmot', 'locust', 'insect', 'bush-cricket'
-    ]
-    bird_idx, distractor_idx = [],[]
-    for i, c in enumerate(classes):
-        if any(kw in c.lower() for kw in non_bird_keywords):
-            distractor_idx.append(i)
-        else:
-            bird_idx.append(i)
-    return set(bird_idx), distractor_idx
-
-def main():
-    print("Lade Datensatz und Modell für Fehleranalyse...")
-    
-    exp_name = "efficientnet_task-species_attn-False_layers-3"
-    classes_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
-    
-    with open(classes_path, "r") as f:
-        classes = json.load(f)['classes']
-        
-    bird_idx_set, distractor_idx = get_distractor_indices(classes)
-
-    model = get_model("efficientnet", len(classes)).to(DEVICE)
-    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
-    model.eval()
-
-    # Nutze das Test-Set
-    dataset = SmartBirdDataset(mode='test', task='species')
-    loader = DataLoader(dataset, batch_size=64, shuffle=False, num_workers=4)
-    
-    error_counter = Counter()
-
-    print("\nScanne Testdaten und sammle Verwechslungen...")
-    with torch.no_grad():
-        for inputs, labels in tqdm(loader, desc="Evaluiere"):
-            inputs = inputs.to(DEVICE)
-            logits = model(inputs)
-            
-            # WICHTIG: Setze die Wahrscheinlichkeit für Insekten/Amphibien auf minus unendlich!
-            # Dadurch WIRD das Modell gezwungen, einen Vogel zu raten.
-            logits[:, distractor_idx] = -float('inf')
-            
-            preds = logits.argmax(dim=1).cpu().numpy()
-            labels = labels.numpy()
-            
-            for true_idx, pred_idx in zip(labels, preds):
-                # Wir werten nur Aufnahmen aus, auf denen wirklich ein Vogel zu hören ist
-                if true_idx in bird_idx_set:
-                    if true_idx != pred_idx:
-                        true_name = classes[true_idx]
-                        pred_name = classes[pred_idx]
-                        # Erstelle einen lesbaren String für das Diagramm
-                        pair_str = f"Wahr: {true_name}\nKI rät: {pred_name}"
-                        error_counter[pair_str] += 1
-
-    # Hole die Top 15 Verwechslungen
-    top_errors = error_counter.most_common(15)
-    
-    if not top_errors:
-        print("Keine Fehler gefunden?! Dein Modell ist zu gut.")
-        return
-        
-    # Daten für Plotting vorbereiten
-    error_labels = [item[0] for item in top_errors]
-    error_counts = [item[1] for item in top_errors]
-    
-    # --- PLOTTING ---
-    plt.figure(figsize=(12, 10))
-    sns.set_theme(style="whitegrid")
-    
-    # Farbverlauf von Rot (häufigster Fehler) zu Orange
-    palette = sns.color_palette("flare", len(error_labels))[::-1]
-    
-    ax = sns.barplot(x=error_counts, y=error_labels, palette=palette)
-    
-    plt.title("Die 15 häufigsten KI-Verwechslungen (Nur Vögel)", fontsize=16, fontweight='bold', pad=20)
-    plt.xlabel("Anzahl der Fehlklassifikationen im Test-Set", fontsize=14)
-    plt.ylabel("", fontsize=12)
-    
-    # Zahlenwerte an die Balken schreiben
-    for i, v in enumerate(error_counts):
-        ax.text(v + 0.5, i + 0.1, str(v), color='black', fontweight='bold', fontsize=12)
-
-    # Etwas Platz rechts lassen, damit die Zahlen nicht abgeschnitten werden
-    plt.xlim(0, max(error_counts) * 1.15)
-    
-    plt.tight_layout()
-    out_path = os.path.join(VISUALS_DIR, "top_errors.png")
-    plt.savefig(out_path, dpi=300)
-    print(f"\n✅ Erfolgreich gespeichert! Schau dir: {out_path} an.")
-    print("Tipp: Du kannst das Bild direkt in dein LaTeX Dokument (main.tex) einbinden!")
-
-if __name__ == "__main__":
-    main()
-</file>
 
 <file path="src/count_birds.py">
 import json
@@ -386,170 +272,28 @@ if __name__ == "__main__":
     main()
 </file>
 
-<file path="upload_models.sh">
-#!/usr/bin/env bash
-# =============================================================================
-# upload_models.sh
-# Uploads new/updated .pth files to Hugging Face and pushes code to GitHub.
-#
-# Usage:
-#   ./upload_models.sh                         # upload all .pth files
-#   ./upload_models.sh efficientnet            # upload one model by shortname
-#   ./upload_models.sh efficientnet resnet     # upload multiple by shortname
-#   ./upload_models.sh --pth-only              # skip the git push
-#   ./upload_models.sh --git-only              # skip the HF upload
-# =============================================================================
-
-set -e
-
-HF_REPO_ID="BoredVoidAter/piepmatz-polizei"
-MODELS_DIR="data/models"
-
-# Map shortnames → filename patterns (partial match is fine)
-declare -A SHORTCUTS=(
-    ["efficientnet"]="efficientnet_task-species_attn-False_layers-3_best.pth"
-    ["efficientnet-type"]="efficientnet_task-type_attn-False_layers-3_best.pth"
-    ["resnet"]="resnet_task-species_attn-False_layers-3_best.pth"
-    ["custom-2"]="custom_task-species_attn-False_layers-2_best.pth"
-    ["custom-3"]="custom_task-species_attn-False_layers-3_best.pth"
-    ["custom-5"]="custom_task-species_attn-False_layers-5_best.pth"
-    ["custom-attn"]="custom_task-species_attn-True_layers-3_best.pth"
-    ["embedding"]="embedding_task-species_attn-False_layers-3_best.pth"
-)
-
-# ── Arg parsing ───────────────────────────────────────────────────────────────
-DO_HF=true
-DO_GIT=true
-SPECIFIC_FILES=()
-
-for arg in "$@"; do
-    case "$arg" in
-        --pth-only)  DO_GIT=false ;;
-        --git-only)  DO_HF=false ;;
-        --help|-h)
-            echo "Usage: ./upload_models.sh [shortname...] [--pth-only] [--git-only]"
-            echo ""
-            echo "Shortnames:"
-            for k in "${!SHORTCUTS[@]}"; do
-                echo "  $k  →  ${SHORTCUTS[$k]}"
-            done
-            exit 0
-            ;;
-        -*)
-            echo "Unknown flag: $arg (use --help)"
-            exit 1
-            ;;
-        *)
-            if [[ -v SHORTCUTS["$arg"] ]]; then
-                SPECIFIC_FILES+=("${SHORTCUTS[$arg]}")
-            else
-                echo "  ✗ Unknown shortname '$arg'. Valid options:"
-                for k in "${!SHORTCUTS[@]}"; do echo "    $k"; done
-                exit 1
-            fi
-            ;;
-    esac
-done
-
-echo ""
-echo "╔══════════════════════════════════════════════════════╗"
-echo "║        Piepmatz Polizei — Model Uploader             ║"
-echo "╚══════════════════════════════════════════════════════╝"
-echo ""
-
-# ── HuggingFace upload ────────────────────────────────────────────────────────
-if $DO_HF; then
-    echo "▶ Uploading models to Hugging Face..."
-
-    python -c "import huggingface_hub" 2>/dev/null || pip install huggingface_hub -q
-
-    # Build the file list to pass into python
-    if [ ${#SPECIFIC_FILES[@]} -gt 0 ]; then
-        FILES_JSON=$(python -c "
-import json, sys
-files = sys.argv[1:]
-print(json.dumps(files))
-" "${SPECIFIC_FILES[@]}")
-    else
-        FILES_JSON="[]"  # empty = upload all
-    fi
-
-    python - <<EOF
-import os, glob, json
-from huggingface_hub import HfApi
-
-api = HfApi()
-models_dir = "${MODELS_DIR}"
-specific = json.loads("""${FILES_JSON}""")
-
-if specific:
-    files = [os.path.join(models_dir, f) for f in specific]
-    missing = [f for f in files if not os.path.exists(f)]
-    if missing:
-        for m in missing:
-            print(f"  ✗ File not found: {m}")
-        raise SystemExit(1)
-else:
-    files = glob.glob(os.path.join(models_dir, "*.pth"))
-
-if not files:
-    print("  ⚠ No .pth files found — nothing to upload.")
-else:
-    print(f"  Uploading {len(files)} file(s) to {api.whoami()['name']}/{os.path.basename('${HF_REPO_ID}')}...")
-    print()
-    for path in sorted(files):
-        name = os.path.basename(path)
-        mb = os.path.getsize(path) / 1024 / 1024
-        print(f"  ↑ {name} ({mb:.1f} MB)...")
-        api.upload_file(
-            path_or_fileobj=path,
-            path_in_repo=name,
-            repo_id="${HF_REPO_ID}",
-            repo_type="model",
-        )
-        print(f"    ✓ done")
-    print()
-    print(f"  ✓ Upload complete → https://huggingface.co/${HF_REPO_ID}")
-EOF
-    echo ""
-fi
-
-# ── Git push ──────────────────────────────────────────────────────────────────
-if $DO_GIT; then
-    echo "▶ Pushing code changes to GitHub..."
-
-    # Stage everything except .pth (already gitignored, but be explicit)
-    git add --all -- ':!data/models/*.pth' ':!data/models/*.onnx'
-
-    if git diff --cached --quiet; then
-        echo "  (nothing new to commit — working tree clean)"
-    else
-        echo "  Staged changes:"
-        git diff --cached --name-only | sed 's/^/    /'
-        echo ""
-        # Use provided message or auto-generate one from changed files
-        if [ -n "$COMMIT_MSG" ]; then
-            MSG="$COMMIT_MSG"
-        else
-            CHANGED=$(git diff --cached --name-only | head -5 | tr '\n' ' ')
-            MSG="update models and code: ${CHANGED}"
-        fi
-        git commit -m "$MSG"
-    fi
-
-    BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    git push origin "${BRANCH}"
-    echo "  ✓ Pushed to GitHub (${BRANCH})"
-    echo ""
-fi
-
-echo "╔══════════════════════════════════════════════════════╗"
-echo "║                      All done!                      ║"
-echo "╚══════════════════════════════════════════════════════╝"
-echo ""
-echo "  Models : https://huggingface.co/${HF_REPO_ID}"
-echo "  GitHub : $(git remote get-url origin)"
-echo ""
+<file path="main.toc">
+\babel@toc {ngerman}{}\relax 
+\contentsline {section}{\numberline {1}Einleitung: Warum eigentlich Vögel?}{4}{section.1}%
+\contentsline {section}{\numberline {2}Theoretische Grundlagen}{4}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Vom Ton zum Bild: Mel-Spektrogramme}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Artenvielfalt im Bild}{5}{subsection.2.2}%
+\contentsline {section}{\numberline {3}Vorgehensweise und Methoden}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Datenpipeline: Ein europäischer Datensatz}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Die neuronalen Netzarchitekturen}{6}{subsection.3.2}%
+\contentsline {subsubsection}{\numberline {3.2.1}Der Klassifikator (EfficientNet-B0)}{6}{subsubsection.3.2.1}%
+\contentsline {subsubsection}{\numberline {3.2.2}Der Embedding-Extraktor (Metric Learning)}{6}{subsubsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.3}Trainingstrategie}{7}{subsection.3.3}%
+\contentsline {section}{\numberline {4}Ergebnisse: Wie gut funktioniert es?}{7}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Trefferquote und Vergleich}{7}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Fehleranalyse}{8}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Robustheit gegen schlechte Audioqualität}{9}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Validierung durch externe Datenquellen (Cross-Testing)}{10}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}Sliding Window Inference}{10}{subsection.4.5}%
+\contentsline {subsection}{\numberline {4.6}Zusatzexperimente: Rufe vs. Gesänge und Geschlecht}{11}{subsection.4.6}%
+\contentsline {section}{\numberline {5}Hardware-Design}{13}{section.5}%
+\contentsline {section}{\numberline {6}Fazit und wie es weitergeht}{13}{section.6}%
+\providecommand \tocbasic@end@toc@file {}\tocbasic@end@toc@file
 </file>
 
 <file path="USAGE.txt">
@@ -609,174 +353,109 @@ Befehl:
 python src/quantize.py --model efficientnet
 </file>
 
-<file path="src/experiments/gradcam.py">
+<file path="src/experiments/plot_top_errors.py">
 import sys
 import os
-import torch
-import torch.nn.functional as F
-import matplotlib.pyplot as plt
-import numpy as np
-import cv2
 import json
-import random
+import torch
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from torch.utils.data import DataLoader
+from collections import Counter
+from tqdm import tqdm
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models import get_model
 from config import *
 from data import SmartBirdDataset
+from models import get_model
 
-class GradCAM:
-    def __init__(self, model, target_layer):
-        self.model = model
-        self.target_layer = target_layer
-        self.gradients = None
-        self.activations = None
-        self.target_layer.register_forward_hook(self.save_activation)
-        self.target_layer.register_full_backward_hook(self.save_gradient)
-
-    def save_activation(self, module, input, output):
-        self.activations = output
-
-    def save_gradient(self, module, grad_input, grad_output):
-        self.gradients = grad_output[0]
+def get_distractor_indices(classes):
+    non_bird_keywords =[
+        'cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper',
+        'katydid', 'roesel', 'mouse', 'mole', 'shrew', 'squirrel',
+        'deer', 'fox', 'wolf', 'marmot', 'locust', 'insect', 'bush-cricket'
+    ]
+    bird_idx, distractor_idx = [],[]
+    for i, c in enumerate(classes):
+        if any(kw in c.lower() for kw in non_bird_keywords):
+            distractor_idx.append(i)
+        else:
+            bird_idx.append(i)
+    return set(bird_idx), distractor_idx
 
 def main():
-    print("Lade Datensatz und Modell für hochauflösendes Grad-CAM...")
+    print("Lade Datensatz und Modell für Fehleranalyse...")
 
-    exp_name = "resnet_task-species_attn-False_layers-3"
+    exp_name = "efficientnet_task-species_attn-False_layers-3"
     classes_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
 
     with open(classes_path, "r") as f:
         classes = json.load(f)['classes']
 
-    model = get_model("resnet", len(classes)).to(DEVICE)
+    bird_idx_set, distractor_idx = get_distractor_indices(classes)
+
+    model = get_model("efficientnet", len(classes)).to(DEVICE)
     model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
     model.eval()
 
-    cam_extractor = GradCAM(model, model.layer3[-1])
-
     dataset = SmartBirdDataset(mode='test', task='species')
+    loader = DataLoader(dataset, batch_size=64, shuffle=False, num_workers=4)
 
-    all_indices = list(range(len(dataset)))
-    random.shuffle(all_indices)
+    error_counter = Counter()
 
-    selected_indices =[]
-    seen_classes = set()
+    print("\nScanne Testdaten und sammle Verwechslungen...")
+    with torch.no_grad():
+        for inputs, labels in tqdm(loader, desc="Evaluiere"):
+            inputs = inputs.to(DEVICE)
+            logits = model(inputs)
 
-    non_birds =['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper', 'katydid', 'roesel', 'mouse']
+            logits[:, distractor_idx] = -float('inf')
 
-    for idx in all_indices:
-        row = dataset.df.iloc[idx]
-        pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
+            preds = logits.argmax(dim=1).cpu().numpy()
+            labels = labels.numpy()
 
-        species_name = row['species'].lower()
-        is_bird = not any(ignore_word in species_name for ignore_word in non_birds)
+            for true_idx, pred_idx in zip(labels, preds):
 
-        if os.path.exists(pt_path) and is_bird:
-            true_label = dataset.class_to_idx[row['species']]
-            if true_label not in seen_classes:
-                seen_classes.add(true_label)
-                selected_indices.append((idx, pt_path, true_label))
-        if len(selected_indices) >= 5:
-            break
+                if true_idx in bird_idx_set:
+                    if true_idx != pred_idx:
+                        true_name = classes[true_idx]
+                        pred_name = classes[pred_idx]
 
-    fig, axes = plt.subplots(5, 1, figsize=(14, 22))
+                        pair_str = f"Wahr: {true_name}\nKI rät: {pred_name}"
+                        error_counter[pair_str] += 1
 
-    target_width = TARGET_WIDTH
-    stride = target_width // 2
+    top_errors = error_counter.most_common(15)
 
-    for i, (idx, pt_path, true_label) in enumerate(selected_indices):
-        true_name = classes[true_label]
+    if not top_errors:
+        print("Keine Fehler gefunden?! Dein Modell ist zu gut.")
+        return
 
-        spec = torch.load(pt_path).float()
-        current_width = spec.shape[1]
+    error_labels = [item[0] for item in top_errors]
+    error_counts = [item[1] for item in top_errors]
 
-        global_cam = np.zeros((128, current_width))
-        counts = np.zeros((128, current_width))
+    plt.figure(figsize=(12, 10))
+    sns.set_theme(style="whitegrid")
 
-        windows =[]
-        if current_width < target_width:
-            pad_amount = target_width - current_width
-            spec_padded = torch.nn.functional.pad(spec, (0, pad_amount))
-            windows.append((0, current_width, spec_padded))
-        else:
-            for start in range(0, current_width - target_width + 1, stride):
-                windows.append((start, start + target_width, spec[:, start:start+target_width]))
-            if (current_width - target_width) % stride != 0:
-                start = current_width - target_width
-                windows.append((start, current_width, spec[:, start:current_width]))
+    palette = sns.color_palette("flare", len(error_labels))[::-1]
 
-        max_window_conf = 0.0
+    ax = sns.barplot(x=error_counts, y=error_labels, palette=palette)
 
-        for start, end, window_spec in windows:
-            tensor = window_spec.unsqueeze(0).repeat(3, 1, 1).unsqueeze(0)
-            tensor = F.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False)
-            tensor = tensor.to(DEVICE)
-            tensor.requires_grad_(True)
+    plt.title("Die 15 häufigsten KI-Verwechslungen (Nur Vögel)", fontsize=16, fontweight='bold', pad=20)
+    plt.xlabel("Anzahl der Fehlklassifikationen im Test-Set", fontsize=14)
+    plt.ylabel("", fontsize=12)
 
-            model.zero_grad()
-            logits = model(tensor)
-            probs = F.softmax(logits, dim=1)
+    for i, v in enumerate(error_counts):
+        ax.text(v + 0.5, i + 0.1, str(v), color='black', fontweight='bold', fontsize=12)
 
-            conf = probs[0, true_label].item()
-            if conf > max_window_conf:
-                max_window_conf = conf
+    plt.xlim(0, max(error_counts) * 1.15)
 
-            logits[0, true_label].backward()
-
-            if cam_extractor.gradients is not None and cam_extractor.activations is not None:
-                weights = torch.mean(cam_extractor.gradients, dim=(2, 3), keepdim=True)
-                cam = torch.sum(weights * cam_extractor.activations, dim=1).squeeze()
-                cam = F.relu(cam).cpu().detach().numpy()
-
-                cam_min, cam_max = cam.min(), cam.max()
-                if cam_max > cam_min:
-                    cam = (cam - cam_min) / (cam_max - cam_min)
-                elif cam_max > 0:
-                    cam = cam / cam_max
-
-                cam = cam * conf
-                cam_resized = cv2.resize(cam, (target_width, 128))
-                valid_len = end - start
-                global_cam[:, start:end] += cam_resized[:, :valid_len]
-                counts[:, start:end] += 1
-
-        global_cam = global_cam / np.maximum(counts, 1)
-
-        g_min, g_max = global_cam.min(), global_cam.max()
-        if g_max > g_min:
-            global_cam = (global_cam - g_min) / (g_max - g_min)
-        elif g_max > 0:
-            global_cam = global_cam / g_max
-
-        spectrogram = spec.cpu().numpy()
-        spectrogram = np.flipud(spectrogram)
-        spectrogram = (spectrogram - spectrogram.min()) / (spectrogram.max() - spectrogram.min() + 1e-8)
-
-        global_cam_flipped = np.flipud(global_cam)
-
-        audio_seconds = current_width * (HOP_LENGTH / SAMPLE_RATE)
-        extent =[0, audio_seconds, 0, FMAX/1000]
-
-        cmap = plt.get_cmap('magma')
-        heatmap_rgba = cmap(global_cam_flipped)
-
-        heatmap_rgba[..., 3] = (global_cam_flipped ** 1.5) * 0.9
-
-        ax = axes[i]
-        ax.imshow(spectrogram, origin='lower', aspect='auto', cmap='gray', extent=extent)
-        ax.imshow(heatmap_rgba, origin='lower', aspect='auto', extent=extent)
-
-        title = f"Art: {true_name} | Max. Konfidenz: {max_window_conf:.1%}"
-        ax.set_title(title, fontsize=14, fontweight='bold')
-        ax.set_ylabel("Frequenz (kHz)", fontsize=12)
-
-    axes[-1].set_xlabel("Zeitachse (Sekunden)", fontsize=12)
     plt.tight_layout()
-
-    out_path = os.path.join(VISUALS_DIR, "gradcam_sliding_window.png")
+    out_path = os.path.join(VISUALS_DIR, "top_errors.png")
     plt.savefig(out_path, dpi=300)
-    print(f"\n Hochauflösende Sliding-Window Heatmaps erfolgreich generiert unter: {out_path}")
+    print(f"\n Erfolgreich gespeichert! Schau dir: {out_path} an.")
+    print("Tipp: Du kannst das Bild direkt in dein LaTeX Dokument (main.tex) einbinden!")
 
 if __name__ == "__main__":
     main()
@@ -964,73 +643,343 @@ if __name__ == "__main__":
     plot_quality_metrics()
 </file>
 
-<file path="run_experiments.sh">
+<file path="upload_models.sh">
 #!/usr/bin/env bash
-# Stoppt das Skript sofort, falls ein Fehler auftritt
-set -e 
+# =============================================================================
+# upload_models.sh
+# Uploads new/updated .pth files to Hugging Face and pushes code to GitHub.
+#
+# Usage:
+#   ./upload_models.sh                         # upload all .pth files
+#   ./upload_models.sh efficientnet            # upload one model by shortname
+#   ./upload_models.sh efficientnet resnet     # upload multiple by shortname
+#   ./upload_models.sh --pth-only              # skip the git push
+#   ./upload_models.sh --git-only              # skip the HF upload
+# =============================================================================
 
-echo "============================================================"
-echo " 🐦 Piepmatz Polizei - The Big European Overnight Training"
-echo "============================================================"
+set -e
 
-# --- 1. TRAINING ALLER MODELLE ---
-#echo -e "\n>>> 1/8: Training EfficientNet (Hauptmodell) ..."
-#python src/train.py --model efficientnet --epochs 80
+HF_REPO_ID="BoredVoidAter/piepmatz-polizei"
+MODELS_DIR="data/models"
 
-#echo -e "\n>>> 2/8: Training ResNet (Vergleichsmodell) ..."
-#python src/train.py --model resnet --epochs 50
+# Map shortnames → filename patterns (partial match is fine)
+declare -A SHORTCUTS=(
+    ["efficientnet"]="efficientnet_task-species_attn-False_layers-3_best.pth"
+    ["efficientnet-type"]="efficientnet_task-type_attn-False_layers-3_best.pth"
+    ["resnet"]="resnet_task-species_attn-False_layers-3_best.pth"
+    ["custom-2"]="custom_task-species_attn-False_layers-2_best.pth"
+    ["custom-3"]="custom_task-species_attn-False_layers-3_best.pth"
+    ["custom-5"]="custom_task-species_attn-False_layers-5_best.pth"
+    ["custom-attn"]="custom_task-species_attn-True_layers-3_best.pth"
+    ["embedding"]="embedding_task-species_attn-False_layers-3_best.pth"
+)
 
-#echo -e "\n>>> 3/8: Training Custom CNN (2 Layers) ..."
-#python src/train.py --model custom --cnn-layers 2 --epochs 50
+# ── Arg parsing ───────────────────────────────────────────────────────────────
+DO_HF=true
+DO_GIT=true
+SPECIFIC_FILES=()
 
-#echo -e "\n>>> 4/8: Training Custom CNN (3 Layers) ..."
-#python src/train.py --model custom --cnn-layers 3 --epochs 50
+for arg in "$@"; do
+    case "$arg" in
+        --pth-only)  DO_GIT=false ;;
+        --git-only)  DO_HF=false ;;
+        --help|-h)
+            echo "Usage: ./upload_models.sh [shortname...] [--pth-only] [--git-only]"
+            echo ""
+            echo "Shortnames:"
+            for k in "${!SHORTCUTS[@]}"; do
+                echo "  $k  →  ${SHORTCUTS[$k]}"
+            done
+            exit 0
+            ;;
+        -*)
+            echo "Unknown flag: $arg (use --help)"
+            exit 1
+            ;;
+        *)
+            if [[ -v SHORTCUTS["$arg"] ]]; then
+                SPECIFIC_FILES+=("${SHORTCUTS[$arg]}")
+            else
+                echo "  ✗ Unknown shortname '$arg'. Valid options:"
+                for k in "${!SHORTCUTS[@]}"; do echo "    $k"; done
+                exit 1
+            fi
+            ;;
+    esac
+done
 
-#echo -e "\n>>> 5/8: Training Custom CNN (5 Layers) ..."
-#python src/train.py --model custom --cnn-layers 5 --epochs 50
+echo ""
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║        Piepmatz Polizei — Model Uploader             ║"
+echo "╚══════════════════════════════════════════════════════╝"
+echo ""
 
-#echo -e "\n>>> 6/8: Training Custom CNN (3 Layers + Attention) ..."
-#python src/train.py --model custom --cnn-layers 3 --use-attention --epochs 50
+# ── HuggingFace upload ────────────────────────────────────────────────────────
+if $DO_HF; then
+    echo "▶ Uploading models to Hugging Face..."
 
-#echo -e "\n>>> 7/8: Training Song vs. Call Classifier ..."
-#python src/train.py --model efficientnet --task type --epochs 40
+    python -c "import huggingface_hub" 2>/dev/null || pip install huggingface_hub -q
 
-echo -e "\n>>> 8/8: Training Metric Learning (ArcFace Embedding) ..."
-python src/train.py --model embedding --epochs 60
+    # Build the file list to pass into python
+    if [ ${#SPECIFIC_FILES[@]} -gt 0 ]; then
+        FILES_JSON=$(python -c "
+import json, sys
+files = sys.argv[1:]
+print(json.dumps(files))
+" "${SPECIFIC_FILES[@]}")
+    else
+        FILES_JSON="[]"  # empty = upload all
+    fi
 
+    python - <<EOF
+import os, glob, json
+from huggingface_hub import HfApi
 
-# --- 2. EVALUATION & CONFUSION MATRIZEN ---
-echo -e "\n============================================================"
-echo " 📊 Starte Evaluation (Test-Set) & Cache Generierung..."
-echo "============================================================"
+api = HfApi()
+models_dir = "${MODELS_DIR}"
+specific = json.loads("""${FILES_JSON}""")
 
-python src/evaluate.py --model efficientnet
-python src/evaluate.py --model resnet
-python src/evaluate.py --model custom --cnn-layers 2
-python src/evaluate.py --model custom --cnn-layers 3
-python src/evaluate.py --model custom --cnn-layers 5
-python src/evaluate.py --model custom --cnn-layers 3 --use-attention
+if specific:
+    files = [os.path.join(models_dir, f) for f in specific]
+    missing = [f for f in files if not os.path.exists(f)]
+    if missing:
+        for m in missing:
+            print(f"  ✗ File not found: {m}")
+        raise SystemExit(1)
+else:
+    files = glob.glob(os.path.join(models_dir, "*.pth"))
 
-
-# --- 3. GRAFIKEN UND EXPERIMENTE NEU GENERIEREN ---
-echo -e "\n============================================================"
-echo " 🎨 Generiere finale Grafiken für das JuFo Poster..."
-echo "============================================================"
-
-# Erstellt Performance-, Accuracy- und Quality-Graphen
-python src/visuals/generate_figures.py
-
-# Generiert den t-SNE Plot (Song vs Call)
-python src/experiments/song_vs_call.py
-
-# Optional: GradCAM (Achtung: Prüfe ob "Amsel/beispiel.mp3" in src/experiments/gradcam.py existiert!)
-if[ -f "data/raw_audio/Amsel/beispiel.mp3" ]; then
-    python src/experiments/gradcam.py
-else
-    echo "Überspringe GradCAM (Beispiel-MP3 fehlt in data/raw_audio/Amsel/beispiel.mp3)"
+if not files:
+    print("  ⚠ No .pth files found — nothing to upload.")
+else:
+    print(f"  Uploading {len(files)} file(s) to {api.whoami()['name']}/{os.path.basename('${HF_REPO_ID}')}...")
+    print()
+    for path in sorted(files):
+        name = os.path.basename(path)
+        mb = os.path.getsize(path) / 1024 / 1024
+        print(f"  ↑ {name} ({mb:.1f} MB)...")
+        api.upload_file(
+            path_or_fileobj=path,
+            path_in_repo=name,
+            repo_id="${HF_REPO_ID}",
+            repo_type="model",
+        )
+        print(f"    ✓ done")
+    print()
+    print(f"  ✓ Upload complete → https://huggingface.co/${HF_REPO_ID}")
+EOF
+    echo ""
 fi
 
-echo -e "\n🎉 ALLES FERTIG! Gute Nacht und viel Erfolg mit den neuen Resultaten! 🚀"
+# ── Git push ──────────────────────────────────────────────────────────────────
+if $DO_GIT; then
+    echo "▶ Pushing code changes to GitHub..."
+
+    # Stage everything except .pth (already gitignored, but be explicit)
+    git add --all -- ':!data/models/*.pth' ':!data/models/*.onnx'
+
+    if git diff --cached --quiet; then
+        echo "  (nothing new to commit — working tree clean)"
+    else
+        echo "  Staged changes:"
+        git diff --cached --name-only | sed 's/^/    /'
+        echo ""
+        # Use provided message or auto-generate one from changed files
+        if [ -n "$COMMIT_MSG" ]; then
+            MSG="$COMMIT_MSG"
+        else
+            CHANGED=$(git diff --cached --name-only | head -5 | tr '\n' ' ')
+            MSG="update models and code: ${CHANGED}"
+        fi
+        git commit -m "$MSG"
+    fi
+
+    BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    git push origin "${BRANCH}"
+    echo "  ✓ Pushed to GitHub (${BRANCH})"
+    echo ""
+fi
+
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║                      All done!                      ║"
+echo "╚══════════════════════════════════════════════════════╝"
+echo ""
+echo "  Models : https://huggingface.co/${HF_REPO_ID}"
+echo "  GitHub : $(git remote get-url origin)"
+echo ""
+</file>
+
+<file path="src/experiments/gradcam.py">
+import sys
+import os
+import torch
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+import numpy as np
+import cv2
+import json
+import random
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from models import get_model
+from config import *
+from data import SmartBirdDataset
+
+class GradCAM:
+    def __init__(self, model, target_layer):
+        self.model = model
+        self.target_layer = target_layer
+        self.gradients = None
+        self.activations = None
+        self.target_layer.register_forward_hook(self.save_activation)
+        self.target_layer.register_full_backward_hook(self.save_gradient)
+
+    def save_activation(self, module, input, output):
+        self.activations = output
+
+    def save_gradient(self, module, grad_input, grad_output):
+        self.gradients = grad_output[0]
+
+def main():
+    print("Lade Datensatz und Modell für hochauflösendes Grad-CAM...")
+
+    exp_name = "resnet_task-species_attn-False_layers-3"
+    classes_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
+
+    with open(classes_path, "r") as f:
+        classes = json.load(f)['classes']
+
+    model = get_model("resnet", len(classes)).to(DEVICE)
+    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
+    model.eval()
+
+    cam_extractor = GradCAM(model, model.layer3[-1])
+
+    dataset = SmartBirdDataset(mode='test', task='species')
+
+    all_indices = list(range(len(dataset)))
+    random.shuffle(all_indices)
+
+    selected_indices =[]
+    seen_classes = set()
+
+    non_birds =['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper', 'katydid', 'roesel', 'mouse']
+
+    for idx in all_indices:
+        row = dataset.df.iloc[idx]
+        pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
+
+        species_name = row['species'].lower()
+        is_bird = not any(ignore_word in species_name for ignore_word in non_birds)
+
+        if os.path.exists(pt_path) and is_bird:
+            true_label = dataset.class_to_idx[row['species']]
+            if true_label not in seen_classes:
+                seen_classes.add(true_label)
+                selected_indices.append((idx, pt_path, true_label))
+        if len(selected_indices) >= 5:
+            break
+
+    fig, axes = plt.subplots(5, 1, figsize=(14, 22))
+
+    target_width = TARGET_WIDTH
+    stride = target_width // 2
+
+    for i, (idx, pt_path, true_label) in enumerate(selected_indices):
+        true_name = classes[true_label]
+
+        spec = torch.load(pt_path).float()
+        current_width = spec.shape[1]
+
+        global_cam = np.zeros((128, current_width))
+        counts = np.zeros((128, current_width))
+
+        windows =[]
+        if current_width < target_width:
+            pad_amount = target_width - current_width
+            spec_padded = torch.nn.functional.pad(spec, (0, pad_amount))
+            windows.append((0, current_width, spec_padded))
+        else:
+            for start in range(0, current_width - target_width + 1, stride):
+                windows.append((start, start + target_width, spec[:, start:start+target_width]))
+            if (current_width - target_width) % stride != 0:
+                start = current_width - target_width
+                windows.append((start, current_width, spec[:, start:current_width]))
+
+        max_window_conf = 0.0
+
+        for start, end, window_spec in windows:
+            tensor = window_spec.unsqueeze(0).repeat(3, 1, 1).unsqueeze(0)
+            tensor = F.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False)
+            tensor = tensor.to(DEVICE)
+            tensor.requires_grad_(True)
+
+            model.zero_grad()
+            logits = model(tensor)
+            probs = F.softmax(logits, dim=1)
+
+            conf = probs[0, true_label].item()
+            if conf > max_window_conf:
+                max_window_conf = conf
+
+            logits[0, true_label].backward()
+
+            if cam_extractor.gradients is not None and cam_extractor.activations is not None:
+                weights = torch.mean(cam_extractor.gradients, dim=(2, 3), keepdim=True)
+                cam = torch.sum(weights * cam_extractor.activations, dim=1).squeeze()
+                cam = F.relu(cam).cpu().detach().numpy()
+
+                cam_min, cam_max = cam.min(), cam.max()
+                if cam_max > cam_min:
+                    cam = (cam - cam_min) / (cam_max - cam_min)
+                elif cam_max > 0:
+                    cam = cam / cam_max
+
+                cam = cam * conf
+                cam_resized = cv2.resize(cam, (target_width, 128))
+                valid_len = end - start
+                global_cam[:, start:end] += cam_resized[:, :valid_len]
+                counts[:, start:end] += 1
+
+        global_cam = global_cam / np.maximum(counts, 1)
+
+        g_min, g_max = global_cam.min(), global_cam.max()
+        if g_max > g_min:
+            global_cam = (global_cam - g_min) / (g_max - g_min)
+        elif g_max > 0:
+            global_cam = global_cam / g_max
+
+        spectrogram = spec.cpu().numpy()
+        spectrogram = np.flipud(spectrogram)
+        spectrogram = (spectrogram - spectrogram.min()) / (spectrogram.max() - spectrogram.min() + 1e-8)
+
+        global_cam_flipped = np.flipud(global_cam)
+
+        audio_seconds = current_width * (HOP_LENGTH / SAMPLE_RATE)
+        extent =[0, audio_seconds, 0, FMAX/1000]
+
+        cmap = plt.get_cmap('magma')
+        heatmap_rgba = cmap(global_cam_flipped)
+
+        heatmap_rgba[..., 3] = (global_cam_flipped ** 1.5) * 0.9
+
+        ax = axes[i]
+        ax.imshow(spectrogram, origin='lower', aspect='auto', cmap='gray', extent=extent)
+        ax.imshow(heatmap_rgba, origin='lower', aspect='auto', extent=extent)
+
+        title = f"Art: {true_name} | Max. Konfidenz: {max_window_conf:.1%}"
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.set_ylabel("Frequenz (kHz)", fontsize=12)
+
+    axes[-1].set_xlabel("Zeitachse (Sekunden)", fontsize=12)
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, "gradcam_sliding_window.png")
+    plt.savefig(out_path, dpi=300)
+    print(f"\n Hochauflösende Sliding-Window Heatmaps erfolgreich generiert unter: {out_path}")
+
+if __name__ == "__main__":
+    main()
 </file>
 
 <file path="src/experiments/song_vs_call.py">
@@ -1339,6 +1288,139 @@ if __name__ == "__main__":
     main()
 </file>
 
+<file path="flake.lock">
+{
+  "nodes": {
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1731533236,
+        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1771848320,
+        "narHash": "sha256-0MAd+0mun3K/Ns8JATeHT1sX28faLII5hVLq0L3BdZU=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "flake-utils": "flake-utils",
+        "nixpkgs": "nixpkgs"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
+</file>
+
+<file path="run_experiments.sh">
+#!/usr/bin/env bash
+# Stoppt das Skript sofort, falls ein Fehler auftritt
+set -e 
+
+echo "============================================================"
+echo " 🐦 Piepmatz Polizei - The Big European Overnight Training"
+echo "============================================================"
+
+# --- 1. TRAINING ALLER MODELLE ---
+#echo -e "\n>>> 1/8: Training EfficientNet (Hauptmodell) ..."
+#python src/train.py --model efficientnet --epochs 80
+
+#echo -e "\n>>> 2/8: Training ResNet (Vergleichsmodell) ..."
+#python src/train.py --model resnet --epochs 50
+
+#echo -e "\n>>> 3/8: Training Custom CNN (2 Layers) ..."
+#python src/train.py --model custom --cnn-layers 2 --epochs 50
+
+#echo -e "\n>>> 4/8: Training Custom CNN (3 Layers) ..."
+#python src/train.py --model custom --cnn-layers 3 --epochs 50
+
+#echo -e "\n>>> 5/8: Training Custom CNN (5 Layers) ..."
+#python src/train.py --model custom --cnn-layers 5 --epochs 50
+
+#echo -e "\n>>> 6/8: Training Custom CNN (3 Layers + Attention) ..."
+#python src/train.py --model custom --cnn-layers 3 --use-attention --epochs 50
+
+#echo -e "\n>>> 7/8: Training Song vs. Call Classifier ..."
+#python src/train.py --model efficientnet --task type --epochs 40
+
+echo -e "\n>>> 8/8: Training Metric Learning (ArcFace Embedding) ..."
+python src/train.py --model embedding --epochs 60
+
+
+# --- 2. EVALUATION & CONFUSION MATRIZEN ---
+echo -e "\n============================================================"
+echo " 📊 Starte Evaluation (Test-Set) & Cache Generierung..."
+echo "============================================================"
+
+python src/evaluate.py --model efficientnet
+python src/evaluate.py --model resnet
+python src/evaluate.py --model custom --cnn-layers 2
+python src/evaluate.py --model custom --cnn-layers 3
+python src/evaluate.py --model custom --cnn-layers 5
+python src/evaluate.py --model custom --cnn-layers 3 --use-attention
+
+
+# --- 3. GRAFIKEN UND EXPERIMENTE NEU GENERIEREN ---
+echo -e "\n============================================================"
+echo " 🎨 Generiere finale Grafiken für das JuFo Poster..."
+echo "============================================================"
+
+# Erstellt Performance-, Accuracy- und Quality-Graphen
+python src/visuals/generate_figures.py
+
+# Generiert den t-SNE Plot (Song vs Call)
+python src/experiments/song_vs_call.py
+
+# Optional: GradCAM (Achtung: Prüfe ob "Amsel/beispiel.mp3" in src/experiments/gradcam.py existiert!)
+if[ -f "data/raw_audio/Amsel/beispiel.mp3" ]; then
+    python src/experiments/gradcam.py
+else
+    echo "Überspringe GradCAM (Beispiel-MP3 fehlt in data/raw_audio/Amsel/beispiel.mp3)"
+fi
+
+echo -e "\n🎉 ALLES FERTIG! Gute Nacht und viel Erfolg mit den neuen Resultaten! 🚀"
+</file>
+
 <file path="src/showcase.py">
 import argparse
 import time
@@ -1548,443 +1630,6 @@ if __name__ == "__main__":
     main()
 </file>
 
-<file path="flake.lock">
-{
-  "nodes": {
-    "flake-utils": {
-      "inputs": {
-        "systems": "systems"
-      },
-      "locked": {
-        "lastModified": 1731533236,
-        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
-        "type": "github"
-      },
-      "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "type": "github"
-      }
-    },
-    "nixpkgs": {
-      "locked": {
-        "lastModified": 1771848320,
-        "narHash": "sha256-0MAd+0mun3K/Ns8JATeHT1sX28faLII5hVLq0L3BdZU=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixos-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "root": {
-      "inputs": {
-        "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
-      }
-    },
-    "systems": {
-      "locked": {
-        "lastModified": 1681028828,
-        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
-        "owner": "nix-systems",
-        "repo": "default",
-        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-systems",
-        "repo": "default",
-        "type": "github"
-      }
-    }
-  },
-  "root": "root",
-  "version": 7
-}
-</file>
-
-<file path="main.tex">
-\documentclass[12pt, a4paper]{scrartcl}
-
-% --- Pakete ---
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage[ngerman]{babel}
-\usepackage{mathptmx}       % Times New Roman
-\usepackage{graphicx}       % Für Bilder
-\usepackage{geometry}       % Ränder
-\usepackage{setspace}       % Zeilenabstand
-\usepackage{hyperref}       % Links
-\usepackage{amsmath}        % Mathe
-\usepackage{float}          % Bildplatzierung
-\usepackage{caption}
-\usepackage{subcaption}     % Bilder nebeneinander
-\usepackage{csquotes}       % Anführungszeichen
-
-% --- Layout ---
-\geometry{
-    left=2.5cm,
-    right=2.5cm,
-    top=2.5cm,
-    bottom=2cm
-}
-\onehalfspacing
-\setlength{\parindent}{0pt}
-\setlength{\parskip}{6pt}
-
-% --- Titeldaten ---
-\title{Piepmatz Polizei: Entwicklung eines KI-basierten Systems zum akustischen Monitoring europäischer Vogelarten}
-\subtitle{Wettbewerb Jugend forscht 2026}
-\author{Finn Degen, Jonathan Ledwon}
-\date{\today}
-
-\begin{document}
-
-\maketitle
-\begin{center}
-    \includegraphics[width=0.6\textwidth]{bird_project_cover.png} \\
-    \vspace{0.5cm} % Optional: Adds a little space between image and text
-    \footnotesize{\textit{Cover-Design: David May}}
-\end{center}
-\thispagestyle{empty}
-\newpage
-
-% --- Projektüberblick ---
-\section*{Projektüberblick}
-Vögel zu zählen ist eine mühsame Angelegenheit. Normalerweise stehen Ornithologen stundenlang im Wald und führen Strichlisten. Das ist nicht nur zeitaufwendig, sondern auch ziemlich ungenau, da man nicht überall gleichzeitig sein kann. Unser Projekt „Piepmatz Polizei“ soll das ändern. Wir haben ein System entwickelt, das Vogelstimmen vollautomatisch aufnimmt und mithilfe von Deep Learning klassifiziert.
-
-Dabei setzen wir nicht auf einfache Frequenzanalysen, sondern nutzen moderne Convolutional Neural Networks (CNNs), die auf Mel-Spektrogrammen trainiert wurden. Wir haben uns dabei nicht auf wenige Garten-Vögel beschränkt, sondern ein Modell trainiert, das einen Großteil der relevanten europäischen Vogelwelt erkennt.
-Die Kombination aus etablierten Architekturen wie EfficientNet und experimentellen Ansätzen wie Metric Learning sorgt dafür, dass die KI auch bei Wind oder Verkehrslärm nicht aus dem Tritt kommt. Zusätzlich haben wir ein Gehäuse entworfen, damit die Hardware auch mal einen Regenschauer überlebt.
-
-\newpage
-\tableofcontents
-\newpage
-
-% --- Inhalt ---
-
-\section{Einleitung: Warum eigentlich Vögel?}
-Vögel sind so etwas wie die Sensoren unseres Ökosystems. Wenn es ihnen schlecht geht, stimmt meistens auch etwas mit der Umwelt nicht. Das Problem ist nur die Erfassung. Sie sind scheu, schnell und verstecken sich gerne im Gebüsch. Die akustische Erfassung ist daher der Goldstandard. Menschliche Experten sind aber teuer und können nicht 24/7 im Wald stehen, jedoch sind die Vorteile immens: Migrationsbewegungen oder unbekante Arten erfassen, Bauprojekte die auf das Ökosystem angepasst sind, frühzeitigeres Erkennen von Artensterben, ...
-
-Unsere Fragestellung war also simpel: Können wir ein Gerät bauen, das wir einfach in den Baum hängen, und das uns am Ende des Monats eine Excel-Tabelle gibt? Wir wollten wissen, wer wann gesungen hat. Uns war schnell klar, dass ein solches System nur dann wirklich nützlich ist, wenn es nicht nur Amsel, Drossel, Fink und Star unterscheidet, sondern die Vielfalt der europäischen Vogelwelt abdeckt. Unser finales Modell ist daher auf hunderte Arten trainiert.
-
-\section{Theoretische Grundlagen}
-
-\subsection{Vom Ton zum Bild: Mel-Spektrogramme}
-Computer hören nicht so wie wir Menschen. Wenn wir Audiodaten in ein neuronales Netz füttern wollen, könnten wir zwar die rohe Wellenform nehmen. Das ist aber rechenintensiv und oft ineffizient. Viel besser funktionieren Bilderkennungsnetze (CNNs), die eigentlich für Fotos gemacht sind.
-Deshalb wandeln wir den Sound in Bilder um, sogenannte Spektrogramme. Dabei wird die Zeit auf der X-Achse und die Frequenz auf der Y-Achse abgetragen, die Helligkeit des Bildes an dieser Stelle ist dann die Lautstärke/Intensität. 
-
-Wir haben uns intensiv damit beschäftigt, wie man diese Bilder am besten aufbereitet. In Abbildung \ref{fig:mel_vs_lin} sieht man den Vergleich. Oben ist ein lineares Spektrogramm. Unten ist die \textit{Mel-Skala}. Diese Skala ist der menschlichen und vogelartigen Wahrnehmung nachempfunden. Wir hören Unterschiede in tiefen Tönen viel besser als in sehr hohen. Die Mel-Skala „zoomt“ sozusagen in die für Vögel relevanten Bereiche rein. Dadurch sieht das neuronale Netz die feinen Details im Gesang viel besser.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.85\textwidth]{Pictures/comparison_linear_vs_mel.png}
-    \caption{Vergleich der Darstellung: Das Mel-Spektrogramm (unten) löst die für Vögel relevanten Frequenzbereiche deutlich besser auf als die lineare Darstellung (oben).}
-    \label{fig:mel_vs_lin}
-\end{figure}
-
-\subsection{Artenvielfalt im Bild}
-Es ist faszinierend zu sehen, wie unterschiedlich die Arten auch visuell sind. Eine Amsel sieht im Spektrogramm ganz anders aus als ein Haussperling. Abbildung \ref{fig:species_comp} zeigt exemplarisch fünf zufällig ausgewählte Arten aus unserem Datensatz, um die visuelle Unterscheidbarkeit zu demonstrieren.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=1.0\textwidth]{Pictures/comparison_species.png}
-    \caption{Exemplarische Spektrogramme von fünf Arten aus unserem umfangreichen Europa-Datensatz. Die visuellen Strukturen sind deutlich unterscheidbar, was dem CNN die Klassifikation ermöglicht.}
-    \label{fig:species_comp}
-\end{figure}
-
-\section{Vorgehensweise und Methoden}
-
-\subsection{Datenpipeline: Ein europäischer Datensatz}
-Unsere Daten kommen von Xeno-Canto, einer riesigen Datenbank für Vogelstimmen. Um ein wirklich universelles Tool zu schaffen, haben wir unser Download-Skript so programmiert, dass es automatisch Metadaten und Audiofiles für das Verbreitungsgebiet Europa zieht. Das resultiert in einer enormen Menge an Trainingsdaten.
-
-Wichtig war uns dabei die Vermeidung von „Müll rein, Müll raus“. Viele Aufnahmen auf Xeno-Canto sind extrem sauber (Richtmikrofone, Qualitätsstufe A). Im echten Wald rauscht es aber. Deshalb haben wir gezielt auch Aufnahmen mit den Qualitätsstufen B und C in den Trainingsdaten gelassen. Das Modell soll ja lernen, Vögel auch bei Hintergrundlärm zu erkennen.
-
-Unsere Pipeline verarbeitet die Daten \textit{on-the-fly}:
-\begin{itemize}
-    \item Resampling auf 32kHz (mehr brauchen wir für Vögel nicht).
-    \item Zerschneiden in 5-Sekunden-Stücke.
-    \item Umwandlung in Mel-Spektrogramme (128 Bänder).
-    \item Logarithmierung (dB) und Normalisierung auf Werte zwischen 0 und 1.
-\end{itemize}
-
-\subsection{Die neuronalen Netzarchitekturen}
-Um die Komplexität der europäischen Vogelwelt abzubilden, haben wir nicht nur ein Standard-Modell trainiert, sondern zwei spezialisierte Architekturen entwickelt und evaluiert.
-
-\subsubsection{Der Klassifikator (EfficientNet-B0)}
-Für die direkte Bestimmung der Arten nutzen wir ein \textit{EfficientNet-B0}. Diese Architektur wurde von Google entwickelt, um ein optimales Verhältnis zwischen Genauigkeit und Rechenleistung zu bieten – ideal für den späteren Einsatz auf Edge-Geräten wie dem Raspberry Pi.
-\begin{itemize}
-    \item \textbf{Transfer Learning:} Wir initialisieren das Netz nicht mit zufälligen Werten, sondern nutzen Gewichte, die bereits auf dem riesigen ImageNet-Datensatz (Millionen von Fotos) trainiert wurden. Das Netz „weiß“ also schon, wie man Kanten, Kurven und Texturen sieht. Wir bringen ihm dann nur noch bei, diese visuellen Merkmale als Vogelstimmen zu interpretieren.
-    \item \textbf{Output Layer:} Der letzte Layer des Netzes wurde angepasst, um die Wahrscheinlichkeiten für alle trainierten europäischen Arten auszugeben (Softmax-Aktivierung).
-\end{itemize}
-
-\subsubsection{Der Embedding-Extraktor (Metric Learning)}
-Zusätzlich haben wir mit einem experimentellen Ansatz gearbeitet: \textbf{Metric Learning}. Hierbei klassifiziert das Netz nicht direkt („Das ist eine Amsel“), sondern lernt, ähnliche Gesänge nahe beieinander in einem hochdimensionalen Raum zu platzieren.
-\begin{itemize}
-    \item \textbf{Projektions-Head:} Statt einer Klassifikationsebene nutzen wir einen Projektions-Head (Linear $\rightarrow$ BatchNorm $\rightarrow$ PReLU $\rightarrow$ Linear), der das Spektrogramm auf einen 512-dimensionalen Vektor abbildet.
-    \item \textbf{ArcFace Loss:} Wir trainieren mit der \textit{Sub-Center ArcFace Loss}-Funktion. Diese zwingt das Netz, die Vektoren auf einer Hypersphäre so anzuordnen, dass Gesänge derselben Art extrem nah beieinander liegen (kleiner Winkelabstand) und verschiedene Arten maximalen Abstand haben.
-    \item \textbf{Vorteil:} Dieser Ansatz erlaubt es uns, eine „Landkarte der Biodiversität“ zu erstellen und potenziell sogar Arten zu erkennen, die gar nicht im Training dabei waren (Out-of-Distribution Detection), indem man prüft, ob ein neuer Vektor in keinen bekannten Cluster passt.
-\end{itemize}
-
-\subsection{Trainingstrategie}
-Um das Modell bei dieser enormen Anzahl an Klassen robust zu machen, haben wir tief in die Trickkiste der Regularisierung gegriffen. Besonders wichtig war uns \textbf{SpecAugment}. Dabei löschen wir im Training einfach zufällig Teile des Spektrogramms. Mal fehlen ein paar Millisekunden, mal fehlt ein Frequenzbereich. Das zwingt das Netz, den Vogel auch dann zu erkennen, wenn er nur teilweise zu hören ist und macht das Modell somit weniger anfällig auf Störgeräusche.
-
-Wir haben den Trainingsverlauf genau überwacht. In Abbildung \ref{fig:loss_curve} sieht man, wie der Fehler (Loss) über die Epochen abnimmt. Man erkennt gut, dass das Modell stetig lernt, ohne dabei zu starke Ausreißer zu haben.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.7\textwidth]{Pictures/loss_curve_15epoch_resnet18pre.png}
-    \caption{Erste 15 Eopchen vom Trainingsverlauf: Normalerweise ist es ein Anzeichen von Overfitting wenn Val Loss deutlich höher also Train Loss ist, aber bei uns ist der Grund hierfür, dass wir Noise hinzufügen und diese hier sichtbar wird.}
-    \label{fig:loss_curve}
-\end{figure}
-
-\section{Ergebnisse: Wie gut funktioniert es?}
-
-\subsection{Trefferquote und Vergleich}
-Ehrlich gesagt waren wir selbst überrascht. Unser finales Modell (EfficientNet mit Transfer Learning) erreicht extrem hohe Genauigkeiten, und das obwohl es hunderte verschiedene Arten unterscheiden muss.
-Zum Vergleich haben wir ein Modell komplett von Null trainiert („From Scratch“). Das kam nur auf ca. 80\% und hat extrem schnell angefangen, die Trainingsdaten auswendig zu lernen. Transfer Learning ist hier also der absolute Gamechanger, wie man in Abbildung \ref{fig:modelcomp} sieht. Die Tatsache, dass wir das Modell so stark skalieren konnten, ohne massiv an Genauigkeit zu verlieren, bestätigt unseren Ansatz.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.7\textwidth]{Pictures/comparison_model_performance.png}
-    \caption{Der Vergleich zeigt deutlich: Das Transfer-Learning-Modell (rechts) ist nicht nur präziser, sondern generalisiert auch besser auf neue Daten, selbst bei vielen Klassen.}
-    \label{fig:modelcomp}
-\end{figure}
-
-Ein wichtiger Faktor für die Genauigkeit ist die verfügbare Datenmenge pro Vogelart. Abbildung \ref{fig:bubble} zeigt, dass unsere Methode, seltene Vögel öfter dranzunehmen ihr Ziel erreicht hat, und unsere KI auch Vögel die nur wenig in den Daten vertreten sind gut erkennt. 
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\textwidth]{Pictures/scatter_data_vs_acc_bubble.png}
-    \caption{Einfluss der Datenmenge auf die Genauigkeit. Die Größe der Blasen repräsentiert die Anzahl der Trainingsdaten.}
-    \label{fig:bubble}
-\end{figure}
-
-
-\subsection{Fehleranalyse}
-Natürlich ist keine KI perfekt. Wir haben uns die Fehler genau angeschaut. Die Konfusionsmatrix in Abbildung \ref{fig:conf_matrix} zeigt exemplarisch einen Ausschnitt der Ergebnisse. Die Diagonale ist dunkelblau, was super ist. Das heißt, meistens liegt das Modell richtig. Verwechslungen treten vor allem bei sehr kurzen Rufen von verwandten Arten auf (z.B. verschiedene Finken-Arten). Das ist aber auch für menschliche Experten oft schwer zu unterscheiden und außerdem war die richtige Art dann oft in den Top-3 die das Model ausgegeben hat.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.6\textwidth]{Pictures/confusion_matrix_finetuned_pro.png}
-    \caption{Konfusionsmatrix des finalen Modells (Ausschnitt). Die starke Diagonale bestätigt die hohe Präzision auch bei vielen Klassen.}
-    \label{fig:conf_matrix}
-\end{figure}
-
-In Abbildung \ref{fig:top_errors} haben wir die häufigsten Fehlklassifikationen genauer aufgeschlüsselt.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\textwidth]{Pictures/top_errors.png}
-    \caption{Die häufigsten Verwechslungen. Balken zeigen an, welche Art fälschlicherweise als welche andere Art klassifiziert wurde.}
-    \label{fig:top_errors}
-\end{figure}
-
-%TODO: change image
-\subsection{Robustheit gegen schlechte Audioqualität}
-Ein wichtiger Punkt war uns die Frage, wie das Modell reagiert, wenn die Aufnahmequalität sinkt. Auf Xeno-Canto sind die Aufnahmen mit Buchstaben von A (Studio) bis E (Müll) bewertet.
-In Abbildung \ref{fig:quality} sehen wir, dass die Erkennungsrate bei A-C ungefähr gleichbleibt, unser Modell ist also relativ unabhängig von Audioqualität.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.7\textwidth]{Pictures/performance_by_quality.png}
-    \caption{Performance nach Audioqualität. Selbst bei schlechten Aufnahmen (D/E) bleibt das Modell brauchbar.}
-    \label{fig:quality}
-\end{figure}
-
-\subsection{Validierung durch externe Datenquellen (Cross-Testing)}
-Ein häufiges Risiko beim Training neuronaler Netze ist der sogenannte \enquote{Dataset Bias} – das Modell lernt dabei nicht nur die Vogelstimmen, sondern versehentlich auch die spezifischen Eigenheiten der Aufnahmegeräte der Trainingsdatenbank. Um sicherzustellen, dass unser Modell generalisiert, haben wir Cross-Tests mit Audioquellen durchgeführt, die nicht Teil des Xeno-Canto-Trainingsdatensatzes waren.
-
-Hierfür nutzten wir exemplarische Aufnahmen aus dem Google AudioSet sowie Referenzaufnahmen der Plattform \textit{kookoo.eu} (bekannt für hochwertige Singvogel-Aufnahmen). Das Modell konnte auch diese artfremden Aufnahmen mit hoher Zuverlässigkeit klassifizieren. Dies bestätigt, dass die KI tatsächlich die spektralen Muster der Vögel gelernt hat und nicht nur auf die akustische Signatur einer spezifischen Datenbank optimiert ist.
-
-
-\subsection{Sliding Window Inference}
-Im echten Einsatz bekommen wir keine vorgeschnittenen 5-Sekunden-Clips, sondern einen endlosen Audio-Stream. Wir nutzen daher einen \enquote{Sliding Window} Ansatz. Das Fenster schiebt sich über die Aufnahme und das Model gibt für jeden Moment eine Wahrscheinlichkeit aus.
-In Abbildung \ref{fig:sliding} haben wir das visualisiert. Man sieht unten das Spektrogramm und oben drüber die Heatmap der KI Attention. Je heller (gelber/roter) die Farbe, desto sicherer ist sich die KI, dass dort ein Vogel singt. Man sieht schön, wie die KI genau bei den Gesangs-Events ausschlägt.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=1.0\textwidth]{Pictures/sliding_window_attention_2.5.png}
-    \caption{Visualisierung der KI-Aufmerksamkeit. Die farbigen Bereiche markieren, wo das Modell relevante Merkmale im Audio-Stream gefunden hat.}
-    \label{fig:sliding}
-\end{figure}
-
-\subsection{Zusatzexperimente: Rufe vs. Gesänge und Geschlecht}
-Neben der Artenerkennung haben wir untersucht, ob das Modell auch den Typ der Lautäußerung (Gesang oder Ruf) unterscheiden kann. Die t-SNE Visualisierung der Embeddings (Abb. \ref{fig:tsne}) zeigt, dass das Modell diese Unterscheidung intern bereits lernt.
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\textwidth]{Pictures/tsne_song_call.png}
-    \caption{t-SNE Visualisierung der Modell-Embeddings. Rufe (Call) und Gesänge (Song) bilden teils eigene Cluster, auch ohne explizites Training darauf.}
-    \label{fig:tsne}
-\end{figure}
-
-Zusätzlich haben wir getestet, ob ein auf Männchen-Daten gefiltertes Training bessere Ergebnisse liefert, da diese häufiger singen. Wie in Abbildung \ref{fig:gender} zu sehen, brachte die Einschränkung der Daten jedoch keinen signifikanten Vorteil gegenüber dem kompletten Datensatz.
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\textwidth]{Pictures/experiment_gender_result.png}
-    \caption{Vergleich der Trainingsgenauigkeit: Das Filtern nach Geschlecht (Male Only) bringt keinen Vorteil gegenüber dem Nutzen aller Daten.}
-    \label{fig:gender}
-\end{figure}
-
-\section{Hardware-Design}
-Software ist nichts ohne Hardware. Mit \textit{Onshape} haben wir ein Gehäuse konstruiert, das alles zusammenhält.
-Wichtig war uns, dass das Solarpanel direkt in den Deckel integriert ist, um den optimalen Winkel zur Sonne zu haben. Außerdem braucht das Mikrofon einen akustischen Trichter. Das Design ist modular aufgebaut, damit man Teile leicht austauschen kann, falls mal was kaputtgeht.
-
-\begin{figure}[H]
-    \centering
-    \begin{subfigure}[b]{0.32\textwidth}
-        \centering
-        \includegraphics[width=\textwidth]{OnshapeImages/OnshapeModelView_CasingWithParts.png}
-        \caption{Innenleben}
-    \end{subfigure}
-    \hfill
-    \begin{subfigure}[b]{0.32\textwidth}
-        \centering
-        \includegraphics[width=\textwidth]{OnshapeImages/OnshapeModelView_OnlyCasing.png}
-        \caption{Gehäuse-Struktur}
-    \end{subfigure}
-    \hfill
-    \begin{subfigure}[b]{0.32\textwidth}
-        \centering
-        \includegraphics[width=\textwidth]{OnshapeImages/OnshapeModelView_SolarPanel.png}
-        \caption{Solar-Integration}
-    \end{subfigure}
-    \caption{Unsere CAD-Konstruktion für den autonomen Feldeinsatz.}
-    \label{fig:hardware}
-\end{figure}
-
-\section{Fazit und wie es weitergeht}
-Wir haben gezeigt, dass es funktioniert. Die Software steht und liefert exzellente Werte. Besonders stolz sind wir darauf, dass wir mit Open-Source-Daten eine so hohe Genauigkeit erreichen konnten.
-Was jetzt noch fehlt, ist der Härtetest im Wald. Wir müssen das Gehäuse drucken und schauen, ob der Raspberry Pi mit dem Solarstrom über den Winter kommt. Vielleicht müssen wir den Code noch effizienter machen oder auf Mikrocontroller wie den ESP32 umsteigen, um Strom zu sparen.
-Außerdem wollen wir den \enquote{Sliding Window}-Algorithmus noch schneller machen, damit er direkt live auf dem Gerät laufen kann, ohne erst alles in die Cloud schicken zu müssen.
-
-Ein entscheidender nächster Schritt für die wissenschaftliche Validierung ist der \enquote{Ground Truth}-Abgleich im Feld. Hierfür planen wir eine Kooperation mit der Experten-Community von \textit{BirdForum.net}. Ziel ist es, erfahrene Ornithologen oder Hobby-Beobachter zu gewinnen, die unsere Prototypen parallel zu ihren manuellen Beobachtungen einsetzen. Der Vergleich zwischen der KI-generierten Liste und den manuellen Notizen der Experten wird uns die verlässlichsten Daten über die Performance unter realen Bedingungen (IRL-Tests) liefern.
-
-% --- Literaturverzeichnis ---
-\newpage
-\renewcommand\refname{Quellen- und Literaturverzeichnis}
-\begin{thebibliography}{9}
-
-\bibitem{kahl2021}
-Kahl, S., et al. (2021).
-\textit{BirdNET: A deep learning solution for avian diversity monitoring.}
-Ecological Informatics.
-
-\bibitem{tan2019}
-Tan, M., \& Le, Q. V. (2019).
-\textit{EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks.}
-arXiv preprint arXiv:1905.11946.
-
-\bibitem{specaugment}
-Park, D. S., et al. (2019).
-\textit{SpecAugment: A Simple Data Augmentation Method for Automatic Speech Recognition.}
-Proc. Interspeech 2019.
-
-\bibitem{xenocanto}
-Xeno-Canto Foundation.
-\textit{Xeno-canto: Sharing bird sounds from around the world.}
-\url{https://www.xeno-canto.org/}
-
-\end{thebibliography}
-
-% --- Unterstützungsleistungen ---
-\newpage
-\section*{Unterstützungsleistungen}
-Wir haben viel Hilfe aus der Open-Source-Community bekommen. Insbesondere die Audiodaten von Xeno-Canto waren essenziell. Für die Programmierung haben wir Bibliotheken wie PyTorch, Librosa und Audiomentations genutzt. Ohne diese Tools wäre das Projekt in der Zeit gar nicht machbar gewesen. Ein Dank geht auch an unsere Informatik-Lehrer für das Feedback zwischendurch.
-
-Ein besonderer Dank geht an David May für die Gestaltung des Titelbildes sowie an unsere JuFo-Lehrer für das Feedback zwischendurch.
-
-\end{document}
-</file>
-
-<file path="src/evaluate.py">
-import argparse
-import json
-import torch
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-from torch.utils.data import DataLoader
-from sklearn.metrics import classification_report, confusion_matrix
-from config import *
-from data import SmartBirdDataset
-from models import get_model
-
-def evaluate_model(exp_name, model_type, use_attention, cnn_layers):
-    print(f"Evaluatiere {exp_name}...")
-
-    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
-        classes = json.load(f)['classes']
-
-    val_ds = SmartBirdDataset(mode='test', task='species')
-    loader = DataLoader(val_ds, batch_size=32, shuffle=False, num_workers=4)
-
-    model = get_model(model_type, len(classes), use_attention, cnn_layers).to(DEVICE)
-    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
-    model.eval()
-
-    all_preds, all_labels = [],[]
-    with torch.no_grad():
-        for inputs, labels in loader:
-            outputs = model(inputs.to(DEVICE))
-            _, preds = torch.max(outputs, 1)
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.numpy())
-
-    acc = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
-
-    cm = confusion_matrix(all_labels, all_preds)
-    plt.figure(figsize=(12, 10))
-
-    if len(classes) <= 50:
-        sns.heatmap(cm, annot=False, cmap='Blues', xticklabels=classes, yticklabels=classes)
-    else:
-        sns.heatmap(cm, annot=False, cmap='Blues')
-
-    plt.title(f"Confusion Matrix ({exp_name}) - Acc: {acc:.1%}")
-    plt.savefig(os.path.join(VISUALS_DIR, f"{exp_name}_confusion.png"), dpi=300)
-    plt.close()
-
-    return acc
-
-def main():
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet"], required=True)
-    parser.add_argument("--use-attention", action="store_true")
-    parser.add_argument("--cnn-layers", type=int, default=3)
-    args = parser.parse_args()
-
-    exp_name = f"{args.model}_task-species_attn-{args.use_attention}_layers-{args.cnn_layers}"
-    acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers)
-    print(f"\n {exp_name} Accuracy: {acc:.2%}")
-
-    logs_dir = os.path.join(VISUALS_DIR, "logs")
-    os.makedirs(logs_dir, exist_ok=True)
-    cache_file = os.path.join(logs_dir, "evaluation_cache.json")
-
-    cache = {}
-    if os.path.exists(cache_file):
-        with open(cache_file, "r") as f:
-            cache = json.load(f)
-
-    cache[exp_name] = acc * 100
-
-    with open(cache_file, "w") as f:
-        json.dump(cache, f, indent=4)
-
-if __name__ == "__main__":
-    main()
-</file>
-
 <file path="flake.nix">
 {
   description = "Piepmatz Polizei - Machine Learning & LaTeX Environment";
@@ -2073,6 +1718,149 @@ python src/showcase.py --model efficientnet --live
 Weights are hosted on 🤗 **[BoredVoidAter/piepmatz-polizei](https://huggingface.co/BoredVoidAter/piepmatz-polizei)**
 </file>
 
+<file path="src/evaluate.py">
+import argparse
+import json
+import os
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from tqdm import tqdm
+from torch.utils.data import DataLoader
+from sklearn.metrics import confusion_matrix
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics.pairwise import cosine_similarity
+
+from config import *
+from data import SmartBirdDataset
+from models import get_model
+
+def evaluate_model(exp_name, model_type, use_attention, cnn_layers):
+    print(f"Evaluatiere {exp_name}...")
+
+    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+        classes = json.load(f)['classes']
+
+    val_ds = SmartBirdDataset(mode='test', task='species')
+    loader = DataLoader(val_ds, batch_size=32, shuffle=False, num_workers=4)
+
+    model = get_model(model_type, len(classes), use_attention, cnn_layers).to(DEVICE)
+    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
+    model.eval()
+
+    all_preds, all_labels = [],[]
+
+    if model_type == "embedding":
+        all_embeddings =[]
+        with torch.no_grad():
+            for inputs, labels in tqdm(loader, desc="Extrahiere Embeddings"):
+                embeddings = model(inputs.to(DEVICE))
+                all_embeddings.extend(embeddings.cpu().numpy())
+                all_labels.extend(labels.numpy())
+
+        all_embeddings = np.array(all_embeddings)
+        all_labels = np.array(all_labels)
+
+        print("\nBerechne Genauigkeit mit K-Nearest-Neighbor (k=5)...")
+        knn = KNeighborsClassifier(n_neighbors=5, metric='cosine')
+        knn.fit(all_embeddings, all_labels)
+        knn_preds = knn.predict(all_embeddings)
+        acc_knn = sum(knn_preds == all_labels) / len(all_labels)
+
+        print("Berechne Genauigkeit mit ArcFace Klassenzentren...")
+        arcface_path = os.path.join(MODELS_DIR, f"{exp_name}_arcface.pth")
+
+        centers = np.zeros((len(classes), all_embeddings.shape[1]))
+        if os.path.exists(arcface_path):
+            print(" -> Lade gespeicherte ArcFace-Gewichte aus Datei...")
+            arcface_state = torch.load(arcface_path, map_location='cpu')
+
+            if 'W' in arcface_state:
+                centers = arcface_state['W'].numpy()
+            else:
+                centers = list(arcface_state.values())[0].numpy()
+        else:
+            print(" -> Keine ArcFace-Gewichte gefunden (Modell wurde vorher trainiert).")
+            print(" -> Berechne theoretische Klassenzentren aus den Daten als Fallback...")
+            for i in range(len(classes)):
+                class_embs = all_embeddings[all_labels == i]
+                if len(class_embs) > 0:
+                    centers[i] = np.mean(class_embs, axis=0)
+
+        centers = centers / (np.linalg.norm(centers, axis=1, keepdims=True) + 1e-8)
+
+        sims = cosine_similarity(all_embeddings, centers)
+        centroid_preds = np.argmax(sims, axis=1)
+        acc_centroid = sum(centroid_preds == all_labels) / len(all_labels)
+
+        print(f"\nErgebnisse:")
+        print(f" -> k-NN Accuracy: {acc_knn:.2%}")
+        print(f" -> Centroid / ArcFace Accuracy: {acc_centroid:.2%}")
+
+        if acc_centroid >= acc_knn:
+            all_preds = centroid_preds
+            acc = acc_centroid
+            print("=> Verwende ArcFace-Zentren für die finale Auswertung.\n")
+        else:
+            all_preds = knn_preds
+            acc = acc_knn
+            print("=> Verwende k-NN für die finale Auswertung.\n")
+
+    else:
+        with torch.no_grad():
+            for inputs, labels in tqdm(loader, desc="Evaluiere"):
+                outputs = model(inputs.to(DEVICE))
+                _, preds = torch.max(outputs, 1)
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.numpy())
+
+        acc = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
+
+    cm = confusion_matrix(all_labels, all_preds)
+    plt.figure(figsize=(12, 10))
+
+    if len(classes) <= 50:
+        sns.heatmap(cm, annot=False, cmap='Blues', xticklabels=classes, yticklabels=classes)
+    else:
+        sns.heatmap(cm, annot=False, cmap='Blues')
+
+    plt.title(f"Confusion Matrix ({exp_name}) - Acc: {acc:.1%}")
+    plt.savefig(os.path.join(VISUALS_DIR, f"{exp_name}_confusion.png"), dpi=300)
+    plt.close()
+
+    return acc
+
+def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet", "embedding"], required=True)
+    parser.add_argument("--use-attention", action="store_true")
+    parser.add_argument("--cnn-layers", type=int, default=3)
+    args = parser.parse_args()
+
+    exp_name = f"{args.model}_task-species_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers)
+    print(f"\n {exp_name} Finale Accuracy: {acc:.2%}")
+
+    logs_dir = os.path.join(VISUALS_DIR, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    cache_file = os.path.join(logs_dir, "evaluation_cache.json")
+
+    cache = {}
+    if os.path.exists(cache_file):
+        with open(cache_file, "r") as f:
+            cache = json.load(f)
+
+    cache[exp_name] = float(acc * 100)
+
+    with open(cache_file, "w") as f:
+        json.dump(cache, f, indent=4)
+
+if __name__ == "__main__":
+    main()
+</file>
+
 <file path=".gitignore">
 # Python Environments & Cache
 .venv/
@@ -2124,6 +1912,373 @@ repomix.config.json
 
 data/models/*.pth
 data/models/*.onnx
+</file>
+
+<file path="main.tex">
+\documentclass[10pt, a4paper]{scrartcl}
+
+% --- Pakete ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman]{babel}
+\usepackage{mathptmx}       % Times New Roman
+\usepackage{graphicx}       % Für Bilder
+\usepackage{geometry}       % Ränder
+\usepackage{setspace}       % Zeilenabstand
+\usepackage{hyperref}       % Links
+\usepackage{amsmath}        % Mathe
+\usepackage{float}          % Bildplatzierung
+\usepackage{caption}
+\usepackage{subcaption}     % Bilder nebeneinander
+\usepackage{csquotes}       % Anführungszeichen
+
+% --- Layout ---
+\geometry{
+    left=2.5cm,
+    right=2.5cm,
+    top=2.5cm,
+    bottom=2cm
+}
+\onehalfspacing
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+% --- Titeldaten ---
+\title{Piepmatz Polizei: Entwicklung eines KI-basierten Systems zum akustischen Monitoring europäischer Vogelarten}
+\subtitle{Wettbewerb Jugend forscht 2026}
+\author{Finn Degen, Jonathan Ledwon}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\begin{center}
+    \includegraphics[width=0.6\textwidth]{bird_project_cover.png} \\
+    \vspace{0.5cm} % Optional: Adds a little space between image and text
+    \footnotesize{\textit{Cover-Design: David May}}
+\end{center}
+\thispagestyle{empty}
+\newpage
+
+% --- Projektüberblick ---
+\section*{Projektüberblick}
+Vögel zu zählen ist eine mühsame Angelegenheit. Normalerweise stehen Ornithologen stundenlang im Wald und führen Strichlisten. Das ist nicht nur zeitaufwendig, sondern auch ziemlich ungenau, da man nicht überall gleichzeitig sein kann. Unser Projekt „Piepmatz Polizei“ soll das ändern. Wir haben ein System entwickelt, das Vogelstimmen vollautomatisch aufnimmt und mithilfe von Deep Learning klassifiziert.
+
+Dabei setzen wir nicht auf einfache Frequenzanalysen, sondern nutzen moderne Convolutional Neural Networks (CNNs), die auf Mel-Spektrogrammen trainiert wurden. Wir haben uns dabei nicht auf wenige Garten-Vögel beschränkt, sondern ein Modell trainiert, das einen Großteil der relevanten europäischen Vogelwelt erkennt.
+Die Kombination aus etablierten Architekturen wie EfficientNet und experimentellen Ansätzen wie Metric Learning sorgt dafür, dass die KI auch bei Wind oder Verkehrslärm nicht aus dem Tritt kommt. Zusätzlich haben wir ein Gehäuse entworfen, damit die Hardware auch mal einen Regenschauer überlebt.
+
+\newpage
+\tableofcontents
+\newpage
+
+% --- Inhalt ---
+
+\section{Einleitung: Warum eigentlich Vögel?}
+Vögel sind so etwas wie die Sensoren unseres Ökosystems. Wenn es ihnen schlecht geht, stimmt meistens auch etwas mit der Umwelt nicht. Das Problem ist nur die Erfassung. Sie sind scheu, schnell und verstecken sich gerne im Gebüsch. Die akustische Erfassung ist daher der Goldstandard. Menschliche Experten sind aber teuer und können nicht rund um die Uhr im Wald stehen, jedoch sind die Vorteile immens: Migrationsbewegungen oder unbekante Arten erfassen, Bauprojekte die auf das Ökosystem angepasst sind, frühzeitigeres Erkennen von Artensterben, etc.
+
+Unsere Fragestellung war also simpel: Können wir ein Gerät bauen, das wir einfach in den Baum hängen, und das uns am Ende des Monats eine Excel-Tabelle gibt? Wir wollten wissen, wer wann gesungen hat. Uns war schnell klar, dass ein solches System nur dann wirklich nützlich ist, wenn es nicht nur Amsel, Drossel, Fink und Star unterscheidet, sondern die Vielfalt der europäischen Vogelwelt abdeckt. Unser finales Modell ist daher auf über 600 Arten trainiert.
+
+\section{Theoretische Grundlagen}
+
+\subsection{Vom Ton zum Bild: Mel-Spektrogramme}
+Computer hören nicht so wie wir Menschen. Wenn wir Audiodaten in ein neuronales Netz füttern wollen, könnten wir zwar die rohe Wellenform verwenden. Das ist aber rechenintensiv und oft ineffizient. Viel besser funktionieren Bilderkennungsnetze (CNNs), die eigentlich für Fotos gemacht sind.
+Deshalb wandeln wir den Sound in Bilder um, sogenannte Spektrogramme. Dabei wird die Zeit auf der X-Achse und die Frequenz auf der Y-Achse abgetragen, die Helligkeit des Bildes an dieser Stelle ist dann die Lautstärke/Intensität. 
+
+Wir haben uns intensiv damit beschäftigt, wie man diese Bilder am besten aufbereitet. In Abbildung \ref{fig:mel_vs_lin} sieht man den Vergleich. Oben ist ein lineares Spektrogramm. Unten ist die \textit{Mel-Skala}. Diese Skala ist der menschlichen und vogelartigen Wahrnehmung nachempfunden. Wir hören Unterschiede in tiefen Tönen viel besser als in sehr hohen. Die Mel-Skala „zoomt“ sozusagen in die für Vögel relevanten Bereiche rein. Dadurch sieht das neuronale Netz die feinen Details im Gesang viel besser.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{Pictures/comparison_linear_vs_mel.png}
+    \caption{Vergleich der Darstellung: Das Mel-Spektrogramm (unten) löst die für Vögel relevanten Frequenzbereiche deutlich detailierter auf als die lineare Darstellung (oben).}
+    \label{fig:mel_vs_lin}
+\end{figure}
+
+\subsection{Artenvielfalt im Bild}
+Es ist faszinierend zu sehen, wie unterschiedlich die Arten bereits visuell sind. Eine Amsel sieht im Spektrogramm ganz anders aus als ein Haussperling. Abbildung \ref{fig:species_comp} zeigt exemplarisch fünf zufällig ausgewählte Arten aus unserem Datensatz, um die visuelle Unterscheidbarkeit zu demonstrieren.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Pictures/comparison_species.png}
+    \caption{Exemplarische Spektrogramme von fünf Arten aus unserem umfangreichen Europa-Datensatz. Die visuellen Strukturen sind deutlich unterscheidbar, was dem CNN die Klassifikation ermöglicht.}
+    \label{fig:species_comp}
+\end{figure}
+
+\section{Vorgehensweise und Methoden}
+
+\subsection{Datenpipeline: Ein europäischer Datensatz}
+Unsere Daten kommen von Xeno-Canto, einer riesigen Datenbank für Vogelstimmen. Um ein wirklich universelles Tool zu schaffen, haben wir unser Download-Skript so programmiert, dass es automatisch Metadaten und Audiofiles für das Verbreitungsgebiet Europa zieht. Das resultiert in einer enormen Menge an Trainingsdaten.
+
+Wichtig war uns dabei unser System so robust wie möglich zu gestalten. Viele Aufnahmen auf Xeno-Canto sind extrem sauber (Richtmikrofone, Qualitätsstufe A). Im echten Wald rauscht es aber. Deshalb haben wir gezielt auch Aufnahmen mit den Qualitätsstufen B und C in den Trainingsdaten gelassen. Das Modell soll ja lernen, Vögel auch bei Hintergrundlärm zu erkennen.
+
+Unsere Pipeline verarbeitet die Daten \textit{on-the-fly}:
+\begin{itemize}
+    \item Resampling auf 32kHz (mehr brauchen wir für Vögel nicht).
+    \item Zerschneiden in 5-Sekunden-Stücke.
+    \item Umwandlung in Mel-Spektrogramme (128 Bänder).
+    \item Logarithmierung (dB) und Normalisierung auf Werte zwischen 0 und 1.
+\end{itemize}
+
+\subsection{Die neuronalen Netzarchitekturen}
+Um die Komplexität der europäischen Vogelwelt abzubilden, haben wir nicht nur ein Standard-Modell trainiert, sondern zwei spezialisierte Architekturen entwickelt und evaluiert.
+
+\subsubsection{Der Klassifikator (EfficientNet-B0)}
+Für die direkte Bestimmung der Arten nutzen wir ein \textit{EfficientNet-B0}. Diese Architektur wurde von Google entwickelt, um ein optimales Verhältnis zwischen Genauigkeit und Rechenleistung zu bieten – ideal für den späteren Einsatz auf Edge-Geräten wie dem Raspberry Pi.
+\begin{itemize}
+    \item \textbf{Transfer Learning:} Wir initialisieren das Netz nicht mit zufälligen Werten, sondern nutzen Gewichte, die bereits auf dem riesigen ImageNet-Datensatz (Millionen von Fotos) trainiert wurden. Das Netz „weiß“ also schon, wie man Kanten, Kurven und Texturen sieht. Wir bringen ihm dann nur noch bei, diese visuellen Merkmale als Vogelstimmen zu interpretieren.
+    \item \textbf{Output Layer:} Der letzte Layer des Netzes wurde angepasst, um die Wahrscheinlichkeiten für alle trainierten europäischen Arten auszugeben (Softmax-Aktivierung).
+\end{itemize}
+
+\subsubsection{Der Embedding-Extraktor (Metric Learning)}
+Zusätzlich haben wir mit einem experimentellen Ansatz gearbeitet: \textbf{Metric Learning}. Hierbei klassifiziert das Netz nicht direkt („Das ist eine Amsel“), sondern lernt, ähnliche Gesänge nahe beieinander in einem hochdimensionalen Raum zu platzieren.
+\begin{itemize}
+    \item \textbf{Projektions-Head:} Statt einer Klassifikationsebene nutzen wir einen Projektions-Head (Linear $\rightarrow$ BatchNorm $\rightarrow$ PReLU $\rightarrow$ Linear), der das Spektrogramm auf einen 512-dimensionalen Vektor abbildet.
+    \item \textbf{ArcFace Loss:} Wir trainieren mit der \textit{Sub-Center ArcFace Loss}-Funktion. Diese zwingt das Netz, die Vektoren auf einer Hypersphäre so anzuordnen, dass Gesänge derselben Art extrem nah beieinander liegen (kleiner Winkelabstand) und verschiedene Arten maximalen Abstand haben.
+    \item \textbf{Vorteil:} Dieser Ansatz erlaubt es uns, eine „Landkarte der Biodiversität“ zu erstellen und potenziell sogar Arten zu erkennen, die gar nicht im Training dabei waren (Out-of-Distribution Detection), indem man prüft, ob ein neuer Vektor in keinen bekannten Cluster passt.
+\end{itemize}
+
+\subsection{Trainingstrategie}
+Um das Modell bei dieser enormen Anzahl an Klassen robust zu machen, haben wir tief in die Trickkiste der Regularisierung gegriffen. Besonders wichtig war uns \textbf{SpecAugment}. Dabei löschen wir im Training einfach zufällig Teile des Spektrogramms. Mal fehlen ein paar Millisekunden, mal fehlt ein Frequenzbereich. Das zwingt das Netz, den Vogel auch dann zu erkennen, wenn er nur teilweise zu hören ist und macht das Modell somit weniger anfällig auf Störgeräusche.
+
+Wir haben den Trainingsverlauf genau überwacht. In Abbildung \ref{fig:loss_curve} sieht man, wie der Fehler (Loss) über die Epochen abnimmt. Man erkennt gut, dass das Modell stetig lernt, ohne dabei zu starke Ausreißer zu haben.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{Pictures/loss_curve_15epoch_resnet18pre.png}
+    \caption{Erste 15 Eopchen vom Trainingsverlauf: Normalerweise ist es ein Anzeichen von Overfitting wenn Val Loss deutlich höher als Train Loss ist, aber bei uns ist der Grund hierfür, dass wir Noise hinzufügen und diese hier sichtbar wird.}
+    \label{fig:loss_curve}
+\end{figure}
+
+\section{Ergebnisse: Wie gut funktioniert es?}
+
+\subsection{Trefferquote und Vergleich}
+Ehrlich gesagt waren wir selbst überrascht. Unser finales Modell (EfficientNet mit Transfer Learning) erreicht extrem hohe Genauigkeiten, und das obwohl es hunderte verschiedene Arten unterscheiden muss.
+Zum Vergleich haben wir ein Modell komplett von Null trainiert („From Scratch“). Das kam nur auf ca. 80\% und hat extrem schnell angefangen, die Trainingsdaten auswendig zu lernen. Transfer Learning ist hier also der absolute Gamechanger, wie man in Abbildung \ref{fig:modelcomp} sieht. Die Tatsache, dass wir das Modell so stark skalieren konnten, ohne massiv an Genauigkeit zu verlieren, bestätigt unseren Ansatz.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{Pictures/comparison_model_performance.png}
+    \caption{Der Vergleich zeigt deutlich: Das Transfer-Learning-Modell (rechts) ist nicht nur präziser, sondern generalisiert auch besser auf neue Daten, selbst bei vielen Klassen.}
+    \label{fig:modelcomp}
+\end{figure}
+
+Ein wichtiger Faktor für die Genauigkeit ist die verfügbare Datenmenge pro Vogelart. Abbildung \ref{fig:bubble} zeigt, dass unsere Methode ihr Ziel erreicht hat, öfter mit den Daten seltener Vögel zu trainieren und die KI nun auch seltene Vogelarten gut erkennt.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Pictures/scatter_data_vs_acc_bubble.png}
+    \caption{Einfluss der Datenmenge auf die Genauigkeit. Die Größe der Blasen repräsentiert die Anzahl der Trainingsdaten.}
+    \label{fig:bubble}
+\end{figure}
+
+
+\subsection{Fehleranalyse}
+Natürlich ist keine KI perfekt. Wir haben die Fehler genau analysiert. Die Konfusionsmatrix in Abbildung \ref{fig:conf_matrix} zeigt exemplarisch einen Ausschnitt der Ergebnisse. Die Diagonale ist dunkelgrün, was exemplarisch für eine hohe Genauigkeit ist. Verwechslungen treten vor allem bei sehr kurzen Rufen von verwandten Arten auf (z.B. verschiedene Finken-Arten). Das ist aber auch für menschliche Experten oft schwer zu unterscheiden, außerdem war die richtige Art mit über 99\%iger Wahrscheinlichkeit in den Top-3.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{Pictures/confusion_matrix_finetuned_pro.png}
+    \caption{Konfusionsmatrix des finalen Modells (Ausschnitt). Die hohen Zahlen auf der Diagonale bestätigt die hohe Präzision auch bei vielen unterschiedlichen Klassen.}
+    \label{fig:conf_matrix}
+\end{figure}
+
+In Abbildung \ref{fig:top_errors} haben wir die häufigsten Fehlklassifikationen genauer aufgeschlüsselt.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Pictures/top_errors.png}
+    \caption{Die häufigsten Verwechslungen. Balken zeigen an, welche Art fälschlicherweise als welche andere Art klassifiziert wurde.}
+    \label{fig:top_errors}
+\end{figure}
+
+%TODO: change image
+\subsection{Robustheit gegen schlechte Audioqualität}
+Ein wichtiger Punkt war uns die Frage, wie das Modell reagiert, wenn die Aufnahmequalität sinkt. Auf Xeno-Canto sind die Aufnahmen mit Buchstaben von A (Studio) bis E (unbrauchbar) bewertet.
+In Abbildung \ref{fig:quality} sehen wir, dass die Erkennungsrate bei A-C ungefähr gleichbleibt, unser Modell ist also relativ unabhängig von Audioqualität.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{Pictures/performance_by_quality.png}
+    \caption{Performance nach Audioqualität. Selbst bei schlechten Aufnahmen (D/E) bleibt das Modell brauchbar.}
+    \label{fig:quality}
+\end{figure}
+
+\subsection{Validierung durch externe Datenquellen (Cross-Testing)}
+Ein häufiges Risiko beim Training neuronaler Netze ist der sogenannte \enquote{Dataset Bias} – das Modell lernt dabei nicht nur die Vogelstimmen, sondern versehentlich auch die spezifischen Eigenheiten der Aufnahmegeräte der Trainingsdatenbank. Um sicherzustellen, dass unser Modell generalisiert, haben wir Cross-Tests mit Audioquellen durchgeführt, die nicht Teil des Xeno-Canto-Trainingsdatensatzes waren.
+
+Hierfür nutzten wir exemplarische Aufnahmen aus dem Google AudioSet sowie Referenzaufnahmen der Plattform \textit{kookoo.eu} (bekannt für hochwertige Singvogel-Aufnahmen). Das Modell konnte auch diese artfremden Aufnahmen mit hoher Zuverlässigkeit klassifizieren. Dies bestätigt, dass die KI tatsächlich die spektralen Muster der Vögel gelernt hat und nicht nur auf die akustische Signatur einer spezifischen Datenbank optimiert ist.
+
+
+\subsection{Sliding Window Inference}
+Im echten Einsatz bekommen wir keine vorgeschnittenen 5-Sekunden-Clips, sondern einen endlosen Audio-Stream. Wir nutzen daher einen \enquote{Sliding Window} Ansatz. Das Fenster schiebt sich über die Aufnahme und das Model gibt für jeden Moment eine Wahrscheinlichkeit aus.
+In Abbildung \ref{fig:sliding} haben wir das visualisiert. Man sieht unten das Spektrogramm und oben drüber die Heatmap der KI Attention. Je heller (gelber/roter) die Farbe, desto sicherer ist sich die KI, dass dort ein Vogel singt. Man sieht schön, wie die KI genau bei den Gesangs-Events (hohe weiße Balken) ausschlägt.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Pictures/sliding_window_attention_2.5.png}
+    \caption{Visualisierung der KI-Aufmerksamkeit. Die farbigen Bereiche markieren, wo das Modell relevante Merkmale im Audio-Stream gefunden hat.}
+    \label{fig:sliding}
+\end{figure}
+
+\subsection{Zusatzexperimente: Rufe vs. Gesänge und Geschlecht}
+Neben der Artenerkennung haben wir untersucht, ob das Modell auch den Typ der Lautäußerung (Gesang oder Ruf) unterscheiden kann. Die t-SNE Visualisierung der Embeddings (Abb. \ref{fig:tsne}) zeigt, dass das Modell diese Unterscheidung intern bereits lernt.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Pictures/tsne_song_call.png}
+    \caption{t-SNE Visualisierung der Modell-Embeddings. Rufe (Call) und Gesänge (Song) bilden teils eigene Cluster, auch ohne explizites Training darauf.}
+    \label{fig:tsne}
+\end{figure}
+
+Zusätzlich haben wir getestet, ob ein auf Männchen-Daten gefiltertes Training bessere Ergebnisse liefert, da diese häufiger singen. Wie in Abbildung \ref{fig:gender} zu sehen, brachte die Einschränkung der Daten jedoch keinen statistisch signifikanten Vorteil gegenüber dem kompletten Datensatz.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Pictures/experiment_gender_result.png}
+    \caption{Vergleich der Trainingsgenauigkeit: Das Filtern nach Geschlecht (Male Only) bringt keinen Vorteil gegenüber dem Nutzen aller Daten.}
+    \label{fig:gender}
+\end{figure}
+
+\section{Hardware-Design}
+Software ist nichts ohne Hardware. Mit \textit{Onshape} haben wir ein Gehäuse konstruiert, das alles zusammenhält.
+Wichtig war uns, dass das Solarpanel direkt in den Deckel integriert ist, um den optimalen Winkel zur Sonne zu haben. Außerdem braucht das Mikrofon einen akustischen Trichter. Das Design ist modular aufgebaut, damit man Teile leicht austauschen kann, falls mal etwas kaputtgeht.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.32\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{OnshapeImages/OnshapeModelView_CasingWithParts.png}
+        \caption{Innenleben}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.32\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{OnshapeImages/OnshapeModelView_OnlyCasing.png}
+        \caption{Gehäuse-Struktur}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.32\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{OnshapeImages/OnshapeModelView_SolarPanel.png}
+        \caption{Solar-Integration}
+    \end{subfigure}
+    \caption{Unsere CAD-Konstruktion für den autonomen Feldeinsatz.}
+    \label{fig:hardware}
+\end{figure}
+
+\section{Fazit und wie es weitergeht}
+Wir haben gezeigt, dass es funktioniert. Die Software steht und liefert exzellente Werte. Besonders stolz sind wir darauf, dass wir mit Open-Source-Daten eine so hohe Genauigkeit erreichen konnten.
+Was jetzt noch fehlt, ist der Härtetest im Wald. Wir müssen das Gehäuse drucken und schauen, ob der Raspberry Pi mit dem Solarstrom über den Winter kommt. Vielleicht müssen wir den Code noch effizienter machen oder auf Mikrocontroller wie den ESP32 umsteigen, um Strom zu sparen.
+Außerdem wollen wir den \enquote{Sliding Window}-Algorithmus noch schneller machen, damit er direkt live auf dem Gerät laufen kann, ohne erst alles in die Cloud schicken zu müssen.
+
+Ein entscheidender nächster Schritt für die wissenschaftliche Validierung ist der \enquote{Ground Truth}-Abgleich im Feld. Hierfür planen wir eine Kooperation mit der Experten-Community von \textit{BirdForum.net}. Ziel ist es, erfahrene Ornithologen oder Hobby-Beobachter zu gewinnen, die unsere Prototypen parallel zu ihren manuellen Beobachtungen einsetzen. Der Vergleich zwischen der KI-generierten Liste und den manuellen Notizen der Experten wird uns die verlässlichsten Daten über die Performance unter realen Bedingungen (IRL-Tests) liefern.
+
+% --- Literaturverzeichnis ---
+\newpage
+\renewcommand\refname{Quellen- und Literaturverzeichnis}
+\begin{thebibliography}{9}
+
+\bibitem{kahl2021}
+Kahl, S., et al. (2021).
+\textit{BirdNET: A deep learning solution for avian diversity monitoring.}
+Ecological Informatics.
+
+\bibitem{tan2019}
+Tan, M., \& Le, Q. V. (2019).
+\textit{EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks.}
+arXiv preprint arXiv:1905.11946.
+
+\bibitem{specaugment}
+Park, D. S., et al. (2019).
+\textit{SpecAugment: A Simple Data Augmentation Method for Automatic Speech Recognition.}
+Proc. Interspeech 2019.
+
+\bibitem{xenocanto}
+Xeno-Canto Foundation.
+\textit{Xeno-canto: Sharing bird sounds from around the world.}
+\url{https://www.xeno-canto.org/}
+
+\end{thebibliography}
+
+% --- Unterstützungsleistungen ---
+\newpage
+\section*{Unterstützungsleistungen}
+Daten und Programme  der Open-Source-Community haben die Umsetzung unseres Projekts sehr erleichtert. Insbesondere die Audiodaten von Xeno-Canto waren essenziell. Für die Programmierung haben wir Bibliotheken wie PyTorch, Librosa und Audiomentations genutzt. Ohne diese Tools wäre das Projekt in der Zeit gar nicht machbar gewesen. Ein Dank geht auch an unsere Informatik-Lehrer für das Feedback zwischendurch.
+
+Ein besonderer Dank geht an David May für die Gestaltung des Titelbildes sowie an unsere JuFo-Lehrer für die Betreuung unseres Projekts.
+
+\end{document}
+</file>
+
+<file path="requirements.txt">
+# KI & Mathe
+torch
+torchaudio
+torchvision
+numpy<2.0
+pandas
+scikit-learn
+
+# Neue Algorithmen & Experimente
+pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
+umap-learn                # Für Clustering Visualisierungen
+onnx                      # Für den Export auf den Raspberry Pi
+onnxruntime               # Für lokale Inferenz-Tests
+
+# Audio Verarbeitung
+librosa
+soundfile
+audiomentations
+sounddevice
+
+# Visualisierung
+matplotlib
+seaborn
+opencv-python-headless<4.10
+
+# Datenbeschaffung (Xeno-Canto)
+aiohttp
+tqdm
+
+python-dotenv
+
+huggingface_hub
+</file>
+
+<file path="src/config.py">
+import os
+import torch
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+METADATA_FILE = os.path.join(DATA_DIR, "metadata.csv")
+RAW_AUDIO_DIR = os.path.join(DATA_DIR, "raw_audio")
+PROCESSED_DIR = os.path.join(DATA_DIR, "processed_tensors")
+MODELS_DIR = os.path.join(DATA_DIR, "models")
+VISUALS_DIR = os.path.join(BASE_DIR, "visuals", "experiments")
+
+SAMPLE_RATE = 32000
+DURATION = 5
+N_MELS = 128
+FMAX = 16000
+IMG_SIZE = 224
+HOP_LENGTH = 512
+
+TARGET_WIDTH = int((SAMPLE_RATE * DURATION) / HOP_LENGTH) + 1
+
+XC_SPECIES_LOCATION = "area:europe"
+
+XC_RECORDING_LOCATION = "area:europe"
+
+XC_QUALITIES =["A", "B", "C", "D"]
+
+XC_MIN_LENGTH = 5
+XC_MAX_LENGTH = 60
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(VISUALS_DIR, exist_ok=True)
 </file>
 
 <file path="src/data_prep.py">
@@ -2329,80 +2484,6 @@ if __name__ == "__main__":
     main()
 </file>
 
-<file path="requirements.txt">
-# KI & Mathe
-torch
-torchaudio
-torchvision
-numpy<2.0
-pandas
-scikit-learn
-
-# Neue Algorithmen & Experimente
-pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
-umap-learn                # Für Clustering Visualisierungen
-onnx                      # Für den Export auf den Raspberry Pi
-onnxruntime               # Für lokale Inferenz-Tests
-
-# Audio Verarbeitung
-librosa
-soundfile
-audiomentations
-sounddevice
-
-# Visualisierung
-matplotlib
-seaborn
-opencv-python-headless<4.10
-
-# Datenbeschaffung (Xeno-Canto)
-aiohttp
-tqdm
-
-python-dotenv
-
-huggingface_hub
-</file>
-
-<file path="src/config.py">
-import os
-import torch
-from dotenv import load_dotenv
-
-load_dotenv()
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-METADATA_FILE = os.path.join(DATA_DIR, "metadata.csv")
-RAW_AUDIO_DIR = os.path.join(DATA_DIR, "raw_audio")
-PROCESSED_DIR = os.path.join(DATA_DIR, "processed_tensors")
-MODELS_DIR = os.path.join(DATA_DIR, "models")
-VISUALS_DIR = os.path.join(BASE_DIR, "visuals", "experiments")
-
-SAMPLE_RATE = 32000
-DURATION = 5
-N_MELS = 128
-FMAX = 16000
-IMG_SIZE = 224
-HOP_LENGTH = 512
-
-TARGET_WIDTH = int((SAMPLE_RATE * DURATION) / HOP_LENGTH) + 1
-
-XC_SPECIES_LOCATION = "area:europe"
-
-XC_RECORDING_LOCATION = "area:europe"
-
-XC_QUALITIES =["A", "B", "C", "D"]
-
-XC_MIN_LENGTH = 5
-XC_MAX_LENGTH = 60
-
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-os.makedirs(MODELS_DIR, exist_ok=True)
-os.makedirs(VISUALS_DIR, exist_ok=True)
-</file>
-
 <file path="src/train.py">
 import argparse
 import time
@@ -2565,6 +2646,8 @@ def main():
             if avg_val_loss < best_metric:
                 best_metric = avg_val_loss
                 torch.save(model.state_dict(), os.path.join(MODELS_DIR, f"{exp_name}_best.pth"))
+
+                torch.save(criterion.state_dict(), os.path.join(MODELS_DIR, f"{exp_name}_arcface.pth"))
 
         history_log.append(epoch_stats)
         with open(os.path.join(LOGS_DIR, f"{exp_name}_history.json"), "w") as f:
