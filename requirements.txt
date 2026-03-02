@@ -11,6 +11,7 @@ pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
 umap-learn                # Für Clustering Visualisierungen
 onnx                      # Für den Export auf den Raspberry Pi
 onnxruntime               # Für lokale Inferenz-Tests
+onnxscript
 
 # Audio Verarbeitung
 librosa

@@ -132,39 +132,91 @@ def file_showcase(audio_path, model, classes, threshold, model_type):
     window_samples = int(DURATION * sr)
     stride_samples = int((DURATION / 2.0) * sr)
 
-    results =[]
+    times = []
+    all_probs =[]
+
     print(" Starte Sliding-Window Scan...")
     for start in tqdm(range(0, len(y) - window_samples + 1, stride_samples)):
         chunk = y[start : start + window_samples]
         tensor = preprocess_chunk(chunk, sr)
-        if tensor is None: continue
+        t_sec = start / sr
+        times.append(t_sec)
+
+        if tensor is None: 
+            all_probs.append(np.zeros(len(classes)))
+            continue
 
         with torch.no_grad():
             logits = model(tensor.to(DEVICE))
-            probs = F.softmax(logits, dim=1)
+            probs = F.softmax(logits, dim=1).cpu().numpy()[0]
+        all_probs.append(probs)
 
-        conf, idx = torch.max(probs, 1)
-        if conf.item() >= threshold:
-            results.append({"Zeit (s)": start / sr, "Vogelart": classes[idx.item()], "Konfidenz": conf.item()})
+    all_probs = np.array(all_probs)
+
+    # --- KAGGLE TRICK: TEMPORALES SMOOTHING (1st Place BirdCLEF 2025 Strategy) ---
+    # Wir nutzen den exakten Smoothing-Kernel des Gewinners:[0.1, 0.2, 0.4, 0.2, 0.1]
+    kernel = np.array([0.1, 0.2, 0.4, 0.2, 0.1])
+    smoothed_probs = np.zeros_like(all_probs)
+    
+    for c in range(all_probs.shape[1]):
+        # Um Randeffekte (Absturz am Start/Ende) zu verhindern, füllen wir die Ränder mit dem ersten/letzten Wert auf
+        pad_size = len(kernel) // 2
+        padded_signal = np.pad(all_probs[:, c], (pad_size, pad_size), mode='edge')
+        smoothed_probs[:, c] = np.convolve(padded_signal, kernel, mode='valid')
+
+    # --- DOKUMENTATIONS-GRAFIK GENERIEREN ---
+    top_class_idx = np.argmax(np.max(smoothed_probs, axis=0))
+    top_bird_name = classes[top_class_idx]
+
+    plt.figure(figsize=(12, 5))
+    sns.set_theme(style="whitegrid")
+    
+    # Rohe Vorhersagen
+    plt.plot(times, all_probs[:, top_class_idx], label="Rohdaten (Raw)", alpha=0.5, linestyle='--', color='gray')
+    # Smoothed Vorhersagen
+    plt.plot(times, smoothed_probs[:, top_class_idx], label="Mit Zeit-Glättung (Kaggle 1st Place Kernel)", linewidth=3, color='#d62728')
+    
+    plt.axhline(threshold, color='black', linestyle=':', linewidth=2, label=f"Schwellenwert ({threshold*100:.0f}%)")
+    plt.title(f"Effekt der temporalen Glättung (TTA) am Beispiel: {top_bird_name}", fontsize=15, fontweight='bold')
+    plt.xlabel("Zeitachse (Sekunden)", fontsize=12)
+    plt.ylabel("KI Konfidenz (0.0 - 1.0)", fontsize=12)
+    plt.ylim(-0.05, 1.05)
+    plt.legend(loc="lower left")
+    plt.tight_layout()
+    
+    doc_out_path = os.path.join(VISUALS_DIR, "smoothing_comparison.png")
+    plt.savefig(doc_out_path, dpi=300)
+    print(f"\n Vergleichsgrafik für die Dokumentation gespeichert unter: {doc_out_path}") 
+
+    # --- FINALE ERGEBNISSE EXTRAHIEREN ---
+    results =[]
+    for i, t_sec in enumerate(times):
+        conf = np.max(smoothed_probs[i])
+        idx = np.argmax(smoothed_probs[i])
+        # Nur wenn das Fenster nicht komplett still war (sum > 0) und über dem Threshold liegt
+        if conf >= threshold and np.sum(all_probs[i]) > 0:
+            results.append({"Zeit (s)": t_sec, "Vogelart": classes[idx], "Konfidenz": conf})
 
     if not results:
         print(f" Keine Vögel gefunden (> {threshold*100:.0f}% Konfidenz).")
         return
 
     df = pd.DataFrame(results)
-    print("\n Gefundene Vögel:")
+    print("\n Gefundene Vögel (nach Glättung):")
     print(df['Vogelart'].value_counts().to_string())
 
+    # Standard Showcase Plot
     plt.figure(figsize=(14, 7))
     sns.scatterplot(data=df, x="Zeit (s)", y="Vogelart", size="Konfidenz", sizes=(50, 300), hue="Konfidenz", palette="viridis")
-    plt.title(f"Aktivitäts-Timeline | Datei: {os.path.basename(audio_path)}")
+    plt.title(f"Aktivitäts-Timeline (Smoothed) | Datei: {os.path.basename(audio_path)}")
     plt.grid(True, linestyle='--', alpha=0.4)
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
 
     out_path = os.path.join(VISUALS_DIR, f"showcase_{model_type}.png")
     plt.savefig(out_path, dpi=300)
-    print(f" Grafik gespeichert unter: {out_path}")
+    print(f" Showcase-Grafik gespeichert unter: {out_path}")
+  
 
 def main():
     parser = argparse.ArgumentParser(description="Live-Radar oder Datei-Analyse für Vogelstimmen")

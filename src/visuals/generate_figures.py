@@ -39,8 +39,14 @@ def plot_training_curves():
 
         df = pd.DataFrame(data)
         label_name = exp_name.split("_")[0].title()
+
         if "custom" in exp_name:
-            label_name += " (Custom CNN)"
+            attn_str = "Attn" if "attn-True" in exp_name else "NoAttn"
+            layer_str = "3"
+            for part in exp_name.split("_"):
+                if part.startswith("layers-"):
+                    layer_str = part.split("-")[1]
+            label_name = f"Custom CNN ({layer_str} Layers, {attn_str})"
 
         max_acc = df['val_acc'].max()
         plt.plot(df['epoch'], df['val_acc'], label=f"{label_name} (Max: {max_acc:.1f}%)", linewidth=2.5, marker='o', markersize=4)
@@ -172,8 +178,123 @@ def plot_quality_metrics():
     plt.savefig(os.path.join(VISUALS_DIR, "performance_by_quality.png"), dpi=300)
     print(" Quality graph saved.")
 
+def plot_data_vs_accuracy_bubble():
+    print("\n--- Generating Figure: Data Volume vs Accuracy (Bubble Chart) ---")
+    exp_name = "efficientnet_task-species_attn-False_layers-3"
+    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+
+    if not os.path.exists(model_path):
+        print("  -> EfficientNet not found. Train it first! Skipping Bubble Chart...")
+        return
+
+    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+        classes = json.load(f)['classes']
+
+    dataset = SmartBirdDataset(mode='test', task='species')
+    loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
+
+    model = get_model("efficientnet", len(classes), False, 3).to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+
+    class_correct = {c: 0 for c in classes}
+    class_total = {c: 0 for c in classes}
+
+    with torch.no_grad():
+        for inputs, labels in tqdm(loader, desc="Evaluating Accuracy per Species"):
+            outputs = model(inputs.to(DEVICE))
+            _, preds = torch.max(outputs, 1)
+
+            for p, l in zip(preds.cpu().numpy(), labels.numpy()):
+                class_name = classes[l]
+                class_total[class_name] += 1
+                if p == l:
+                    class_correct[class_name] += 1
+
+    df_meta = pd.read_csv(METADATA_FILE)
+    all_counts = df_meta['species'].value_counts().to_dict()
+
+    data = []
+    for c in classes:
+        acc = class_correct[c] / class_total[c] if class_total[c] > 0 else 0
+        total_recs = all_counts.get(c, 0)
+
+        if total_recs == 0:
+            continue
+
+        if total_recs < 50:
+            cat = "Rare"
+        elif total_recs < 100:
+            cat = "Medium"
+        else:
+            cat = "Common"
+
+        data.append({
+            "Species": c,
+            "Validation Accuracy (0.0 - 1.0)": acc,
+            "Total Recordings in Database (Log Scale)": total_recs,
+            "category": cat,
+            "total_data_count": total_recs
+        })
+
+    if not data:
+        print("  -> No data to plot.")
+        return
+
+    df_plot = pd.DataFrame(data)
+
+    plt.figure(figsize=(14, 9))
+    sns.set_theme(style="whitegrid", rc={"grid.linestyle": "--", "axes.grid": True, "grid.alpha": 0.5})
+
+    palette = {"Rare": "#ff4d4d", "Medium": "#ffbc47", "Common": "#4caf50"}
+
+    sns.regplot(
+        data=df_plot,
+        x="Total Recordings in Database (Log Scale)",
+        y="Validation Accuracy (0.0 - 1.0)",
+        scatter=False,
+        logx=True,
+        color="#444444",
+        line_kws={"linestyle": "--", "linewidth": 2.5, "alpha": 0.8}
+    )
+
+    ax = sns.scatterplot(
+        data=df_plot,
+        x="Total Recordings in Database (Log Scale)",
+        y="Validation Accuracy (0.0 - 1.0)",
+        size="total_data_count",
+        sizes=(50, 600),
+        hue="category",
+        hue_order=["Rare", "Medium", "Common"],
+        palette=palette,
+        alpha=0.8,
+        edgecolor="white"
+    )
+
+    plt.xscale('log')
+    plt.title("Impact of Training Data Volume on Species Accuracy", fontsize=18, fontweight="bold", pad=15)
+    plt.ylim(-0.05, 1.05)
+
+    top_species = df_plot.loc[df_plot["Total Recordings in Database (Log Scale)"].idxmax()]
+    plt.annotate(
+        top_species["Species"],
+        xy=(top_species["Total Recordings in Database (Log Scale)"], top_species["Validation Accuracy (0.0 - 1.0)"]),
+        xytext=(15, 0),
+        textcoords="offset points",
+        fontweight="bold",
+        va="center"
+    )
+
+    plt.legend(loc="lower left", frameon=True)
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, "scatter_data_vs_acc_bubble.png")
+    plt.savefig(out_path, dpi=300)
+    print(f" Bubble chart saved to: {out_path}")
+
 if __name__ == "__main__":
     os.makedirs(LOGS_DIR, exist_ok=True)
     plot_training_curves()
     evaluate_and_plot_bar_chart()
     plot_quality_metrics()
+    plot_data_vs_accuracy_bubble()

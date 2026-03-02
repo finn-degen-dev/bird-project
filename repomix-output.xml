@@ -40,32 +40,16 @@ The content is organized as follows:
 </file_summary>
 
 <directory_structure>
-OnshapeImages/
-  OnshapeModelView_CasingWithParts.png
-  OnshapeModelView_OnlyCasing.png
-  OnshapeModelView_SolarPanel.png
-Pictures/
-  accuracy_by_rarity.png
-  comparison_linear_vs_mel.png
-  comparison_model_performance.png
-  comparison_species.png
-  confusion_matrix_15epoch_resnet18pre.png
-  confusion_matrix_20epoch_efficientNetpre.png
-  confusion_matrix_finetuned_pro.png
-  confusion_matrix_song_vs_call.png
-  confusion_matrix_type.png
-  experiment_gender_result.png
-  gender.png
-  loss_curve_15epoch_resnet18pre.png
-  performance_by_quality.png
-  scatter_data_vs_acc_bubble.png
-  scatter_data_vs_acc.png
-  sliding_window_attention_0.1.png
-  sliding_window_attention_2.5.png
-  top_errors.png
-  tsne_song_call.png
+data/
+  models/
+    efficientnet_fp32.onnx.data
+docs/
+  main.pdf
+  main.tex
+  Makefile
 src/
   experiments/
+    benchmark_quantization.py
     gradcam.py
     plot_top_errors.py
     song_vs_call.py
@@ -81,6 +65,11 @@ src/
   showcase.py
   train.py
 visuals/
+  cad/
+    OnshapeModelView_CasingWithParts.png
+    OnshapeModelView_OnlyCasing.png
+  electronics/
+    schematic.png
   experiments/
     europe/
       comparison_model_performance.png
@@ -95,6 +84,7 @@ visuals/
       loss_curve_15epoch_resnet18pre.png
       performance_by_quality.png
       resnet_task-species_attn-False_layers-3_confusion.png
+      scatter_data_vs_acc_bubble.png
       sliding_window_comparison_updated.png
       top_errors.png
       tsne_song_vs_call.png
@@ -102,6 +92,9 @@ visuals/
       graph1_custom_cnn_comparison.png
       graph2_best_models_comparison.png
       sliding_window_comparison.png
+    comparison_linear_vs_mel.png
+    comparison_quantization.png
+    comparison_species.png
 .gitignore
 bird_project_cover.png
 cap_data.py
@@ -109,9 +102,6 @@ download_models.py
 flake.lock
 flake.nix
 Förderantrag.pdf
-main.pdf
-main.tex
-main.toc
 README.md
 requirements.txt
 run_experiments.sh
@@ -121,6 +111,435 @@ USAGE.txt
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="src/experiments/benchmark_quantization.py">
+import os
+import sys
+import time
+import torch
+import numpy as np
+import onnxruntime as ort
+import matplotlib.pyplot as plt
+import seaborn as sns
+from torch.utils.data import DataLoader, Subset
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import *
+from data import SmartBirdDataset
+from models import get_model
+
+def get_dir_size(path):
+    return os.path.getsize(path) / (1024 * 1024)
+
+def main():
+    print("Starte Quantisierungs-Benchmark (Größe, Latenz, Genauigkeit)...")
+
+    model_name = "efficientnet"
+    exp_name = f"{model_name}_task-species_attn-False_layers-3"
+
+    pt_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+    onnx_fp32_path = os.path.join(MODELS_DIR, f"{model_name}_fp32.onnx")
+    onnx_int8_path = os.path.join(MODELS_DIR, f"{model_name}_quantized_int8.onnx")
+
+    if not os.path.exists(onnx_int8_path):
+        print("ONNX Modelle fehlen. Bitte zuerst ausführen: python src/quantize.py --model efficientnet")
+        return
+
+    size_pt = get_dir_size(pt_path)
+    size_fp32 = get_dir_size(onnx_fp32_path)
+    size_int8 = get_dir_size(onnx_int8_path)
+
+    dummy_input = np.random.randn(1, 3, IMG_SIZE, IMG_SIZE).astype(np.float32)
+
+    sess_fp32 = ort.InferenceSession(onnx_fp32_path, providers=['CPUExecutionProvider'])
+    sess_int8 = ort.InferenceSession(onnx_int8_path, providers=['CPUExecutionProvider'])
+
+    def measure_latency(session, input_data, runs=100):
+        input_name = session.get_inputs()[0].name
+
+        for _ in range(10): session.run(None, {input_name: input_data})
+
+        start = time.time()
+        for _ in range(runs): session.run(None, {input_name: input_data})
+        return ((time.time() - start) / runs) * 1000
+
+    lat_fp32 = measure_latency(sess_fp32, dummy_input)
+    lat_int8 = measure_latency(sess_int8, dummy_input)
+
+    print("Evaluiere Accuracy auf 500 Test-Samples...")
+    dataset = SmartBirdDataset(mode='test', task='species')
+
+    subset = Subset(dataset, np.random.choice(len(dataset), min(500, len(dataset)), replace=False))
+    loader = DataLoader(subset, batch_size=1, shuffle=False)
+
+    correct_fp32, correct_int8 = 0, 0
+    input_name_fp32 = sess_fp32.get_inputs()[0].name
+    input_name_int8 = sess_int8.get_inputs()[0].name
+
+    for img, label in loader:
+        img_np = img.numpy()
+        label_np = label.numpy()[0]
+
+        out_fp32 = sess_fp32.run(None, {input_name_fp32: img_np})[0]
+        out_int8 = sess_int8.run(None, {input_name_int8: img_np})[0]
+
+        if np.argmax(out_fp32) == label_np: correct_fp32 += 1
+        if np.argmax(out_int8) == label_np: correct_int8 += 1
+
+    acc_fp32 = (correct_fp32 / len(loader)) * 100
+    acc_int8 = (correct_int8 / len(loader)) * 100
+
+    sns.set_theme(style="whitegrid")
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+
+    labels = ['ONNX (32-Bit)', 'ONNX Quantized (8-Bit)']
+    colors = ['#1f77b4', '#4caf50']
+
+    sns.barplot(x=labels, y=[size_fp32, size_int8], ax=axes[0], palette=colors)
+    axes[0].set_title("Modellgröße (MB) ", fontweight='bold')
+    axes[0].set_ylabel("Megabyte (MB)")
+    for i, v in enumerate([size_fp32, size_int8]): axes[0].text(i, v+0.5, f"{v:.1f} MB", ha='center', fontweight='bold')
+
+    sns.barplot(x=labels, y=[lat_fp32, lat_int8], ax=axes[1], palette=colors)
+    axes[1].set_title("Inferenzzeit pro Audio-Clip (ms) ", fontweight='bold')
+    axes[1].set_ylabel("Millisekunden (ms)")
+    for i, v in enumerate([lat_fp32, lat_int8]): axes[1].text(i, v+1, f"{v:.1f} ms", ha='center', fontweight='bold')
+
+    sns.barplot(x=labels, y=[acc_fp32, acc_int8], ax=axes[2], palette=colors)
+    axes[2].set_title("Genauigkeit (Accuracy) ", fontweight='bold')
+    axes[2].set_ylabel("Accuracy (%)")
+    axes[2].set_ylim(0, 110)
+    for i, v in enumerate([acc_fp32, acc_int8]): axes[2].text(i, v+2, f"{v:.1f}%", ha='center', fontweight='bold')
+
+    plt.suptitle("Hardware-Optimierung für Raspberry Pi: 32-Bit FP vs. 8-Bit INT Quantisierung", fontsize=16, fontweight='bold', y=1.05)
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, "comparison_quantization.png")
+    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    print(f"\n Erfolgreich gespeichert unter: {out_path}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="docs/main.tex">
+\documentclass[10pt, a4paper]{scrartcl}
+
+% --- Pakete ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman]{babel}
+\usepackage{mathptmx}       % Times New Roman
+\usepackage{graphicx}       % Für Bilder
+\usepackage{geometry}       % Ränder
+\usepackage{setspace}       % Zeilenabstand
+\usepackage{hyperref}       % Links
+\usepackage{amsmath}        % Mathe
+\usepackage{float}          % Bildplatzierung
+\usepackage{caption}
+\usepackage{subcaption}     % Bilder nebeneinander
+\usepackage{csquotes}       % Anführungszeichen
+
+% --- Layout ---
+\geometry{
+    left=2.5cm,
+    right=2.5cm,
+    top=2.5cm,
+    bottom=2cm
+}
+\onehalfspacing
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+% --- Bildabstände optimieren ---
+% Reduziert den Weißraum bei [H] Bildern massiv
+\setlength{\intextsep}{12pt plus 2pt minus 4pt} % Abstand Text-Bild-Text
+\setlength{\abovecaptionskip}{6pt}               % Abstand Bild zu Bildunterschrift
+\setlength{\belowcaptionskip}{0pt}               % Abstand nach Bildunterschrift
+
+% --- Titeldaten ---
+\title{Piepmatz Polizei: Entwicklung eines KI-basierten Systems zum akustischen Monitoring europäischer Vogelarten}
+\subtitle{Wettbewerb Jugend forscht 2026}
+\author{Finn Degen, Jonathan Ledwon}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\begin{center}
+    \includegraphics[width=0.6\textwidth]{../bird_project_cover.png} \\
+    \vspace{0.5cm} % Optional: Adds a little space between image and text
+    \footnotesize{\textit{Cover-Design: David May}}
+\end{center}
+\thispagestyle{empty}
+\newpage
+
+% --- Projektüberblick ---
+\section*{Projektüberblick}
+Vögel zu zählen ist eine mühsame Angelegenheit. Normalerweise stehen Ornithologen stundenlang im Wald und führen Strichlisten. Das ist nicht nur zeitaufwendig, sondern auch ziemlich ungenau, da man nicht überall gleichzeitig sein kann. Unser Projekt „Piepmatz Polizei“ soll das ändern. Wir haben ein System entwickelt, das Vogelstimmen vollautomatisch aufnimmt und mithilfe von Deep Learning klassifiziert.
+
+Dabei setzen wir nicht auf einfache Frequenzanalysen, sondern nutzen moderne Convolutional Neural Networks (CNNs), die auf Mel-Spektrogrammen trainiert wurden. Wir haben uns dabei nicht auf wenige Garten-Vögel beschränkt, sondern ein Modell trainiert, das einen Großteil der relevanten europäischen Vogelwelt erkennt.
+Die Kombination aus etablierten Architekturen wie EfficientNet und experimentellen Ansätzen wie Metric Learning sorgt dafür, dass die KI auch bei Wind oder Verkehrslärm nicht aus dem Tritt kommt. Zusätzlich haben wir ein Gehäuse entworfen, damit die Hardware auch mal einen Regenschauer überlebt.
+
+\newpage
+\tableofcontents
+\newpage
+
+% --- Inhalt ---
+
+\section{Einleitung: Warum eigentlich Vögel?}
+Vögel sind so etwas wie die Sensoren unseres Ökosystems. Wenn es ihnen schlecht geht, stimmt meistens auch etwas mit der Umwelt nicht. Das Problem ist nur die Erfassung. Sie sind scheu, schnell und verstecken sich gerne im Gebüsch. Die akustische Erfassung ist daher der Goldstandard. Menschliche Experten sind aber teuer und können nicht rund um die Uhr im Wald stehen, jedoch sind die Vorteile immens: Migrationsbewegungen oder unbekante Arten erfassen, Bauprojekte die auf das Ökosystem angepasst sind, frühzeitigeres Erkennen von Artensterben, etc.
+
+Unsere Fragestellung war also simpel: Können wir ein Gerät bauen, das wir einfach in den Baum hängen, und das uns am Ende des Monats eine Excel-Tabelle gibt? Wir wollten wissen, wer wann gesungen hat. Uns war schnell klar, dass ein solches System nur dann wirklich nützlich ist, wenn es nicht nur Amsel, Drossel, Fink und Star unterscheidet, sondern die Vielfalt der europäischen Vogelwelt abdeckt. Unser finales Modell ist daher auf hunderte europäische Arten trainiert.
+
+\section{Theoretische Grundlagen}
+
+\subsection{Vom Ton zum Bild: Mel-Spektrogramme}
+Computer hören nicht so wie wir Menschen. Wenn wir Audiodaten in ein neuronales Netz füttern wollen, könnten wir zwar die rohe Wellenform verwenden. Das ist aber rechenintensiv und oft ineffizient. Viel besser funktionieren Bilderkennungsnetze (CNNs), die eigentlich für Fotos gemacht sind.
+Deshalb wandeln wir den Sound in Bilder um, sogenannte Spektrogramme. Dabei wird die Zeit auf der X-Achse und die Frequenz auf der Y-Achse abgetragen, die Helligkeit des Bildes an dieser Stelle ist dann die Lautstärke/Intensität. 
+
+Wir haben uns intensiv damit beschäftigt, wie man diese Bilder am besten aufbereitet. In Abbildung \ref{fig:mel_vs_lin} sieht man den Vergleich. Oben ist ein lineares Spektrogramm. Unten ist die \textit{Mel-Skala}. Diese Skala ist der menschlichen und vogelartigen Wahrnehmung nachempfunden. Wir hören Unterschiede in tiefen Tönen viel besser als in sehr hohen. Die Mel-Skala „zoomt“ sozusagen in die für Vögel relevanten Bereiche rein. Dadurch sieht das neuronale Netz die feinen Details im Gesang viel besser.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{../visuals/experiments/comparison_linear_vs_mel.png}
+    \caption{Vergleich der Darstellung: Das Mel-Spektrogramm (unten) löst die für Vögel relevanten Frequenzbereiche deutlich detailierter auf als die lineare Darstellung (oben).}
+    \label{fig:mel_vs_lin}
+\end{figure}
+
+\subsection{Artenvielfalt im Bild}
+Es ist faszinierend zu sehen, wie unterschiedlich die Arten bereits visuell sind. Eine Amsel sieht im Spektrogramm ganz anders aus als ein Haussperling. Abbildung \ref{fig:species_comp} zeigt exemplarisch fünf zufällig ausgewählte Arten aus unserem Datensatz, um die visuelle Unterscheidbarkeit zu demonstrieren.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../visuals/experiments/comparison_species.png}
+    \caption{Exemplarische Spektrogramme von fünf Arten aus unserem umfangreichen Europa-Datensatz. Die visuellen Strukturen sind deutlich unterscheidbar, was dem CNN die Klassifikation ermöglicht.}
+    \label{fig:species_comp}
+\end{figure}
+
+\section{Vorgehensweise und Methoden}
+
+\subsection{Datenpipeline: Ein europäischer Datensatz}
+Unsere Daten kommen von Xeno-Canto, einer riesigen Datenbank für Vogelstimmen. Um ein wirklich universelles Tool zu schaffen, haben wir unser Download-Skript so programmiert, dass es automatisch Metadaten und Audiofiles für das Verbreitungsgebiet Europa zieht. Das resultiert in einer enormen Menge an Trainingsdaten.
+
+Wichtig war uns dabei unser System so robust wie möglich zu gestalten. Viele Aufnahmen auf Xeno-Canto sind extrem sauber (Richtmikrofone, Qualitätsstufe A). Im echten Wald rauscht es aber. Deshalb haben wir gezielt auch Aufnahmen mit den Qualitätsstufen B und C in den Trainingsdaten gelassen. Das Modell soll ja lernen, Vögel auch bei Hintergrundlärm zu erkennen.
+
+Unsere Pipeline verarbeitet die Daten \textit{on-the-fly}:
+\begin{itemize}
+    \item Resampling auf 32kHz (mehr brauchen wir für Vögel nicht).
+    \item Zerschneiden in 5-Sekunden-Stücke.
+    \item Umwandlung in Mel-Spektrogramme (128 Bänder).
+    \item Logarithmierung (dB) und Normalisierung auf Werte zwischen 0 und 1.
+\end{itemize}
+
+\subsection{Die neuronalen Netzarchitekturen}
+Um die Komplexität der europäischen Vogelwelt abzubilden, haben wir nicht nur ein Standard-Modell trainiert, sondern zwei spezialisierte Architekturen entwickelt und evaluiert.
+
+\subsubsection{Der Klassifikator (EfficientNet-B0)}
+Für die direkte Bestimmung der Arten nutzen wir ein \textit{EfficientNet-B0}. Diese Architektur wurde von Google entwickelt, um ein optimales Verhältnis zwischen Genauigkeit und Rechenleistung zu bieten – ideal für den späteren Einsatz auf Edge-Geräten wie dem Raspberry Pi.
+\begin{itemize}
+    \item \textbf{Transfer Learning:} Wir initialisieren das Netz nicht mit zufälligen Werten, sondern nutzen Gewichte, die bereits auf dem riesigen ImageNet-Datensatz (Millionen von Fotos) trainiert wurden. Das Netz „weiß“ also schon, wie man Kanten, Kurven und Texturen sieht. Wir bringen ihm dann nur noch bei, diese visuellen Merkmale als Vogelstimmen zu interpretieren.
+    \item \textbf{Output Layer:} Der letzte Layer des Netzes wurde angepasst, um die Wahrscheinlichkeiten für alle trainierten europäischen Arten auszugeben (Softmax-Aktivierung).
+\end{itemize}
+
+\subsubsection{Der Embedding-Extraktor (Metric Learning)}
+Zusätzlich haben wir mit einem experimentellen Ansatz gearbeitet: \textbf{Metric Learning}. Hierbei klassifiziert das Netz nicht direkt („Das ist eine Amsel“), sondern lernt, ähnliche Gesänge nahe beieinander in einem hochdimensionalen Raum zu platzieren.
+\begin{itemize}
+    \item \textbf{Projektions-Head:} Statt einer Klassifikationsebene nutzen wir einen Projektions-Head (Linear $\rightarrow$ BatchNorm $\rightarrow$ PReLU $\rightarrow$ Linear), der das Spektrogramm auf einen 512-dimensionalen Vektor abbildet.
+    \item \textbf{ArcFace Loss:} Wir trainieren mit der \textit{Sub-Center ArcFace Loss}-Funktion. Diese zwingt das Netz, die Vektoren auf einer Hypersphäre so anzuordnen, dass Gesänge derselben Art extrem nah beieinander liegen (kleiner Winkelabstand) und verschiedene Arten maximalen Abstand haben.
+    \item \textbf{Vorteil:} Dieser Ansatz erlaubt es uns, eine „Landkarte der Biodiversität“ zu erstellen und potenziell sogar Arten zu erkennen, die gar nicht im Training dabei waren (Out-of-Distribution Detection), indem man prüft, ob ein neuer Vektor in keinen bekannten Cluster passt.
+\end{itemize}
+
+\subsection{Trainingstrategie}
+Um das Modell bei dieser enormen Anzahl an Klassen robust zu machen, haben wir tief in die Trickkiste der Regularisierung gegriffen. Besonders wichtig war uns \textbf{SpecAugment}. Dabei löschen wir im Training einfach zufällig Teile des Spektrogramms. Mal fehlen ein paar Millisekunden, mal fehlt ein Frequenzbereich. Das zwingt das Netz, den Vogel auch dann zu erkennen, wenn er nur teilweise zu hören ist und macht das Modell somit weniger anfällig auf Störgeräusche.
+
+Wir haben den Trainingsverlauf genau überwacht. In Abbildung \ref{fig:loss_curve} sieht man, wie der Fehler (Loss) über die Epochen abnimmt. Man erkennt gut, dass das Modell stetig lernt, ohne dabei zu starke Ausreißer zu haben.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.65\textwidth]{../visuals/experiments/europe/loss_curve_15epoch_resnet18pre.png}
+    \caption{Trainingsverlauf: Normalerweise ist es ein Anzeichen von Overfitting wenn der Val-Loss deutlich höher als der Train-Loss ist. Bei uns ist der Grund hierfür jedoch, dass wir im Training Noise (SpecAugment) hinzufügen, was sich stark bemerkbar macht.}
+    \label{fig:loss_curve}
+\end{figure}
+
+\section{Ergebnisse: Wie gut funktioniert es?}
+
+\subsection{Trefferquote und Vergleich}
+Ehrlich gesagt waren wir selbst überrascht. Unser finales Modell (EfficientNet mit Transfer Learning) erreicht extrem hohe Genauigkeiten, und das obwohl es hunderte verschiedene Arten unterscheiden muss.
+Zum Vergleich haben wir ein Modell komplett von Null trainiert („From Scratch“). Dieses \textit{Custom CNN} kam auf den Validierungsdaten nur auf ca. 50\% (Maximalwert) und hat extrem schnell angefangen, die Trainingsdaten auswendig zu lernen. Transfer Learning ist hier also der absolute Gamechanger, wie man in Abbildung \ref{fig:modelcomp} sieht. Die Tatsache, dass wir das Modell so stark skalieren konnten, ohne massiv an Genauigkeit zu verlieren, bestätigt unseren Ansatz. Ein wichtiger Faktor für die Genauigkeit ist zudem die verfügbare Datenmenge pro Vogelart (siehe Abbildung \ref{fig:bubble}).
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/comparison_model_performance.png}
+        \caption{Das Transfer-Learning-Modell (EfficientNet) dominiert deutlich und generalisiert am besten.}
+        \label{fig:modelcomp}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/scatter_data_vs_acc_bubble.png}
+        \caption{Einfluss der Datenmenge auf die Genauigkeit (Blasengröße = Anzahl der Trainingsdaten).}
+        \label{fig:bubble}
+    \end{subfigure}
+    \caption{Modellvergleich und Datenabhängigkeit.}
+    \label{fig:performance_group}
+\end{figure}
+
+
+\subsection{Fehleranalyse}
+Natürlich ist keine KI perfekt. Wir haben die Fehler genau analysiert. Die Konfusionsmatrix in Abbildung \ref{fig:conf_matrix} zeigt exemplarisch das finale Modell auf den Testdaten. Die Diagonale ist sehr ausgeprägt, was für eine hohe Genauigkeit spricht. Verwechslungen treten vor allem bei sehr kurzen Rufen von verwandten Arten auf (z.B. verschiedene Finken-Arten). Das ist aber auch für menschliche Experten oft schwer zu unterscheiden. In Abbildung \ref{fig:top_errors} haben wir die häufigsten Fehlklassifikationen genauer aufgeschlüsselt.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/efficientnet_task-species_attn-False_layers-3_confusion.png}
+        \caption{Konfusionsmatrix: Die dichte Diagonale bestätigt die hohe Präzision.}
+        \label{fig:conf_matrix}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/top_errors.png}
+        \caption{Die 15 häufigsten KI-Verwechslungen im Test-Set.}
+        \label{fig:top_errors}
+    \end{subfigure}
+    \caption{Fehleranalyse des finalen Modells.}
+    \label{fig:error_analysis}
+\end{figure}
+
+\subsection{Robustheit gegen schlechte Audioqualität}
+Ein wichtiger Punkt war uns die Frage, wie das Modell reagiert, wenn die Aufnahmequalität sinkt. Auf Xeno-Canto sind die Aufnahmen mit Buchstaben von A (Studio) bis E (unbrauchbar) bewertet.
+In Abbildung \ref{fig:quality} sehen wir, dass die Erkennungsrate bei A-C ungefähr gleichbleibt, unser Modell ist also relativ unabhängig von Audioqualität.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{../visuals/experiments/europe/performance_by_quality.png}
+    \caption{Performance nach Audioqualität. Selbst bei schlechten Aufnahmen (D) bleibt das Modell gut nutzbar.}
+    \label{fig:quality}
+\end{figure}
+
+\subsection{Validierung durch externe Datenquellen (Cross-Testing)}
+Ein häufiges Risiko beim Training neuronaler Netze ist der sogenannte \enquote{Dataset Bias} – das Modell lernt dabei nicht nur die Vogelstimmen, sondern versehentlich auch die spezifischen Eigenheiten der Aufnahmegeräte der Trainingsdatenbank. Um sicherzustellen, dass unser Modell generalisiert, haben wir Cross-Tests mit Audioquellen durchgeführt, die nicht Teil des Xeno-Canto-Trainingsdatensatzes waren.
+
+Hierfür nutzten wir exemplarische Aufnahmen aus dem Google AudioSet sowie Referenzaufnahmen der Plattform \textit{kookoo.eu} (bekannt für hochwertige Singvogel-Aufnahmen). Das Modell konnte auch diese artfremden Aufnahmen mit hoher Zuverlässigkeit klassifizieren. Dies bestätigt, dass die KI tatsächlich die spektralen Muster der Vögel gelernt hat und nicht nur auf die akustische Signatur einer spezifischen Datenbank optimiert ist.
+
+\subsection{Sliding Window Inference \& Grad-CAM}
+Im echten Einsatz bekommen wir keine vorgeschnittenen 5-Sekunden-Clips, sondern einen endlosen Audio-Stream. Wir nutzen daher einen \enquote{Sliding Window} Ansatz. Das Fenster schiebt sich über die Aufnahme und das Model gibt für jeden Moment eine Wahrscheinlichkeit aus.
+In Abbildung \ref{fig:sliding} haben wir das mittels Grad-CAM (Gradient-weighted Class Activation Mapping) visualisiert. Man sieht unten das Spektrogramm und darüber die von der KI generierte Aufmerksamkeits-Heatmap. Je heller (gelb/rötlich) die Farbe, desto stärker reagieren die Faltungs-Schichten auf diesen Bereich. Man sieht schön, wie die KI gezielt bei den Gesangs-Events ausschlägt.
+
+\begin{figure}[H]
+    \centering
+    % Die Angabe von height verhindert, dass das 5-Reihen Bild die gesamte Seite sprengt
+    \includegraphics[width=\textwidth, height=0.45\textheight, keepaspectratio]{../visuals/experiments/europe/gradcam_sliding_window.png}
+    \caption{Visualisierung der KI-Aufmerksamkeit. Die farbigen Bereiche markieren hochpräzise, auf welche Frequenzmuster das Modell im Audio-Stream geachtet hat, um seine Vorhersage zu treffen.}
+    \label{fig:sliding}
+\end{figure}
+
+\subsection{Zusatzexperimente: Rufe vs. Gesänge und Architekturvergleich}
+Neben der Artenerkennung haben wir untersucht, ob das Modell auch den Typ der Lautäußerung (Gesang oder Ruf) unterscheiden kann. Die t-SNE Visualisierung der Embeddings (Abb. \ref{fig:tsne}) zeigt, dass das Modell diese Unterscheidung intern sehr gut trennt. Zusätzlich haben wir unsere verschiedenen Modellarchitekturen direkt verglichen (siehe Abb. \ref{fig:arch_comp}), um den besten Kompromiss aus Parametergröße und Leistungsfähigkeit für das spätere Raspberry Pi Deployment zu ermitteln. 
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/tsne_song_vs_call.png}
+        \caption{t-SNE Visualisierung: Rufe (Call) und Gesänge (Song) bilden separate Cluster.}
+        \label{fig:tsne}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.51\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/sliding_window_comparison_updated.png}
+        \caption{Vergleich der Accuracy über alle untersuchten KI-Architekturen hinweg.}
+        \label{fig:arch_comp}
+    \end{subfigure}
+    \caption{Zusatzexperimente: Interne Repräsentation und Modellskalierung.}
+\end{figure}
+
+\section{Hardware-Design}
+Software ist nichts ohne Hardware. Mit \textit{Onshape} haben wir ein Gehäuse konstruiert, das alles zusammenhält.
+Wichtig war uns, dass das Solarpanel direkt in den Deckel integriert ist, um den optimalen Winkel zur Sonne zu haben. Außerdem braucht das Mikrofon einen akustischen Trichter. Das Design ist modular aufgebaut, damit man Teile leicht austauschen kann, falls mal etwas kaputtgeht. Zusätzlich zur Konstruktion haben wir einen Elektronik-Schaltplan entworfen, der die interne Energieversorgung und Signalverarbeitung regelt.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.32\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/cad/OnshapeModelView_CasingWithParts.png}
+        \caption{Innenleben}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.32\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/cad/OnshapeModelView_OnlyCasing.png}
+        \caption{Gehäuse-Struktur}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.32\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/electronics/schematic.png}
+        \caption{Elektronik-Schaltplan}
+    \end{subfigure}
+    \caption{Unsere CAD-Konstruktion und das Schaltungsdesign für den autonomen Feldeinsatz.}
+    \label{fig:hardware}
+\end{figure}
+
+\section{Fazit und wie es weitergeht}
+Wir haben gezeigt, dass es funktioniert. Die Software steht und liefert exzellente Werte. Besonders stolz sind wir darauf, dass wir mit Open-Source-Daten eine so hohe Genauigkeit erreichen konnten.
+Was jetzt noch fehlt, ist der Härtetest im Wald. Wir müssen das Gehäuse drucken und schauen, ob der Raspberry Pi mit dem Solarstrom über den Winter kommt. Vielleicht müssen wir den Code noch effizienter machen oder auf Mikrocontroller wie den ESP32 umsteigen, um Strom zu sparen.
+Außerdem wollen wir den \enquote{Sliding Window}-Algorithmus noch schneller machen, damit er direkt live auf dem Gerät laufen kann, ohne erst alles in die Cloud schicken zu müssen.
+
+Ein entscheidender nächster Schritt für die wissenschaftliche Validierung ist der \enquote{Ground Truth}-Abgleich im Feld. Hierfür planen wir eine Kooperation mit der Experten-Community von \textit{BirdForum.net}. Ziel ist es, erfahrene Ornithologen oder Hobby-Beobachter zu gewinnen, die unsere Prototypen parallel zu ihren manuellen Beobachtungen einsetzen. Der Vergleich zwischen der KI-generierten Liste und den manuellen Notizen der Experten wird uns die verlässlichsten Daten über die Performance unter realen Bedingungen (IRL-Tests) liefern.
+
+% --- Literaturverzeichnis ---
+\newpage
+\renewcommand\refname{Quellen- und Literaturverzeichnis}
+\begin{thebibliography}{9}
+
+\bibitem{kahl2021}
+Kahl, S., et al. (2021).
+\textit{BirdNET: A deep learning solution for avian diversity monitoring.}
+Ecological Informatics.
+
+\bibitem{tan2019}
+Tan, M., \& Le, Q. V. (2019).
+\textit{EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks.}
+arXiv preprint arXiv:1905.11946.
+
+\bibitem{specaugment}
+Park, D. S., et al. (2019).
+\textit{SpecAugment: A Simple Data Augmentation Method for Automatic Speech Recognition.}
+Proc. Interspeech 2019.
+
+\bibitem{xenocanto}
+Xeno-Canto Foundation.
+\textit{Xeno-canto: Sharing bird sounds from around the world.}
+\url{https://www.xeno-canto.org/}
+
+\end{thebibliography}
+
+% --- Unterstützungsleistungen ---
+\newpage
+\section*{Unterstützungsleistungen}
+Daten und Programme der Open-Source-Community haben die Umsetzung unseres Projekts sehr erleichtert. Insbesondere die Audiodaten von Xeno-Canto waren essenziell. Für die Programmierung haben wir Bibliotheken wie PyTorch, Librosa und Audiomentations genutzt. Ohne diese Tools wäre das Projekt in der Zeit gar nicht machbar gewesen. Ein Dank geht auch an unsere Informatik-Lehrer für das Feedback zwischendurch.
+
+Ein besonderer Dank geht an David May für die Gestaltung des Titelbildes sowie an unsere JuFo-Lehrer für die Betreuung unseres Projekts.
+
+\end{document}
+</file>
+
+<file path="docs/Makefile">
+main.pdf: main.tex
+	latexmk -pdf main.tex
+
+clean:
+	latexmk -c
+
+clean-all:
+	latexmk -C
+</file>
 
 <file path="src/count_birds.py">
 import json
@@ -270,30 +689,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-</file>
-
-<file path="main.toc">
-\babel@toc {ngerman}{}\relax 
-\contentsline {section}{\numberline {1}Einleitung: Warum eigentlich Vögel?}{4}{section.1}%
-\contentsline {section}{\numberline {2}Theoretische Grundlagen}{4}{section.2}%
-\contentsline {subsection}{\numberline {2.1}Vom Ton zum Bild: Mel-Spektrogramme}{4}{subsection.2.1}%
-\contentsline {subsection}{\numberline {2.2}Artenvielfalt im Bild}{5}{subsection.2.2}%
-\contentsline {section}{\numberline {3}Vorgehensweise und Methoden}{5}{section.3}%
-\contentsline {subsection}{\numberline {3.1}Datenpipeline: Ein europäischer Datensatz}{5}{subsection.3.1}%
-\contentsline {subsection}{\numberline {3.2}Die neuronalen Netzarchitekturen}{6}{subsection.3.2}%
-\contentsline {subsubsection}{\numberline {3.2.1}Der Klassifikator (EfficientNet-B0)}{6}{subsubsection.3.2.1}%
-\contentsline {subsubsection}{\numberline {3.2.2}Der Embedding-Extraktor (Metric Learning)}{6}{subsubsection.3.2.2}%
-\contentsline {subsection}{\numberline {3.3}Trainingstrategie}{7}{subsection.3.3}%
-\contentsline {section}{\numberline {4}Ergebnisse: Wie gut funktioniert es?}{7}{section.4}%
-\contentsline {subsection}{\numberline {4.1}Trefferquote und Vergleich}{7}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}Fehleranalyse}{8}{subsection.4.2}%
-\contentsline {subsection}{\numberline {4.3}Robustheit gegen schlechte Audioqualität}{9}{subsection.4.3}%
-\contentsline {subsection}{\numberline {4.4}Validierung durch externe Datenquellen (Cross-Testing)}{10}{subsection.4.4}%
-\contentsline {subsection}{\numberline {4.5}Sliding Window Inference}{10}{subsection.4.5}%
-\contentsline {subsection}{\numberline {4.6}Zusatzexperimente: Rufe vs. Gesänge und Geschlecht}{11}{subsection.4.6}%
-\contentsline {section}{\numberline {5}Hardware-Design}{13}{section.5}%
-\contentsline {section}{\numberline {6}Fazit und wie es weitergeht}{13}{section.6}%
-\providecommand \tocbasic@end@toc@file {}\tocbasic@end@toc@file
 </file>
 
 <file path="USAGE.txt">
@@ -503,8 +898,14 @@ def plot_training_curves():
 
         df = pd.DataFrame(data)
         label_name = exp_name.split("_")[0].title()
+
         if "custom" in exp_name:
-            label_name += " (Custom CNN)"
+            attn_str = "Attn" if "attn-True" in exp_name else "NoAttn"
+            layer_str = "3"
+            for part in exp_name.split("_"):
+                if part.startswith("layers-"):
+                    layer_str = part.split("-")[1]
+            label_name = f"Custom CNN ({layer_str} Layers, {attn_str})"
 
         max_acc = df['val_acc'].max()
         plt.plot(df['epoch'], df['val_acc'], label=f"{label_name} (Max: {max_acc:.1f}%)", linewidth=2.5, marker='o', markersize=4)
@@ -636,11 +1037,126 @@ def plot_quality_metrics():
     plt.savefig(os.path.join(VISUALS_DIR, "performance_by_quality.png"), dpi=300)
     print(" Quality graph saved.")
 
+def plot_data_vs_accuracy_bubble():
+    print("\n--- Generating Figure: Data Volume vs Accuracy (Bubble Chart) ---")
+    exp_name = "efficientnet_task-species_attn-False_layers-3"
+    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+
+    if not os.path.exists(model_path):
+        print("  -> EfficientNet not found. Train it first! Skipping Bubble Chart...")
+        return
+
+    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+        classes = json.load(f)['classes']
+
+    dataset = SmartBirdDataset(mode='test', task='species')
+    loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
+
+    model = get_model("efficientnet", len(classes), False, 3).to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+
+    class_correct = {c: 0 for c in classes}
+    class_total = {c: 0 for c in classes}
+
+    with torch.no_grad():
+        for inputs, labels in tqdm(loader, desc="Evaluating Accuracy per Species"):
+            outputs = model(inputs.to(DEVICE))
+            _, preds = torch.max(outputs, 1)
+
+            for p, l in zip(preds.cpu().numpy(), labels.numpy()):
+                class_name = classes[l]
+                class_total[class_name] += 1
+                if p == l:
+                    class_correct[class_name] += 1
+
+    df_meta = pd.read_csv(METADATA_FILE)
+    all_counts = df_meta['species'].value_counts().to_dict()
+
+    data = []
+    for c in classes:
+        acc = class_correct[c] / class_total[c] if class_total[c] > 0 else 0
+        total_recs = all_counts.get(c, 0)
+
+        if total_recs == 0:
+            continue
+
+        if total_recs < 50:
+            cat = "Rare"
+        elif total_recs < 100:
+            cat = "Medium"
+        else:
+            cat = "Common"
+
+        data.append({
+            "Species": c,
+            "Validation Accuracy (0.0 - 1.0)": acc,
+            "Total Recordings in Database (Log Scale)": total_recs,
+            "category": cat,
+            "total_data_count": total_recs
+        })
+
+    if not data:
+        print("  -> No data to plot.")
+        return
+
+    df_plot = pd.DataFrame(data)
+
+    plt.figure(figsize=(14, 9))
+    sns.set_theme(style="whitegrid", rc={"grid.linestyle": "--", "axes.grid": True, "grid.alpha": 0.5})
+
+    palette = {"Rare": "#ff4d4d", "Medium": "#ffbc47", "Common": "#4caf50"}
+
+    sns.regplot(
+        data=df_plot,
+        x="Total Recordings in Database (Log Scale)",
+        y="Validation Accuracy (0.0 - 1.0)",
+        scatter=False,
+        logx=True,
+        color="#444444",
+        line_kws={"linestyle": "--", "linewidth": 2.5, "alpha": 0.8}
+    )
+
+    ax = sns.scatterplot(
+        data=df_plot,
+        x="Total Recordings in Database (Log Scale)",
+        y="Validation Accuracy (0.0 - 1.0)",
+        size="total_data_count",
+        sizes=(50, 600),
+        hue="category",
+        hue_order=["Rare", "Medium", "Common"],
+        palette=palette,
+        alpha=0.8,
+        edgecolor="white"
+    )
+
+    plt.xscale('log')
+    plt.title("Impact of Training Data Volume on Species Accuracy", fontsize=18, fontweight="bold", pad=15)
+    plt.ylim(-0.05, 1.05)
+
+    top_species = df_plot.loc[df_plot["Total Recordings in Database (Log Scale)"].idxmax()]
+    plt.annotate(
+        top_species["Species"],
+        xy=(top_species["Total Recordings in Database (Log Scale)"], top_species["Validation Accuracy (0.0 - 1.0)"]),
+        xytext=(15, 0),
+        textcoords="offset points",
+        fontweight="bold",
+        va="center"
+    )
+
+    plt.legend(loc="lower left", frameon=True)
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, "scatter_data_vs_acc_bubble.png")
+    plt.savefig(out_path, dpi=300)
+    print(f" Bubble chart saved to: {out_path}")
+
 if __name__ == "__main__":
     os.makedirs(LOGS_DIR, exist_ok=True)
     plot_training_curves()
     evaluate_and_plot_bar_chart()
     plot_quality_metrics()
+    plot_data_vs_accuracy_bubble()
 </file>
 
 <file path="upload_models.sh">
@@ -1251,38 +1767,125 @@ def get_model(model_name, num_classes, use_attention=False, num_layers=3):
 import os
 import torch
 import argparse
+import json
+import onnx
+from torch.utils.data import DataLoader
+
 from models import get_model
 from config import *
+from data import SmartBirdDataset
+
+# NEU: Wir nutzen quantize_static und den CalibrationDataReader
+from onnxruntime.quantization import quantize_static, QuantType, CalibrationDataReader
+
+class BirdDataReader(CalibrationDataReader):
+    """
+    Füttert den ONNX-Quantisierer mit echten Spektrogrammen, 
+    damit er die idealen INT8-Skalierungen berechnen kann.
+    """
+    def __init__(self, limit=50):
+        # Wir nutzen Test-Daten, um saubere, unaugmentierte Spektrogramme zu erhalten
+        dataset = SmartBirdDataset(mode='test', task='species')
+        self.dataloader = iter(DataLoader(dataset, batch_size=1, shuffle=True))
+        self.limit = limit
+        self.count = 0
+
+    def get_next(self):
+        if self.count >= self.limit:
+            return None
+        try:
+            img, _ = next(self.dataloader)
+            self.count += 1
+            # "input" muss exakt dem input_names=["input"] beim ONNX Export entsprechen
+            return {"input": img.numpy()}
+        except StopIteration:
+            return None
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet"], default="efficientnet")
+    parser.add_argument(
+        "--model",
+        choices=["custom", "resnet", "efficientnet"],
+        default="efficientnet"
+    )
     args = parser.parse_args()
 
     exp_name = f"{args.model}_task-species_attn-False_layers-3"
 
-    import json
     with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
-        num_classes = len(json.load(f)['classes'])
+        num_classes = len(json.load(f)["classes"])
 
     print(f"Lade {exp_name}...")
     model = get_model(args.model, num_classes).to("cpu")
-    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location="cpu"))
+    model.load_state_dict(
+        torch.load(
+            os.path.join(MODELS_DIR, f"{exp_name}_best.pth"),
+            map_location="cpu"
+        )
+    )
     model.eval()
 
-    dummy_input = torch.randn(1, 3, IMG_SIZE, IMG_SIZE)
-    onnx_path = os.path.join(MODELS_DIR, f"{args.model}_quantized.onnx")
+    for p in model.parameters():
+        p.requires_grad = False
 
-    print(f"Exportiere nach ONNX: {onnx_path}...")
+    dummy_input = torch.randn(1, 3, IMG_SIZE, IMG_SIZE)
+
+    onnx_fp32_path = os.path.join(MODELS_DIR, f"{args.model}_fp32.onnx")
+    onnx_fp32_inlined_path = os.path.join(MODELS_DIR, f"{args.model}_fp32_inlined.onnx")
+    onnx_int8_path = os.path.join(MODELS_DIR, f"{args.model}_quantized_int8.onnx")
+
+    print(f"Exportiere nach ONNX (FP32): {onnx_fp32_path}...")
     torch.onnx.export(
-        model, dummy_input, onnx_path,
+        model,
+        dummy_input,
+        onnx_fp32_path,
         export_params=True,
-        opset_version=12,
+        dynamo=False,  # Lösung 1 beibehalten!
+        opset_version=18,
         do_constant_folding=True,
-        input_names=['input'], output_names=['output'],
-        dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+        input_names=["input"],
+        output_names=["output"],
     )
-    print(" ONNX Export erfolgreich. Perfekt für den Raspberry Pi!")
+
+    print("Inline externe Gewichte in einzelne ONNX-Datei...")
+    onnx_model = onnx.load(onnx_fp32_path, load_external_data=True)
+    onnx.save(
+        onnx_model,
+        onnx_fp32_inlined_path,
+        save_as_external_data=False,
+    )
+
+    print("Führe STATISCHE INT8-Quantisierung durch (Kalibrierung mit 50 Audiosamples)...")
+    data_reader = BirdDataReader(limit=50)
+    
+    # NEU: Aufruf von quantize_static
+    quantize_static(
+        model_input=onnx_fp32_inlined_path,
+        model_output=onnx_int8_path,
+        calibration_data_reader=data_reader,
+        weight_type=QuantType.QInt8,
+        activation_type=QuantType.QUInt8, # Sehr sicherer Default für x86 und ARM CPUs
+    )
+
+    if os.path.exists(onnx_fp32_inlined_path):
+        os.remove(onnx_fp32_inlined_path)
+
+    size_fp32 = os.path.getsize(onnx_fp32_path) / (1024 * 1024)
+    onnx_data_path = onnx_fp32_path + ".data"
+    if os.path.exists(onnx_data_path):
+        size_fp32 += os.path.getsize(onnx_data_path) / (1024 * 1024)
+
+    size_int8 = os.path.getsize(onnx_int8_path) / (1024 * 1024)
+
+    print("\n" + "=" * 40)
+    print(" QUANTISIERUNGS-ERGEBNIS")
+    print("=" * 40)
+    print(f" ONNX FP32 Größe: {size_fp32:.2f} MB")
+    print(f" ONNX INT8 Größe: {size_int8:.2f} MB")
+    print(f" Komprimierungsfaktor: {size_fp32 / size_int8:.1f}x")
+    print("=" * 40)
+    print("Modell erfolgreich optimiert!")
+    print("Bereit für Raspberry Pi Zero 2 W ")
 
 if __name__ == "__main__":
     main()
@@ -1914,299 +2517,6 @@ data/models/*.pth
 data/models/*.onnx
 </file>
 
-<file path="main.tex">
-\documentclass[10pt, a4paper]{scrartcl}
-
-% --- Pakete ---
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage[ngerman]{babel}
-\usepackage{mathptmx}       % Times New Roman
-\usepackage{graphicx}       % Für Bilder
-\usepackage{geometry}       % Ränder
-\usepackage{setspace}       % Zeilenabstand
-\usepackage{hyperref}       % Links
-\usepackage{amsmath}        % Mathe
-\usepackage{float}          % Bildplatzierung
-\usepackage{caption}
-\usepackage{subcaption}     % Bilder nebeneinander
-\usepackage{csquotes}       % Anführungszeichen
-
-% --- Layout ---
-\geometry{
-    left=2.5cm,
-    right=2.5cm,
-    top=2.5cm,
-    bottom=2cm
-}
-\onehalfspacing
-\setlength{\parindent}{0pt}
-\setlength{\parskip}{6pt}
-
-% --- Titeldaten ---
-\title{Piepmatz Polizei: Entwicklung eines KI-basierten Systems zum akustischen Monitoring europäischer Vogelarten}
-\subtitle{Wettbewerb Jugend forscht 2026}
-\author{Finn Degen, Jonathan Ledwon}
-\date{\today}
-
-\begin{document}
-
-\maketitle
-\begin{center}
-    \includegraphics[width=0.6\textwidth]{bird_project_cover.png} \\
-    \vspace{0.5cm} % Optional: Adds a little space between image and text
-    \footnotesize{\textit{Cover-Design: David May}}
-\end{center}
-\thispagestyle{empty}
-\newpage
-
-% --- Projektüberblick ---
-\section*{Projektüberblick}
-Vögel zu zählen ist eine mühsame Angelegenheit. Normalerweise stehen Ornithologen stundenlang im Wald und führen Strichlisten. Das ist nicht nur zeitaufwendig, sondern auch ziemlich ungenau, da man nicht überall gleichzeitig sein kann. Unser Projekt „Piepmatz Polizei“ soll das ändern. Wir haben ein System entwickelt, das Vogelstimmen vollautomatisch aufnimmt und mithilfe von Deep Learning klassifiziert.
-
-Dabei setzen wir nicht auf einfache Frequenzanalysen, sondern nutzen moderne Convolutional Neural Networks (CNNs), die auf Mel-Spektrogrammen trainiert wurden. Wir haben uns dabei nicht auf wenige Garten-Vögel beschränkt, sondern ein Modell trainiert, das einen Großteil der relevanten europäischen Vogelwelt erkennt.
-Die Kombination aus etablierten Architekturen wie EfficientNet und experimentellen Ansätzen wie Metric Learning sorgt dafür, dass die KI auch bei Wind oder Verkehrslärm nicht aus dem Tritt kommt. Zusätzlich haben wir ein Gehäuse entworfen, damit die Hardware auch mal einen Regenschauer überlebt.
-
-\newpage
-\tableofcontents
-\newpage
-
-% --- Inhalt ---
-
-\section{Einleitung: Warum eigentlich Vögel?}
-Vögel sind so etwas wie die Sensoren unseres Ökosystems. Wenn es ihnen schlecht geht, stimmt meistens auch etwas mit der Umwelt nicht. Das Problem ist nur die Erfassung. Sie sind scheu, schnell und verstecken sich gerne im Gebüsch. Die akustische Erfassung ist daher der Goldstandard. Menschliche Experten sind aber teuer und können nicht rund um die Uhr im Wald stehen, jedoch sind die Vorteile immens: Migrationsbewegungen oder unbekante Arten erfassen, Bauprojekte die auf das Ökosystem angepasst sind, frühzeitigeres Erkennen von Artensterben, etc.
-
-Unsere Fragestellung war also simpel: Können wir ein Gerät bauen, das wir einfach in den Baum hängen, und das uns am Ende des Monats eine Excel-Tabelle gibt? Wir wollten wissen, wer wann gesungen hat. Uns war schnell klar, dass ein solches System nur dann wirklich nützlich ist, wenn es nicht nur Amsel, Drossel, Fink und Star unterscheidet, sondern die Vielfalt der europäischen Vogelwelt abdeckt. Unser finales Modell ist daher auf über 600 Arten trainiert.
-
-\section{Theoretische Grundlagen}
-
-\subsection{Vom Ton zum Bild: Mel-Spektrogramme}
-Computer hören nicht so wie wir Menschen. Wenn wir Audiodaten in ein neuronales Netz füttern wollen, könnten wir zwar die rohe Wellenform verwenden. Das ist aber rechenintensiv und oft ineffizient. Viel besser funktionieren Bilderkennungsnetze (CNNs), die eigentlich für Fotos gemacht sind.
-Deshalb wandeln wir den Sound in Bilder um, sogenannte Spektrogramme. Dabei wird die Zeit auf der X-Achse und die Frequenz auf der Y-Achse abgetragen, die Helligkeit des Bildes an dieser Stelle ist dann die Lautstärke/Intensität. 
-
-Wir haben uns intensiv damit beschäftigt, wie man diese Bilder am besten aufbereitet. In Abbildung \ref{fig:mel_vs_lin} sieht man den Vergleich. Oben ist ein lineares Spektrogramm. Unten ist die \textit{Mel-Skala}. Diese Skala ist der menschlichen und vogelartigen Wahrnehmung nachempfunden. Wir hören Unterschiede in tiefen Tönen viel besser als in sehr hohen. Die Mel-Skala „zoomt“ sozusagen in die für Vögel relevanten Bereiche rein. Dadurch sieht das neuronale Netz die feinen Details im Gesang viel besser.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.85\textwidth]{Pictures/comparison_linear_vs_mel.png}
-    \caption{Vergleich der Darstellung: Das Mel-Spektrogramm (unten) löst die für Vögel relevanten Frequenzbereiche deutlich detailierter auf als die lineare Darstellung (oben).}
-    \label{fig:mel_vs_lin}
-\end{figure}
-
-\subsection{Artenvielfalt im Bild}
-Es ist faszinierend zu sehen, wie unterschiedlich die Arten bereits visuell sind. Eine Amsel sieht im Spektrogramm ganz anders aus als ein Haussperling. Abbildung \ref{fig:species_comp} zeigt exemplarisch fünf zufällig ausgewählte Arten aus unserem Datensatz, um die visuelle Unterscheidbarkeit zu demonstrieren.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=1.0\textwidth]{Pictures/comparison_species.png}
-    \caption{Exemplarische Spektrogramme von fünf Arten aus unserem umfangreichen Europa-Datensatz. Die visuellen Strukturen sind deutlich unterscheidbar, was dem CNN die Klassifikation ermöglicht.}
-    \label{fig:species_comp}
-\end{figure}
-
-\section{Vorgehensweise und Methoden}
-
-\subsection{Datenpipeline: Ein europäischer Datensatz}
-Unsere Daten kommen von Xeno-Canto, einer riesigen Datenbank für Vogelstimmen. Um ein wirklich universelles Tool zu schaffen, haben wir unser Download-Skript so programmiert, dass es automatisch Metadaten und Audiofiles für das Verbreitungsgebiet Europa zieht. Das resultiert in einer enormen Menge an Trainingsdaten.
-
-Wichtig war uns dabei unser System so robust wie möglich zu gestalten. Viele Aufnahmen auf Xeno-Canto sind extrem sauber (Richtmikrofone, Qualitätsstufe A). Im echten Wald rauscht es aber. Deshalb haben wir gezielt auch Aufnahmen mit den Qualitätsstufen B und C in den Trainingsdaten gelassen. Das Modell soll ja lernen, Vögel auch bei Hintergrundlärm zu erkennen.
-
-Unsere Pipeline verarbeitet die Daten \textit{on-the-fly}:
-\begin{itemize}
-    \item Resampling auf 32kHz (mehr brauchen wir für Vögel nicht).
-    \item Zerschneiden in 5-Sekunden-Stücke.
-    \item Umwandlung in Mel-Spektrogramme (128 Bänder).
-    \item Logarithmierung (dB) und Normalisierung auf Werte zwischen 0 und 1.
-\end{itemize}
-
-\subsection{Die neuronalen Netzarchitekturen}
-Um die Komplexität der europäischen Vogelwelt abzubilden, haben wir nicht nur ein Standard-Modell trainiert, sondern zwei spezialisierte Architekturen entwickelt und evaluiert.
-
-\subsubsection{Der Klassifikator (EfficientNet-B0)}
-Für die direkte Bestimmung der Arten nutzen wir ein \textit{EfficientNet-B0}. Diese Architektur wurde von Google entwickelt, um ein optimales Verhältnis zwischen Genauigkeit und Rechenleistung zu bieten – ideal für den späteren Einsatz auf Edge-Geräten wie dem Raspberry Pi.
-\begin{itemize}
-    \item \textbf{Transfer Learning:} Wir initialisieren das Netz nicht mit zufälligen Werten, sondern nutzen Gewichte, die bereits auf dem riesigen ImageNet-Datensatz (Millionen von Fotos) trainiert wurden. Das Netz „weiß“ also schon, wie man Kanten, Kurven und Texturen sieht. Wir bringen ihm dann nur noch bei, diese visuellen Merkmale als Vogelstimmen zu interpretieren.
-    \item \textbf{Output Layer:} Der letzte Layer des Netzes wurde angepasst, um die Wahrscheinlichkeiten für alle trainierten europäischen Arten auszugeben (Softmax-Aktivierung).
-\end{itemize}
-
-\subsubsection{Der Embedding-Extraktor (Metric Learning)}
-Zusätzlich haben wir mit einem experimentellen Ansatz gearbeitet: \textbf{Metric Learning}. Hierbei klassifiziert das Netz nicht direkt („Das ist eine Amsel“), sondern lernt, ähnliche Gesänge nahe beieinander in einem hochdimensionalen Raum zu platzieren.
-\begin{itemize}
-    \item \textbf{Projektions-Head:} Statt einer Klassifikationsebene nutzen wir einen Projektions-Head (Linear $\rightarrow$ BatchNorm $\rightarrow$ PReLU $\rightarrow$ Linear), der das Spektrogramm auf einen 512-dimensionalen Vektor abbildet.
-    \item \textbf{ArcFace Loss:} Wir trainieren mit der \textit{Sub-Center ArcFace Loss}-Funktion. Diese zwingt das Netz, die Vektoren auf einer Hypersphäre so anzuordnen, dass Gesänge derselben Art extrem nah beieinander liegen (kleiner Winkelabstand) und verschiedene Arten maximalen Abstand haben.
-    \item \textbf{Vorteil:} Dieser Ansatz erlaubt es uns, eine „Landkarte der Biodiversität“ zu erstellen und potenziell sogar Arten zu erkennen, die gar nicht im Training dabei waren (Out-of-Distribution Detection), indem man prüft, ob ein neuer Vektor in keinen bekannten Cluster passt.
-\end{itemize}
-
-\subsection{Trainingstrategie}
-Um das Modell bei dieser enormen Anzahl an Klassen robust zu machen, haben wir tief in die Trickkiste der Regularisierung gegriffen. Besonders wichtig war uns \textbf{SpecAugment}. Dabei löschen wir im Training einfach zufällig Teile des Spektrogramms. Mal fehlen ein paar Millisekunden, mal fehlt ein Frequenzbereich. Das zwingt das Netz, den Vogel auch dann zu erkennen, wenn er nur teilweise zu hören ist und macht das Modell somit weniger anfällig auf Störgeräusche.
-
-Wir haben den Trainingsverlauf genau überwacht. In Abbildung \ref{fig:loss_curve} sieht man, wie der Fehler (Loss) über die Epochen abnimmt. Man erkennt gut, dass das Modell stetig lernt, ohne dabei zu starke Ausreißer zu haben.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.7\textwidth]{Pictures/loss_curve_15epoch_resnet18pre.png}
-    \caption{Erste 15 Eopchen vom Trainingsverlauf: Normalerweise ist es ein Anzeichen von Overfitting wenn Val Loss deutlich höher als Train Loss ist, aber bei uns ist der Grund hierfür, dass wir Noise hinzufügen und diese hier sichtbar wird.}
-    \label{fig:loss_curve}
-\end{figure}
-
-\section{Ergebnisse: Wie gut funktioniert es?}
-
-\subsection{Trefferquote und Vergleich}
-Ehrlich gesagt waren wir selbst überrascht. Unser finales Modell (EfficientNet mit Transfer Learning) erreicht extrem hohe Genauigkeiten, und das obwohl es hunderte verschiedene Arten unterscheiden muss.
-Zum Vergleich haben wir ein Modell komplett von Null trainiert („From Scratch“). Das kam nur auf ca. 80\% und hat extrem schnell angefangen, die Trainingsdaten auswendig zu lernen. Transfer Learning ist hier also der absolute Gamechanger, wie man in Abbildung \ref{fig:modelcomp} sieht. Die Tatsache, dass wir das Modell so stark skalieren konnten, ohne massiv an Genauigkeit zu verlieren, bestätigt unseren Ansatz.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.7\textwidth]{Pictures/comparison_model_performance.png}
-    \caption{Der Vergleich zeigt deutlich: Das Transfer-Learning-Modell (rechts) ist nicht nur präziser, sondern generalisiert auch besser auf neue Daten, selbst bei vielen Klassen.}
-    \label{fig:modelcomp}
-\end{figure}
-
-Ein wichtiger Faktor für die Genauigkeit ist die verfügbare Datenmenge pro Vogelart. Abbildung \ref{fig:bubble} zeigt, dass unsere Methode ihr Ziel erreicht hat, öfter mit den Daten seltener Vögel zu trainieren und die KI nun auch seltene Vogelarten gut erkennt.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\textwidth]{Pictures/scatter_data_vs_acc_bubble.png}
-    \caption{Einfluss der Datenmenge auf die Genauigkeit. Die Größe der Blasen repräsentiert die Anzahl der Trainingsdaten.}
-    \label{fig:bubble}
-\end{figure}
-
-
-\subsection{Fehleranalyse}
-Natürlich ist keine KI perfekt. Wir haben die Fehler genau analysiert. Die Konfusionsmatrix in Abbildung \ref{fig:conf_matrix} zeigt exemplarisch einen Ausschnitt der Ergebnisse. Die Diagonale ist dunkelgrün, was exemplarisch für eine hohe Genauigkeit ist. Verwechslungen treten vor allem bei sehr kurzen Rufen von verwandten Arten auf (z.B. verschiedene Finken-Arten). Das ist aber auch für menschliche Experten oft schwer zu unterscheiden, außerdem war die richtige Art mit über 99\%iger Wahrscheinlichkeit in den Top-3.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.6\textwidth]{Pictures/confusion_matrix_finetuned_pro.png}
-    \caption{Konfusionsmatrix des finalen Modells (Ausschnitt). Die hohen Zahlen auf der Diagonale bestätigt die hohe Präzision auch bei vielen unterschiedlichen Klassen.}
-    \label{fig:conf_matrix}
-\end{figure}
-
-In Abbildung \ref{fig:top_errors} haben wir die häufigsten Fehlklassifikationen genauer aufgeschlüsselt.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\textwidth]{Pictures/top_errors.png}
-    \caption{Die häufigsten Verwechslungen. Balken zeigen an, welche Art fälschlicherweise als welche andere Art klassifiziert wurde.}
-    \label{fig:top_errors}
-\end{figure}
-
-%TODO: change image
-\subsection{Robustheit gegen schlechte Audioqualität}
-Ein wichtiger Punkt war uns die Frage, wie das Modell reagiert, wenn die Aufnahmequalität sinkt. Auf Xeno-Canto sind die Aufnahmen mit Buchstaben von A (Studio) bis E (unbrauchbar) bewertet.
-In Abbildung \ref{fig:quality} sehen wir, dass die Erkennungsrate bei A-C ungefähr gleichbleibt, unser Modell ist also relativ unabhängig von Audioqualität.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.7\textwidth]{Pictures/performance_by_quality.png}
-    \caption{Performance nach Audioqualität. Selbst bei schlechten Aufnahmen (D/E) bleibt das Modell brauchbar.}
-    \label{fig:quality}
-\end{figure}
-
-\subsection{Validierung durch externe Datenquellen (Cross-Testing)}
-Ein häufiges Risiko beim Training neuronaler Netze ist der sogenannte \enquote{Dataset Bias} – das Modell lernt dabei nicht nur die Vogelstimmen, sondern versehentlich auch die spezifischen Eigenheiten der Aufnahmegeräte der Trainingsdatenbank. Um sicherzustellen, dass unser Modell generalisiert, haben wir Cross-Tests mit Audioquellen durchgeführt, die nicht Teil des Xeno-Canto-Trainingsdatensatzes waren.
-
-Hierfür nutzten wir exemplarische Aufnahmen aus dem Google AudioSet sowie Referenzaufnahmen der Plattform \textit{kookoo.eu} (bekannt für hochwertige Singvogel-Aufnahmen). Das Modell konnte auch diese artfremden Aufnahmen mit hoher Zuverlässigkeit klassifizieren. Dies bestätigt, dass die KI tatsächlich die spektralen Muster der Vögel gelernt hat und nicht nur auf die akustische Signatur einer spezifischen Datenbank optimiert ist.
-
-
-\subsection{Sliding Window Inference}
-Im echten Einsatz bekommen wir keine vorgeschnittenen 5-Sekunden-Clips, sondern einen endlosen Audio-Stream. Wir nutzen daher einen \enquote{Sliding Window} Ansatz. Das Fenster schiebt sich über die Aufnahme und das Model gibt für jeden Moment eine Wahrscheinlichkeit aus.
-In Abbildung \ref{fig:sliding} haben wir das visualisiert. Man sieht unten das Spektrogramm und oben drüber die Heatmap der KI Attention. Je heller (gelber/roter) die Farbe, desto sicherer ist sich die KI, dass dort ein Vogel singt. Man sieht schön, wie die KI genau bei den Gesangs-Events (hohe weiße Balken) ausschlägt.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=1.0\textwidth]{Pictures/sliding_window_attention_2.5.png}
-    \caption{Visualisierung der KI-Aufmerksamkeit. Die farbigen Bereiche markieren, wo das Modell relevante Merkmale im Audio-Stream gefunden hat.}
-    \label{fig:sliding}
-\end{figure}
-
-\subsection{Zusatzexperimente: Rufe vs. Gesänge und Geschlecht}
-Neben der Artenerkennung haben wir untersucht, ob das Modell auch den Typ der Lautäußerung (Gesang oder Ruf) unterscheiden kann. Die t-SNE Visualisierung der Embeddings (Abb. \ref{fig:tsne}) zeigt, dass das Modell diese Unterscheidung intern bereits lernt.
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\textwidth]{Pictures/tsne_song_call.png}
-    \caption{t-SNE Visualisierung der Modell-Embeddings. Rufe (Call) und Gesänge (Song) bilden teils eigene Cluster, auch ohne explizites Training darauf.}
-    \label{fig:tsne}
-\end{figure}
-
-Zusätzlich haben wir getestet, ob ein auf Männchen-Daten gefiltertes Training bessere Ergebnisse liefert, da diese häufiger singen. Wie in Abbildung \ref{fig:gender} zu sehen, brachte die Einschränkung der Daten jedoch keinen statistisch signifikanten Vorteil gegenüber dem kompletten Datensatz.
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\textwidth]{Pictures/experiment_gender_result.png}
-    \caption{Vergleich der Trainingsgenauigkeit: Das Filtern nach Geschlecht (Male Only) bringt keinen Vorteil gegenüber dem Nutzen aller Daten.}
-    \label{fig:gender}
-\end{figure}
-
-\section{Hardware-Design}
-Software ist nichts ohne Hardware. Mit \textit{Onshape} haben wir ein Gehäuse konstruiert, das alles zusammenhält.
-Wichtig war uns, dass das Solarpanel direkt in den Deckel integriert ist, um den optimalen Winkel zur Sonne zu haben. Außerdem braucht das Mikrofon einen akustischen Trichter. Das Design ist modular aufgebaut, damit man Teile leicht austauschen kann, falls mal etwas kaputtgeht.
-
-\begin{figure}[H]
-    \centering
-    \begin{subfigure}[b]{0.32\textwidth}
-        \centering
-        \includegraphics[width=\textwidth]{OnshapeImages/OnshapeModelView_CasingWithParts.png}
-        \caption{Innenleben}
-    \end{subfigure}
-    \hfill
-    \begin{subfigure}[b]{0.32\textwidth}
-        \centering
-        \includegraphics[width=\textwidth]{OnshapeImages/OnshapeModelView_OnlyCasing.png}
-        \caption{Gehäuse-Struktur}
-    \end{subfigure}
-    \hfill
-    \begin{subfigure}[b]{0.32\textwidth}
-        \centering
-        \includegraphics[width=\textwidth]{OnshapeImages/OnshapeModelView_SolarPanel.png}
-        \caption{Solar-Integration}
-    \end{subfigure}
-    \caption{Unsere CAD-Konstruktion für den autonomen Feldeinsatz.}
-    \label{fig:hardware}
-\end{figure}
-
-\section{Fazit und wie es weitergeht}
-Wir haben gezeigt, dass es funktioniert. Die Software steht und liefert exzellente Werte. Besonders stolz sind wir darauf, dass wir mit Open-Source-Daten eine so hohe Genauigkeit erreichen konnten.
-Was jetzt noch fehlt, ist der Härtetest im Wald. Wir müssen das Gehäuse drucken und schauen, ob der Raspberry Pi mit dem Solarstrom über den Winter kommt. Vielleicht müssen wir den Code noch effizienter machen oder auf Mikrocontroller wie den ESP32 umsteigen, um Strom zu sparen.
-Außerdem wollen wir den \enquote{Sliding Window}-Algorithmus noch schneller machen, damit er direkt live auf dem Gerät laufen kann, ohne erst alles in die Cloud schicken zu müssen.
-
-Ein entscheidender nächster Schritt für die wissenschaftliche Validierung ist der \enquote{Ground Truth}-Abgleich im Feld. Hierfür planen wir eine Kooperation mit der Experten-Community von \textit{BirdForum.net}. Ziel ist es, erfahrene Ornithologen oder Hobby-Beobachter zu gewinnen, die unsere Prototypen parallel zu ihren manuellen Beobachtungen einsetzen. Der Vergleich zwischen der KI-generierten Liste und den manuellen Notizen der Experten wird uns die verlässlichsten Daten über die Performance unter realen Bedingungen (IRL-Tests) liefern.
-
-% --- Literaturverzeichnis ---
-\newpage
-\renewcommand\refname{Quellen- und Literaturverzeichnis}
-\begin{thebibliography}{9}
-
-\bibitem{kahl2021}
-Kahl, S., et al. (2021).
-\textit{BirdNET: A deep learning solution for avian diversity monitoring.}
-Ecological Informatics.
-
-\bibitem{tan2019}
-Tan, M., \& Le, Q. V. (2019).
-\textit{EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks.}
-arXiv preprint arXiv:1905.11946.
-
-\bibitem{specaugment}
-Park, D. S., et al. (2019).
-\textit{SpecAugment: A Simple Data Augmentation Method for Automatic Speech Recognition.}
-Proc. Interspeech 2019.
-
-\bibitem{xenocanto}
-Xeno-Canto Foundation.
-\textit{Xeno-canto: Sharing bird sounds from around the world.}
-\url{https://www.xeno-canto.org/}
-
-\end{thebibliography}
-
-% --- Unterstützungsleistungen ---
-\newpage
-\section*{Unterstützungsleistungen}
-Daten und Programme  der Open-Source-Community haben die Umsetzung unseres Projekts sehr erleichtert. Insbesondere die Audiodaten von Xeno-Canto waren essenziell. Für die Programmierung haben wir Bibliotheken wie PyTorch, Librosa und Audiomentations genutzt. Ohne diese Tools wäre das Projekt in der Zeit gar nicht machbar gewesen. Ein Dank geht auch an unsere Informatik-Lehrer für das Feedback zwischendurch.
-
-Ein besonderer Dank geht an David May für die Gestaltung des Titelbildes sowie an unsere JuFo-Lehrer für die Betreuung unseres Projekts.
-
-\end{document}
-</file>
-
 <file path="requirements.txt">
 # KI & Mathe
 torch
@@ -2221,6 +2531,7 @@ pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
 umap-learn                # Für Clustering Visualisierungen
 onnx                      # Für den Export auf den Raspberry Pi
 onnxruntime               # Für lokale Inferenz-Tests
+onnxscript
 
 # Audio Verarbeitung
 librosa

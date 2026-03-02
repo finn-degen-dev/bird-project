@@ -26,6 +26,11 @@
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{6pt}
 
+% --- Bildabstände optimieren ---
+\setlength{\intextsep}{12pt plus 2pt minus 4pt}
+\setlength{\abovecaptionskip}{6pt}
+\setlength{\belowcaptionskip}{0pt}
+
 % --- Titeldaten ---
 \title{Piepmatz Polizei: Entwicklung eines KI-basierten Systems zum akustischen Monitoring europäischer Vogelarten}
 \subtitle{Wettbewerb Jugend forscht 2026}
@@ -37,7 +42,7 @@
 \maketitle
 \begin{center}
     \includegraphics[width=0.6\textwidth]{../bird_project_cover.png} \\
-    \vspace{0.5cm} % Optional: Adds a little space between image and text
+    \vspace{0.5cm}
     \footnotesize{\textit{Cover-Design: David May}}
 \end{center}
 \thispagestyle{empty}
@@ -45,10 +50,9 @@
 
 % --- Projektüberblick ---
 \section*{Projektüberblick}
-Vögel zu zählen ist eine mühsame Angelegenheit. Normalerweise stehen Ornithologen stundenlang im Wald und führen Strichlisten. Das ist nicht nur zeitaufwendig, sondern auch ziemlich ungenau, da man nicht überall gleichzeitig sein kann. Unser Projekt „Piepmatz Polizei“ soll das ändern. Wir haben ein System entwickelt, das Vogelstimmen vollautomatisch aufnimmt und mithilfe von Deep Learning klassifiziert.
+Die systematische Erfassung von Vogelpopulationen ist zeitaufwendig, personalintensiv und fehleranfällig, da Ornithologen nicht flächendeckend agieren können. Unser Projekt Piepmatz Polizei automatisiert diesen Prozess. Wir haben ein autarkes, solarbetriebenes Gerät entwickelt, das Vogelstimmen kontinuierlich aufzeichnet und mithilfe von Deep Learning lokal klassifiziert. Der Fokus bis jetzt lag jedoch hauptsächlich auf der Software weshalb diese hier am detaillreichsten beschrieben wird.
 
-Dabei setzen wir nicht auf einfache Frequenzanalysen, sondern nutzen moderne Convolutional Neural Networks (CNNs), die auf Mel-Spektrogrammen trainiert wurden. Wir haben uns dabei nicht auf wenige Garten-Vögel beschränkt, sondern ein Modell trainiert, das einen Großteil der relevanten europäischen Vogelwelt erkennt.
-Die Kombination aus etablierten Architekturen wie EfficientNet und experimentellen Ansätzen wie Metric Learning sorgt dafür, dass die KI auch bei Wind oder Verkehrslärm nicht aus dem Tritt kommt. Zusätzlich haben wir ein Gehäuse entworfen, damit die Hardware auch mal einen Regenschauer überlebt.
+Dabei setzen wir auf moderne Convolutional Neural Networks (CNNs), die auf Mel-Spektrogrammen trainiert wurden. Wir haben uns bewusst nicht auf wenige Garten-Vögel beschränkt, sondern ein Modell trainiert, das die Vielfalt der europäischen Vogelwelt abdeckt. Die Kombination aus ressourceneffizienten Netzarchitekturen, speziellen Filtermethoden (Test-Time Augmentation) und hardwarenahen Optimierungen (Quantisierung, Wake-on-Sound) ermöglicht ein robustes Monitoring.
 
 \newpage
 \tableofcontents
@@ -56,23 +60,24 @@ Die Kombination aus etablierten Architekturen wie EfficientNet und experimentell
 
 % --- Inhalt ---
 
-\section{Einleitung: Warum eigentlich Vögel?}
-Vögel sind so etwas wie die Sensoren unseres Ökosystems. Wenn es ihnen schlecht geht, stimmt meistens auch etwas mit der Umwelt nicht. Das Problem ist nur die Erfassung. Sie sind scheu, schnell und verstecken sich gerne im Gebüsch. Die akustische Erfassung ist daher der Goldstandard. Menschliche Experten sind aber teuer und können nicht rund um die Uhr im Wald stehen, jedoch sind die Vorteile immens: Migrationsbewegungen oder unbekante Arten erfassen, Bauprojekte die auf das Ökosystem angepasst sind, frühzeitigeres Erkennen von Artensterben, etc.
+\section{Einleitung: Die ökologische Relevanz des akustischen Monitorings}
+\subsection{Warum Vögel?}
+Vögel gelten in der Ökologie als exzellente Bioindikatoren. Sie reagieren extrem sensibel und unmittelbar auf Umweltveränderungen, den Klimawandel, Habitatsverluste und das Insektensterben \cite{eea2020}. Geht es den Vogelpopulationen schlecht, ist dies ein unmissverständliches Warnsignal für das gesamte Ökosystem. Das Problem liegt jedoch in der systematischen Datenerfassung. Vögel sind scheu, schnell und entziehen sich oft der visuellen Beobachtung. Die akustische Erfassung ist daher der Sstandard. Ein flächendeckendes, 24/7 aktives akustisches Monitoring liefert unschätzbare Daten über Migrationsbewegungen, Bruterfolg und den Erhaltungszustand von Ökosystemen, welche für Bauprojekte und den Naturschutz essenziell sind.
 
-Unsere Fragestellung war also simpel: Können wir ein Gerät bauen, das wir einfach in den Baum hängen, und das uns am Ende des Monats eine Excel-Tabelle gibt? Wir wollten wissen, wer wann gesungen hat. Uns war schnell klar, dass ein solches System nur dann wirklich nützlich ist, wenn es nicht nur Amsel, Drossel, Fink und Star unterscheidet, sondern die Vielfalt der europäischen Vogelwelt abdeckt. Unser finales Modell ist daher auf hunderte europäische Arten trainiert.
+\subsection{Warum der Fokus auf Europa?}
+Viele etablierte Systeme und groß angelegte Datensätze konzentrieren sich historisch bedingt stark auf den nordamerikanischen Raum. Europa stellt jedoch mit seinen dicht besiedelten Flächen, der intensiven Landwirtschaft und komplexen, länderübergreifenden Zugrouten eine besondere ökologische Herausforderung dar. Die Datenerfassung ist hier oft fragmentiert und lokal organisiert. Unsere Motivation war es daher, ein speziell auf Europa zugeschnittenes, grenzübergreifendes Klassifikationsmodell zu entwickeln. Durch das Training auf hunderte europäische Arten schließen wir diese Lücke und schaffen ein Werkzeug, das standardisiert, europaweit eingesetzt werden kann und idealerweise bald in vielen Gärten und Wäldern hängt.
 
 \section{Theoretische Grundlagen}
 
 \subsection{Vom Ton zum Bild: Mel-Spektrogramme}
-Computer hören nicht so wie wir Menschen. Wenn wir Audiodaten in ein neuronales Netz füttern wollen, könnten wir zwar die rohe Wellenform verwenden. Das ist aber rechenintensiv und oft ineffizient. Viel besser funktionieren Bilderkennungsnetze (CNNs), die eigentlich für Fotos gemacht sind.
-Deshalb wandeln wir den Sound in Bilder um, sogenannte Spektrogramme. Dabei wird die Zeit auf der X-Achse und die Frequenz auf der Y-Achse abgetragen, die Helligkeit des Bildes an dieser Stelle ist dann die Lautstärke/Intensität. 
+Anstatt rohe Audio-Wellenformen rechenintensiv auszuwerten, nutzen wir die bewährte Methode, Audiodaten in visuelle Spektrogramme umzuwandeln. Die Zeit wird auf der X-Achse und die Frequenz auf der Y-Achse abgetragen; die Farbintensität repräsentiert die Amplitude (Lautstärke).
 
-Wir haben uns intensiv damit beschäftigt, wie man diese Bilder am besten aufbereitet. In Abbildung \ref{fig:mel_vs_lin} sieht man den Vergleich. Oben ist ein lineares Spektrogramm. Unten ist die \textit{Mel-Skala}. Diese Skala ist der menschlichen und vogelartigen Wahrnehmung nachempfunden. Wir hören Unterschiede in tiefen Tönen viel besser als in sehr hohen. Die Mel-Skala „zoomt“ sozusagen in die für Vögel relevanten Bereiche rein. Dadurch sieht das neuronale Netz die feinen Details im Gesang viel besser.
+Wir nutzen gezielt \textit{Mel-Spektrogramme} (siehe Abbildung \ref{fig:mel_vs_lin}). Die Mel-Skala ist der natürlichen auditiven Wahrnehmung nachempfunden: Frequenzunterschiede in niedrigen Bereichen werden detaillierter aufgelöst als in sehr hohen Bereichen. Dies hebt die feinen, artspezifischen Modulationen im Vogelgesang für das neuronale Netz optimal hervor.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.85\textwidth]{../Pictures/comparison_linear_vs_mel.png}
-    \caption{Vergleich der Darstellung: Das Mel-Spektrogramm (unten) löst die für Vögel relevanten Frequenzbereiche deutlich detailierter auf als die lineare Darstellung (oben).}
+    \includegraphics[width=0.75\textwidth]{../visuals/experiments/comparison_linear_vs_mel.png}
+    \caption{Vergleich: Das Mel-Spektrogramm (unten) löst die relevanten Frequenzstrukturen des Vogelgesangs deutlich besser auf als die lineare Darstellung (oben).}
     \label{fig:mel_vs_lin}
 \end{figure}
 
@@ -81,105 +86,83 @@ Es ist faszinierend zu sehen, wie unterschiedlich die Arten bereits visuell sind
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=1.0\textwidth]{../Pictures/comparison_species.png}
+    \includegraphics[width=0.85\textwidth]{../visuals/experiments/comparison_species.png}
     \caption{Exemplarische Spektrogramme von fünf Arten aus unserem umfangreichen Europa-Datensatz. Die visuellen Strukturen sind deutlich unterscheidbar, was dem CNN die Klassifikation ermöglicht.}
     \label{fig:species_comp}
 \end{figure}
 
 \section{Vorgehensweise und Methoden}
 
-\subsection{Datenpipeline: Ein europäischer Datensatz}
-Unsere Daten kommen von Xeno-Canto, einer riesigen Datenbank für Vogelstimmen. Um ein wirklich universelles Tool zu schaffen, haben wir unser Download-Skript so programmiert, dass es automatisch Metadaten und Audiofiles für das Verbreitungsgebiet Europa zieht. Das resultiert in einer enormen Menge an Trainingsdaten.
+\subsection{Datenpipeline: Der europäische Datensatz}
+Die Trainingsdaten stammen aus der Open-Source-Datenbank \textit{Xeno-Canto} \cite{xenocanto}. Unser Skript extrahiert gezielt Aufnahmen aus der Region Europa. Um das Modell für den realen Feldeinsatz zu härten, wurden neben Studioaufnahmen (Qualität A) bewusst auch verrauschte Aufnahmen (Qualität B und C) in den Datensatz integriert. Die Pipeline verarbeitet die Audiodaten direkt: Resampling auf 32\,kHz, Segmentierung in 5-Sekunden-Abschnitte, Transformation in Mel-Spektrogramme (128 Frequenzbänder) und logarithmische Normalisierung (dB) auf Werte zwischen 0 und 1.
 
-Wichtig war uns dabei unser System so robust wie möglich zu gestalten. Viele Aufnahmen auf Xeno-Canto sind extrem sauber (Richtmikrofone, Qualitätsstufe A). Im echten Wald rauscht es aber. Deshalb haben wir gezielt auch Aufnahmen mit den Qualitätsstufen B und C in den Trainingsdaten gelassen. Das Modell soll ja lernen, Vögel auch bei Hintergrundlärm zu erkennen.
-
-Unsere Pipeline verarbeitet die Daten \textit{on-the-fly}:
+\subsection{Modellarchitektur und Trainingstiefe}
+Um die enorm hohe Klassenanzahl europäischer Vögel auf ressourcenbeschränkter Edge-Hardware (Raspberry Pi) klassifizieren zu können, fiel unsere Wahl auf die \textbf{EfficientNet-B0} Architektur \cite{tan2019}.
 \begin{itemize}
-    \item Resampling auf 32kHz (mehr brauchen wir für Vögel nicht).
-    \item Zerschneiden in 5-Sekunden-Stücke.
-    \item Umwandlung in Mel-Spektrogramme (128 Bänder).
-    \item Logarithmierung (dB) und Normalisierung auf Werte zwischen 0 und 1.
+	\item \textbf{Transfer Learning:} Das Netz wurde mit ImageNet-Gewichten initialisiert. Die bereits erlernten Fähigkeiten zur Kanten- und Texturerkennung beschleunigen das Training auf Spektrogrammen enorm.
+    \item \textbf{Metric Learning Ansatz (Alternative):} Parallel testeten wir eine Architektur mit \textit{ArcFace Loss}. Hierbei lernt das Modell hochdimensionale Embeddings, bei denen Gesänge derselben Art im Vektorraum maximiert gebündelt werden. Dies bietet Vorteile bei der Entdeckung gänzlich unbekannter Arten.
 \end{itemize}
 
-\subsection{Die neuronalen Netzarchitekturen}
-Um die Komplexität der europäischen Vogelwelt abzubilden, haben wir nicht nur ein Standard-Modell trainiert, sondern zwei spezialisierte Architekturen entwickelt und evaluiert.
-
-\subsubsection{Der Klassifikator (EfficientNet-B0)}
-Für die direkte Bestimmung der Arten nutzen wir ein \textit{EfficientNet-B0}. Diese Architektur wurde von Google entwickelt, um ein optimales Verhältnis zwischen Genauigkeit und Rechenleistung zu bieten – ideal für den späteren Einsatz auf Edge-Geräten wie dem Raspberry Pi.
-\begin{itemize}
-    \item \textbf{Transfer Learning:} Wir initialisieren das Netz nicht mit zufälligen Werten, sondern nutzen Gewichte, die bereits auf dem riesigen ImageNet-Datensatz (Millionen von Fotos) trainiert wurden. Das Netz „weiß“ also schon, wie man Kanten, Kurven und Texturen sieht. Wir bringen ihm dann nur noch bei, diese visuellen Merkmale als Vogelstimmen zu interpretieren.
-    \item \textbf{Output Layer:} Der letzte Layer des Netzes wurde angepasst, um die Wahrscheinlichkeiten für alle trainierten europäischen Arten auszugeben (Softmax-Aktivierung).
-\end{itemize}
-
-\subsubsection{Der Embedding-Extraktor (Metric Learning)}
-Zusätzlich haben wir mit einem experimentellen Ansatz gearbeitet: \textbf{Metric Learning}. Hierbei klassifiziert das Netz nicht direkt („Das ist eine Amsel“), sondern lernt, ähnliche Gesänge nahe beieinander in einem hochdimensionalen Raum zu platzieren.
-\begin{itemize}
-    \item \textbf{Projektions-Head:} Statt einer Klassifikationsebene nutzen wir einen Projektions-Head (Linear $\rightarrow$ BatchNorm $\rightarrow$ PReLU $\rightarrow$ Linear), der das Spektrogramm auf einen 512-dimensionalen Vektor abbildet.
-    \item \textbf{ArcFace Loss:} Wir trainieren mit der \textit{Sub-Center ArcFace Loss}-Funktion. Diese zwingt das Netz, die Vektoren auf einer Hypersphäre so anzuordnen, dass Gesänge derselben Art extrem nah beieinander liegen (kleiner Winkelabstand) und verschiedene Arten maximalen Abstand haben.
-    \item \textbf{Vorteil:} Dieser Ansatz erlaubt es uns, eine „Landkarte der Biodiversität“ zu erstellen und potenziell sogar Arten zu erkennen, die gar nicht im Training dabei waren (Out-of-Distribution Detection), indem man prüft, ob ein neuer Vektor in keinen bekannten Cluster passt.
-\end{itemize}
-
-\subsection{Trainingstrategie}
-Um das Modell bei dieser enormen Anzahl an Klassen robust zu machen, haben wir tief in die Trickkiste der Regularisierung gegriffen. Besonders wichtig war uns \textbf{SpecAugment}. Dabei löschen wir im Training einfach zufällig Teile des Spektrogramms. Mal fehlen ein paar Millisekunden, mal fehlt ein Frequenzbereich. Das zwingt das Netz, den Vogel auch dann zu erkennen, wenn er nur teilweise zu hören ist und macht das Modell somit weniger anfällig auf Störgeräusche.
-
-Wir haben den Trainingsverlauf genau überwacht. In Abbildung \ref{fig:loss_curve} sieht man, wie der Fehler (Loss) über die Epochen abnimmt. Man erkennt gut, dass das Modell stetig lernt, ohne dabei zu starke Ausreißer zu haben.
+\subsection{Trainingsstrategie und Regularisierung}
+Das Training eines derart großen Modells bringt die Gefahr des \textit{Overfittings} mit sich. Wir trainierten in PyTorch \cite{pytorch} mit dem \textbf{AdamW-Optimizer} und einem \textbf{Cosine-Annealing} Learning-Rate-Scheduler für eine cosinus-förmige Konvergenz der lr gegen 0, dh. die learning rate wird immer kleiner. Zwei Maßnahmen waren für den Erfolg kritisch:
+1. \textbf{Klassen-Balance:} Da einige Arten $5000$ Aufnahmen besitzen, andere nur $50$, implementierten wir einen \textit{WeightedRandomSampler}. Er sorgt dafür, dass das Netz in jeder Epoche seltene Vögel künstlich öfter zu sehen bekommt.
+2. \textbf{SpecAugment:} Während des Trainings werden zufällige Frequenzbänder und Zeitabschnitte im Spektrogramm maskiert. Das Netz wird gezwungen, redundante Merkmale zu lernen und Vögel selbst bei teilweiser Überlagerung durch Windgeräusche zu erkennen. Dies erklärt auch den Verlauf unserer Fehlerkurve (Abbildung \ref{fig:loss_curve}), bei der der Validierungsfehler zeitweise sogar unter dem Trainingsfehler liegt.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.7\textwidth]{../visuals/experiments/europe/loss_curve_15epoch_resnet18pre.png}
-    \caption{Trainingsverlauf: Normalerweise ist es ein Anzeichen von Overfitting wenn der Val-Loss deutlich höher als der Train-Loss ist. Bei uns ist der Grund hierfür jedoch, dass wir im Training Noise (SpecAugment) hinzufügen, was sich stark bemerkbar macht.}
+    \includegraphics[width=0.65\textwidth]{../visuals/experiments/europe/loss_curve_15epoch_resnet18pre.png}
+    \caption{Trainingsverlauf: Normalerweise ist es ein Anzeichen von Overfitting, wenn der Val-Loss deutlich höher als der Train-Loss ist. Bei uns ist der Grund hierfür jedoch, dass wir im Training gezielt Rauschen (SpecAugment) hinzufügen, um das Modell robuster zu machen.}
     \label{fig:loss_curve}
 \end{figure}
 
-\section{Ergebnisse: Wie gut funktioniert es?}
+\section{Ergebnisse und Evaluation}
 
-\subsection{Trefferquote und Vergleich}
-Ehrlich gesagt waren wir selbst überrascht. Unser finales Modell (EfficientNet mit Transfer Learning) erreicht extrem hohe Genauigkeiten, und das obwohl es hunderte verschiedene Arten unterscheiden muss.
-Zum Vergleich haben wir ein Modell komplett von Null trainiert („From Scratch“). Das kam nur auf ca. 80\% und hat extrem schnell angefangen, die Trainingsdaten auswendig zu lernen. Transfer Learning ist hier also der absolute Gamechanger, wie man in Abbildung \ref{fig:modelcomp} sieht. Die Tatsache, dass wir das Modell so stark skalieren konnten, ohne massiv an Genauigkeit zu verlieren, bestätigt unseren Ansatz.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\textwidth]{../visuals/experiments/europe/comparison_model_performance.png}
-    \caption{Der Vergleich zeigt den Trainingsfortschritt der Validierungsgenauigkeit. Das Transfer-Learning-Modell (EfficientNet) dominiert deutlich und generalisiert am besten auf neue Daten.}
-    \label{fig:modelcomp}
-\end{figure}
-
-Ein wichtiger Faktor für die Genauigkeit ist die verfügbare Datenmenge pro Vogelart. Abbildung \ref{fig:bubble} zeigt, dass unsere Methode ihr Ziel erreicht hat, öfter mit den Daten seltener Vögel zu trainieren und die KI nun auch seltene Vogelarten gut erkennt.
+\subsection{Trefferquote und Datenabhängigkeit}
+Unser Transfer-Learning-Ansatz (EfficientNet) erzielte auf den Validierungsdaten exzellente Ergebnisse und dominierte unsere klassischen \enquote{From-Scratch} trainierte Custom-CNNs deutlich, selbst mit Attention können unsere Custom CNNs nicht mithalten. (Abb. \ref{fig:performance_group}a). Abbildung \ref{fig:performance_group}b zeigt zudem erwartungsgemäß, dass Arten mit einem größeren Datenvolumen (große Blasen) eine höhere Klassifikationssicherheit aufweisen, weshalb das Sammeln weiterer Felddaten ein fortlaufender Prozess bleibt.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.8\textwidth]{../Pictures/scatter_data_vs_acc_bubble.png}
-    \caption{Einfluss der Datenmenge auf die Genauigkeit. Die Größe der Blasen repräsentiert die Anzahl der Trainingsdaten.}
-    \label{fig:bubble}
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/comparison_model_performance.png}
+        \caption{Das Transfer-Learning-Modell (EfficientNet) dominiert deutlich und generalisiert am besten.}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/scatter_data_vs_acc_bubble.png}
+        \caption{Einfluss der Datenmenge auf die Genauigkeit (Blasengröße = Datensatzgröße).}
+    \end{subfigure}
+    \caption{Modellvergleich und Datenabhängigkeit.}
+    \label{fig:performance_group}
 \end{figure}
-
 
 \subsection{Fehleranalyse}
-Natürlich ist keine KI perfekt. Wir haben die Fehler genau analysiert. Die Konfusionsmatrix in Abbildung \ref{fig:conf_matrix} zeigt exemplarisch das finale Modell auf den Testdaten. Die Diagonale ist sehr ausgeprägt, was für eine hohe Genauigkeit spricht. Verwechslungen treten vor allem bei sehr kurzen Rufen von verwandten Arten auf (z.B. verschiedene Finken-Arten). Das ist aber auch für menschliche Experten oft schwer zu unterscheiden.
+Natürlich ist keine KI perfekt. Wir haben die Fehler genau analysiert. Die Konfusionsmatrix in Abbildung \ref{fig:error_analysis}a zeigt exemplarisch das finale Modell auf den Testdaten. Die Diagonale ist sehr ausgeprägt, was für eine hohe Genauigkeit spricht. In Abbildung \ref{fig:error_analysis}b haben wir die häufigsten Fehlklassifikationen genauer aufgeschlüsselt. Verwechslungen treten vor allem bei sehr kurzen Rufen von verwandten Arten auf (z.B. verschiedene Finken-Arten). Das ist aber auch für menschliche Experten oft schwer zu unterscheiden.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.8\textwidth]{../visuals/experiments/europe/efficientnet_task-species_attn-False_layers-3_confusion.png}
-    \caption{Konfusionsmatrix des finalen Modells. Die dichte Diagonale bestätigt die hohe Präzision auch bei einer massiven Klassenanzahl.}
-    \label{fig:conf_matrix}
-\end{figure}
-
-In Abbildung \ref{fig:top_errors} haben wir die häufigsten Fehlklassifikationen genauer aufgeschlüsselt.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\textwidth]{../visuals/experiments/europe/top_errors.png}
-    \caption{Die häufigsten Verwechslungen. Die Grafik zeigt, welche Arten im Test-Set am ehesten miteinander verwechselt werden.}
-    \label{fig:top_errors}
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/efficientnet_task-species_attn-False_layers-3_confusion.png}
+        \caption{Konfusionsmatrix: Die dichte Diagonale bestätigt die hohe Präzision.}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/top_errors.png}
+        \caption{Die 15 häufigsten KI-Verwechslungen im Test-Set.}
+    \end{subfigure}
+    \caption{Fehleranalyse des finalen Modells.}
+    \label{fig:error_analysis}
 \end{figure}
 
 \subsection{Robustheit gegen schlechte Audioqualität}
-Ein wichtiger Punkt war uns die Frage, wie das Modell reagiert, wenn die Aufnahmequalität sinkt. Auf Xeno-Canto sind die Aufnahmen mit Buchstaben von A (Studio) bis E (unbrauchbar) bewertet.
-In Abbildung \ref{fig:quality} sehen wir, dass die Erkennungsrate bei A-C ungefähr gleichbleibt, unser Modell ist also relativ unabhängig von Audioqualität.
+Ein wichtiger Punkt war uns die Frage, wie das Modell reagiert, wenn die Aufnahmequalität sinkt. Auf Xeno-Canto sind die Aufnahmen mit Buchstaben von A (Studio) bis E (unbrauchbar) bewertet. In Abbildung \ref{fig:quality} sehen wir, dass die Erkennungsrate bei A-C ungefähr gleichbleibt, unser Modell ist also relativ unabhängig von Audioqualität.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.7\textwidth]{../visuals/experiments/europe/performance_by_quality.png}
+    \includegraphics[width=0.6\textwidth]{../visuals/experiments/europe/performance_by_quality.png}
     \caption{Performance nach Audioqualität. Selbst bei schlechten Aufnahmen (D) bleibt das Modell gut nutzbar.}
     \label{fig:quality}
 \end{figure}
@@ -187,71 +170,111 @@ In Abbildung \ref{fig:quality} sehen wir, dass die Erkennungsrate bei A-C ungef�
 \subsection{Validierung durch externe Datenquellen (Cross-Testing)}
 Ein häufiges Risiko beim Training neuronaler Netze ist der sogenannte \enquote{Dataset Bias} – das Modell lernt dabei nicht nur die Vogelstimmen, sondern versehentlich auch die spezifischen Eigenheiten der Aufnahmegeräte der Trainingsdatenbank. Um sicherzustellen, dass unser Modell generalisiert, haben wir Cross-Tests mit Audioquellen durchgeführt, die nicht Teil des Xeno-Canto-Trainingsdatensatzes waren.
 
-Hierfür nutzten wir exemplarische Aufnahmen aus dem Google AudioSet sowie Referenzaufnahmen der Plattform \textit{kookoo.eu} (bekannt für hochwertige Singvogel-Aufnahmen). Das Modell konnte auch diese artfremden Aufnahmen mit hoher Zuverlässigkeit klassifizieren. Dies bestätigt, dass die KI tatsächlich die spektralen Muster der Vögel gelernt hat und nicht nur auf die akustische Signatur einer spezifischen Datenbank optimiert ist.
-
-
-\subsection{Sliding Window Inference \& Grad-CAM}
-Im echten Einsatz bekommen wir keine vorgeschnittenen 5-Sekunden-Clips, sondern einen endlosen Audio-Stream. Wir nutzen daher einen \enquote{Sliding Window} Ansatz. Das Fenster schiebt sich über die Aufnahme und das Model gibt für jeden Moment eine Wahrscheinlichkeit aus.
-In Abbildung \ref{fig:sliding} haben wir das mittels Grad-CAM (Gradient-weighted Class Activation Mapping) visualisiert. Man sieht unten das Spektrogramm und darüber die von der KI generierte Aufmerksamkeits-Heatmap. Je heller (gelb/rötlich) die Farbe, desto stärker reagieren die Faltungs-Schichten auf diesen Bereich. Man sieht schön, wie die KI gezielt bei den Gesangs-Events ausschlägt.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=1.0\textwidth]{../visuals/experiments/europe/gradcam_sliding_window.png}
-    \caption{Visualisierung der KI-Aufmerksamkeit. Die farbigen Bereiche markieren hochpräzise, auf welche Frequenzmuster das Modell im Audio-Stream geachtet hat, um seine Vorhersage zu treffen.}
-    \label{fig:sliding}
-\end{figure}
+Hierfür nutzten wir exemplarische Aufnahmen aus dem Google AudioSet sowie Referenzaufnahmen der Plattform \textit{kookoo.eu}. Das Modell konnte auch diese artfremden Aufnahmen mit hoher Zuverlässigkeit klassifizieren. Dies bestätigt, dass die KI tatsächlich die spektralen Muster der Vögel gelernt hat und nicht nur auf die akustische Signatur einer spezifischen Datenbank optimiert ist.
 
 \subsection{Zusatzexperimente: Rufe vs. Gesänge und Architekturvergleich}
-Neben der Artenerkennung haben wir untersucht, ob das Modell auch den Typ der Lautäußerung (Gesang oder Ruf) unterscheiden kann. Die t-SNE Visualisierung der Embeddings (Abb. \ref{fig:tsne}) zeigt, dass das Modell diese Unterscheidung intern sehr gut trennt.
+Neben der Artenerkennung haben wir untersucht, ob das Modell auch den Typ der Lautäußerung (Gesang oder Ruf) unterscheiden kann. Die t-SNE Visualisierung der Embeddings (Abb. \ref{fig:tsne}a) zeigt, dass das Modell diese Unterscheidung intern sehr gut trennt. Zusätzlich haben wir unsere verschiedenen Modellarchitekturen direkt verglichen (siehe Abb. \ref{fig:tsne}b), um den besten Kompromiss aus Parametergröße und Leistungsfähigkeit für das spätere Raspberry Pi Deployment zu ermitteln.
+
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.7\textwidth]{../visuals/experiments/europe/tsne_song_vs_call.png}
-    \caption{t-SNE Visualisierung der Modell-Embeddings. Rufe (Call) und Gesänge (Song) bilden jeweils separate Cluster im gelernten Feature-Space.}
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/tsne_song_vs_call.png}
+        \caption{t-SNE Visualisierung: Rufe (Call) und Gesänge (Song) bilden separate Cluster.}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.51\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{../visuals/experiments/europe/sliding_window_comparison_updated.png}
+        \caption{Vergleich der Accuracy über alle untersuchten KI-Architekturen hinweg.}
+    \end{subfigure}
+    \caption{Zusatzexperimente: Interne Repräsentation und Modellskalierung.}
     \label{fig:tsne}
 \end{figure}
 
-Zusätzlich haben wir unsere verschiedenen Modellarchitekturen direkt verglichen (siehe Abb. \ref{fig:arch_comp}), um den besten Kompromiss aus Parametergröße und Leistungsfähigkeit für das spätere Raspberry Pi Deployment zu ermitteln. Die selbstgebauten Custom-CNNs sind extrem rechenleicht, skalieren bei so vielen Klassen aber nicht so gut wie etablierte Transfer-Learning Architekturen.
+\subsection{Sliding Window Inference \& Grad-CAM}
+Im operativen Einsatz analysiert das Modell einen endlosen Audio-Stream durch ein sich verschiebendes \enquote{Sliding Window}. Mittels \textit{Grad-CAM} (Gradient-weighted Class Activation Mapping) konnten wir verifizieren, dass das Modell tatsächlich auf die artspezifischen Frequenzmodulationen im Gesang achtet und Hintergrundrauschen ignoriert (siehe rote/gelbe Bereiche in Abb. \ref{fig:sliding}).
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.85\textwidth]{../visuals/experiments/europe/sliding_window_comparison_updated.png}
-    \caption{Vergleich der Accuracy über alle untersuchten KI-Architekturen hinweg. Das große Modell dominiert die Metriken.}
-    \label{fig:arch_comp}
+    \includegraphics[width=\textwidth, height=0.45\textheight, keepaspectratio]{../visuals/experiments/europe/gradcam_sliding_window.png}
+    \caption{Grad-CAM Visualisierung: Die Heatmap markiert hochpräzise die Frequenzmuster, die das neuronale Netz zur Entscheidungsfindung herangezogen hat.}
+    \label{fig:sliding}
 \end{figure}
 
-\section{Hardware-Design}
-Software ist nichts ohne Hardware. Mit \textit{Onshape} haben wir ein Gehäuse konstruiert, das alles zusammenhält.
-Wichtig war uns, dass das Solarpanel direkt in den Deckel integriert ist, um den optimalen Winkel zur Sonne zu haben. Außerdem braucht das Mikrofon einen akustischen Trichter. Das Design ist modular aufgebaut, damit man Teile leicht austauschen kann, falls mal etwas kaputtgeht.
+\subsection{Algorithmische Signalstabilisierung (Post-Processing)}
+Im realen Wald verfälschen Windböen oder knackende Äste kurzzeitig das Mikrofonsignal. Dies führt bei der KI-Auswertung zu Fehlalarmen (False Positives) oder kurzen Erkennungslücken (False Negatives). Wir lösten dieses Problem durch zwei rechenleichte mathematische Post-Processing-Techniken, ohne das Modell neu trainieren zu müssen:
+
+\textbf{1. Temporale Glättung (Test-Time Augmentation):}
+Wir legen eine mathematische 1D-Faltung (Kernel: \texttt{[0.1, 0.2, 0.4, 0.2, 0.1]}) über die Zeitachse. Die Vorhersage eines 5-Sekunden-Fensters wird dadurch durch die vorherigen und nachfolgenden Fenster gestützt. Kurze Konfidenzeinbrüche werden so effektiv geglättet (Abb. \ref{fig:smoothing}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../visuals/experiments/smoothing_comparison.png}
+    \caption{Temporale Glättung: Durch den Einbezug benachbarter Zeitfenster wird das stark schwankende Rohsignal stabilisiert. Lücken in der Erkennung werden verhindert.}
+    \label{fig:smoothing}
+\end{figure}
+
+\textbf{2. Root-Scaled Context Suppression:}
+Um isolierte Fehlalarme zu filtern, nutzen wir die Annahme, dass ein echter Vogel innerhalb einer Aufnahme mindestens einmal einen sehr deutlichen \enquote{Anker-Ruf} abgibt. Fehlt dieser globale Maximalwert in der Datei, handelt es sich meist um Rauschen. Statt die Vorhersagen linear mit dem globalen Maximalwert zu multiplizieren, haben wir eine verbesserte Formel entwickelt. Wir multiplizieren die Wahrscheinlichkeit $P(t, c)$ jedes Fensters mit der Wurzel des klassenspezifischen Maximalwerts ($\sqrt{P_{max}}$). Dies dämpft isolierte Fehlalarme extrem zuverlässig unter die Erkennungsschwelle, erhält aber leisere, echte Rufe von weiter entfernten Vögeln (Abb. \ref{fig:fpsuppression}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../visuals/experiments/false_positive_suppression.png}
+    \caption{Root-Scaled Suppression: Der isolierte Fehlalarm (rot) ohne starken globalen Anker stürzt unter den Schwellenwert ab, während der echte Ruf (blau) intakt bleibt.}
+    \label{fig:fpsuppression}
+\end{figure}
+
+\section{Hardware-Design und Edge-Deployment}
+Die KI-Software läuft auf einem \textit{Raspberry Pi Zero 2 W}, eingefasst in ein modulares, am CAD entworfenes Gehäuse mit integriertem Solarpanel und akustischem Mikrofon-Trichter (Abb. \ref{fig:hardware}). Da die Hardware stark ressourcenbeschränkt ist (512\,MB RAM, schwache CPU), führten wir zwei wesentliche Software-Hardware-Optimierungen durch.
 
 \begin{figure}[H]
     \centering
     \begin{subfigure}[b]{0.32\textwidth}
         \centering
-        \includegraphics[width=\textwidth]{../OnshapeImages/OnshapeModelView_CasingWithParts.png}
+        \includegraphics[width=\textwidth]{../visuals/cad/OnshapeModelView_CasingWithParts.png}
         \caption{Innenleben}
     \end{subfigure}
     \hfill
     \begin{subfigure}[b]{0.32\textwidth}
         \centering
-        \includegraphics[width=\textwidth]{../OnshapeImages/OnshapeModelView_OnlyCasing.png}
+        \includegraphics[width=\textwidth]{../visuals/cad/OnshapeModelView_OnlyCasing.png}
         \caption{Gehäuse-Struktur}
     \end{subfigure}
     \hfill
     \begin{subfigure}[b]{0.32\textwidth}
         \centering
-        \includegraphics[width=\textwidth]{../OnshapeImages/OnshapeModelView_SolarPanel.png}
-        \caption{Solar-Integration}
+        \includegraphics[width=\textwidth]{../visuals/electronics/schematic.png}
+        \caption{Elektronik-Schaltplan}
     \end{subfigure}
-    \caption{Unsere CAD-Konstruktion für den autonomen Feldeinsatz.}
+    \caption{Unsere CAD-Konstruktion und das Schaltungsdesign für den autonomen Feldeinsatz.}
     \label{fig:hardware}
 \end{figure}
 
-\section{Fazit und wie es weitergeht}
-Wir haben gezeigt, dass es funktioniert. Die Software steht und liefert exzellente Werte. Besonders stolz sind wir darauf, dass wir mit Open-Source-Daten eine so hohe Genauigkeit erreichen konnten.
-Was jetzt noch fehlt, ist der Härtetest im Wald. Wir müssen das Gehäuse drucken und schauen, ob der Raspberry Pi mit dem Solarstrom über den Winter kommt. Vielleicht müssen wir den Code noch effizienter machen oder auf Mikrocontroller wie den ESP32 umsteigen, um Strom zu sparen.
-Außerdem wollen wir den \enquote{Sliding Window}-Algorithmus noch schneller machen, damit er direkt live auf dem Gerät laufen kann, ohne erst alles in die Cloud schicken zu müssen.
+\subsection{Quantisierungs-Experimente (ONNX)}
+Wir wandelten das PyTorch-Modell in das optimierte ONNX-Format \cite{onnx} um und testeten eine 8-Bit Post-Training-Quantisierung. Obwohl die Modellgröße von 19,1\,MB auf kompakte 5,2\,MB sank, kollabierte die Genauigkeit bei der INT8-Rundung auf 25\% (Abb. \ref{fig:quantization}). Die Ursache liegt in der Architektur des EfficientNets: Es nutzt \textit{Squeeze-and-Excitation}-Blöcke, die mit extrem feinen Fließkommaskalierungen arbeiten. Da das FP32-Modell problemlos in den Arbeitsspeicher des Pi passt, verzichten wir zugunsten der Genauigkeit auf die Quantisierung, gewannen jedoch wertvolle hardwarenahe Erkenntnisse über architektonische Limits.
 
-Ein entscheidender nächster Schritt für die wissenschaftliche Validierung ist der \enquote{Ground Truth}-Abgleich im Feld. Hierfür planen wir eine Kooperation mit der Experten-Community von \textit{BirdForum.net}. Ziel ist es, erfahrene Ornithologen oder Hobby-Beobachter zu gewinnen, die unsere Prototypen parallel zu ihren manuellen Beobachtungen einsetzen. Der Vergleich zwischen der KI-generierten Liste und den manuellen Notizen der Experten wird uns die verlässlichsten Daten über die Performance unter realen Bedingungen (IRL-Tests) liefern.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{../visuals/experiments/comparison_quantization.png}
+    \caption{Auswertung des Quantisierungs-Experiments: Während die Dateigröße stark schrumpft, führt die komplexe Architektur des EfficientNets bei einer nachträglichen INT8-Konvertierung zu einem massiven und unerwarteten Genauigkeitsverlust.}
+    \label{fig:quantization}
+\end{figure}
+
+\subsection{Energieeffizienz: Wake-on-Sound Architektur}
+Die kontinuierliche Berechnung eines neuronalen Netzes verbraucht massiv Strom. Um die Akkulaufzeit bei schlechtem Wetter zu garantieren, implementierten wir eine heuristische Wake-on-Sound-Vorfilterung ähnlich wie z.B. Sprachassistent Alexa. Der Prozessor berechnet zunächst nur die sehr sparsame RMS-Energie des Mikrofons. Erst wenn ein Schwellenwert überschritten wird (Lärm/Gesang), erwacht das neuronale Netz aus dem Deep-Sleep und berechnet die Inferenz (Abb. \ref{fig:wakeonsound}). Da der Wald nachts und zur Mittagshitze sehr leise ist, sparen wir so bis zu $65\%$ der täglichen Rechenlast.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{../visuals/experiments/wake_on_sound_energy.png}
+    \caption{Simulierter Tagesablauf: Das rechenintensive CNN (rot) berechnet die Inferenz nur in lauten Phasen. In stillen Phasen (blau) schläft die KI, was den Akku massiv schont.}
+    \label{fig:wakeonsound}
+\end{figure}
+
+\section{Fazit und Ausblick}
+Wir konnten beweisen, dass die Kombination aus Open-Source-Daten, effizienten CNN-Architekturen und cleverem Post-Processing ein hochpräzises und ressourcenschonendes Edge-KI-System ermöglicht. Unser \enquote{Piepmatz Polizei}-Sensor ist in der Lage, autonom europäische Vogelpopulationen zu erfassen.
+
+Der nächste entscheidende Schritt ist die wissenschaftliche Feldevaluation. In Kooperation mit Hobby-Ornithologen planen wir, unsere Prototypen zu im Wald zu testen. Dies wird die abschließende Bestätigung liefern, wie zuverlässig das System wirklich ist.
 
 % --- Literaturverzeichnis ---
 \newpage
@@ -278,13 +301,28 @@ Xeno-Canto Foundation.
 \textit{Xeno-canto: Sharing bird sounds from around the world.}
 \url{https://www.xeno-canto.org/}
 
+\bibitem{pytorch}
+Paszke, A., et al. (2019).
+\textit{PyTorch: An Imperative Style, High-Performance Deep Learning Library.}
+Advances in Neural Information Processing Systems.
+
+\bibitem{onnx}
+Bai, J., et al. (2019).
+\textit{ONNX: Open Neural Network Exchange.}
+\url{https://onnx.ai/}
+
+\bibitem{eea2020}
+European Environment Agency (2020).
+\textit{State of nature in the EU: Results from reporting under the nature directives 2013-2018.}
+EEA Report No 10/2020.
+
 \end{thebibliography}
 
 % --- Unterstützungsleistungen ---
 \newpage
 \section*{Unterstützungsleistungen}
-Daten und Programme  der Open-Source-Community haben die Umsetzung unseres Projekts sehr erleichtert. Insbesondere die Audiodaten von Xeno-Canto waren essenziell. Für die Programmierung haben wir Bibliotheken wie PyTorch, Librosa und Audiomentations genutzt. Ohne diese Tools wäre das Projekt in der Zeit gar nicht machbar gewesen. Ein Dank geht auch an unsere Informatik-Lehrer für das Feedback zwischendurch.
+Daten und Programme der Open-Source-Community haben die Umsetzung unseres Projekts sehr erleichtert. Insbesondere die Audiodaten von Xeno-Canto waren essenziell. Für die Programmierung haben wir Bibliotheken wie PyTorch, Librosa und Audiomentations genutzt. Ein Dank geht an unsere Informatik-Lehrer für das Feedback zwischendurch sowie an David May für die Gestaltung des Titelbildes.
 
-Ein besonderer Dank geht an David May für die Gestaltung des Titelbildes sowie an unsere JuFo-Lehrer für die Betreuung unseres Projekts.
+Besonderer Dank gilt unseren JuFo-Betreuern für die anhaltende Unterstützung.
 
 \end{document}
