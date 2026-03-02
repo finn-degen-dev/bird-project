@@ -4,5 +4,6 @@
     "custom_task-species_attn-False_layers-2": 40.78825652457425,
     "custom_task-species_attn-False_layers-3": 59.856239479550524,
     "custom_task-species_attn-False_layers-5": 61.46520479808319,
-    "custom_task-species_attn-True_layers-3": 60.55229516400528
+    "custom_task-species_attn-True_layers-3": 60.55229516400528,
+    "embedding_task-species_attn-False_layers-3": 59.98513868037547
 }

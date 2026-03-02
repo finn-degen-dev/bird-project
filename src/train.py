@@ -160,6 +160,8 @@ def main():
                 best_metric = avg_val_loss
                 torch.save(model.state_dict(), os.path.join(MODELS_DIR, f"{exp_name}_best.pth"))
 
+                torch.save(criterion.state_dict(), os.path.join(MODELS_DIR, f"{exp_name}_arcface.pth"))
+
         history_log.append(epoch_stats)
         with open(os.path.join(LOGS_DIR, f"{exp_name}_history.json"), "w") as f:
             json.dump(history_log, f, indent=4)
