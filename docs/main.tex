@@ -232,8 +232,8 @@ Die KI-Software läuft auf einem \textit{Raspberry Pi Zero 2 W}, eingefasst in e
     \centering
     \begin{subfigure}[b]{0.32\textwidth}
         \centering
-        \includegraphics[width=\textwidth]{../visuals/cad/OnshapeModelView_CasingWithParts.png}
-        \caption{Innenleben}
+        \includegraphics[width=\textwidth]{../visuals/cad/RealView.jpg}
+        \caption{Zusammengebaut}
     \end{subfigure}
     \hfill
     \begin{subfigure}[b]{0.32\textwidth}
@@ -249,6 +249,20 @@ Die KI-Software läuft auf einem \textit{Raspberry Pi Zero 2 W}, eingefasst in e
     \end{subfigure}
     \caption{Unsere CAD-Konstruktion und das Schaltungsdesign für den autonomen Feldeinsatz.}
     \label{fig:hardware}
+\end{figure}
+
+\subsection{Architektur-Evaluation: MobileNetV3 vs. EfficientNet}
+
+Audio-Spektrogramme liegen als Graustufenbilder vor, während vortrainierte CNNs typischerweise 3-Kanal-Eingaben erwarten. Wir testeten daher eine 1-Kanal-Anpassung durch Kompression der Eingabe und Aggregation der Pre-Training-Gewichte, um Speicherbandbreite zu sparen.
+
+Zwar verbesserte diese Variante bei EfficientNet die CPU-Latenz deutlich – unter anderem durch bessere Cache-Nutzung –, jedoch ging dies mit einem spürbaren Genauigkeitsverlust einher.
+
+Als bessere Lösung erwies sich der Wechsel der Architektur: \textbf{MobileNetV3-Small}, speziell für schwache Hardware optimiert, erreichte im unveränderten 3-Kanal-Modus eine deutlich schnellere Inferenz bei gleichzeitig hoher Accuracy. Damit wurde MobileNetV3 zur bevorzugten Architektur für das Edge-Deployment.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.8\linewidth]{../visuals/experiments/architecture_speed_comparison.png}
+    \caption{Vergleich der Inferenzgeschwindigkeit und Genauigkeit verschiedener Architekturen}
 \end{figure}
 
 \subsection{Quantisierungs-Experimente (ONNX)}

@@ -17,8 +17,8 @@ from models import get_model
 
 RMS_THRESHOLD = 0.005
 
-def preprocess_chunk(y_chunk, sr):
-    """Wandelt einen Audio-Ausschnitt exakt wie im Training in einen Tensor um."""
+def preprocess_chunk(y_chunk, sr, in_channels=3):
+    """Wandelt einen Audio-Ausschnitt in einen Tensor um."""
 
     rms = np.sqrt(np.mean(y_chunk**2))
     if rms < RMS_THRESHOLD:
@@ -42,14 +42,18 @@ def preprocess_chunk(y_chunk, sr):
     spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
     spec_norm = np.flipud(spec_norm).copy()
 
-    tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0).repeat(3, 1, 1).unsqueeze(0)
+    tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0)
+    
+    if in_channels == 3:
+        tensor = tensor.repeat(3, 1, 1)
+        
+    tensor = tensor.unsqueeze(0) # Batch Dimension
     tensor = F.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False)
 
     return tensor
 
-def live_showcase(model, classes, threshold, model_type):
+def live_showcase(model, classes, threshold, model_type, in_channels):
     print("\n LIVE MIKROFON MODUS GESTARTET! (Beenden mit Strg+C)")
-    print("Spiele Vogelstimmen über dein Handy ab...")
 
     plt.ion()
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -58,16 +62,14 @@ def live_showcase(model, classes, threshold, model_type):
     buffer_size = int(SAMPLE_RATE * DURATION)
     audio_buffer = np.zeros(buffer_size, dtype=np.float32)
 
-    results =[]
+    results = []
     start_time = time.time()
 
     def audio_callback(indata, frames, time_info, status):
-        """Wird kontinuierlich vom Mikrofon aufgerufen"""
         nonlocal audio_buffer
         if status:
             pass
         new_data = indata[:, 0]
-
         audio_buffer = np.roll(audio_buffer, -len(new_data))
         audio_buffer[-len(new_data):] = new_data
 
@@ -75,9 +77,8 @@ def live_showcase(model, classes, threshold, model_type):
         with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, callback=audio_callback):
             while True:
                 time.sleep(1.0)
-
                 chunk = audio_buffer.copy()
-                tensor = preprocess_chunk(chunk, SAMPLE_RATE)
+                tensor = preprocess_chunk(chunk, SAMPLE_RATE, in_channels)
 
                 if tensor is None:
                     continue
@@ -95,7 +96,7 @@ def live_showcase(model, classes, threshold, model_type):
                     current_time = time.time() - start_time
                     bird_name = classes[idx]
 
-                    non_birds =['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper']
+                    non_birds = ['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper']
                     if any(x in bird_name.lower() for x in non_birds):
                         print(f"[{current_time:04.1f}s]  Ignoriere Insekt/Amphibie: {bird_name}")
                         continue
@@ -110,12 +111,11 @@ def live_showcase(model, classes, threshold, model_type):
                         data=df, x="Zeit (s)", y="Vogelart", size="Konfidenz",
                         sizes=(100, 400), hue="Vogelart", palette="Set1", ax=ax, legend=False
                     )
-
                     max_time = current_time
                     min_time = max(0, max_time - 30)
                     ax.set_xlim(min_time, max_time + 2)
 
-                ax.set_title(f"Live-Radar: Was hört die KI gerade? | {model_type.capitalize()}", fontsize=14)
+                ax.set_title(f"Live-Radar: Was hört die KI gerade? | {model_type.capitalize()} ({in_channels}ch)", fontsize=14)
                 ax.grid(True, linestyle='--', alpha=0.4)
                 plt.pause(0.01)
 
@@ -124,7 +124,7 @@ def live_showcase(model, classes, threshold, model_type):
         plt.ioff()
         plt.show()
 
-def file_showcase(audio_path, model, classes, threshold, model_type):
+def file_showcase(audio_path, model, classes, threshold, model_type, in_channels):
     print(f" Analysiere Datei: {audio_path}")
     y, sr = librosa.load(audio_path, sr=SAMPLE_RATE)
     print(f"Länge der Aufnahme: {len(y)/sr:.1f} Sekunden")
@@ -133,12 +133,12 @@ def file_showcase(audio_path, model, classes, threshold, model_type):
     stride_samples = int((DURATION / 2.0) * sr)
 
     times = []
-    all_probs =[]
+    all_probs = []
 
     print(" Starte Sliding-Window Scan...")
     for start in tqdm(range(0, len(y) - window_samples + 1, stride_samples)):
         chunk = y[start : start + window_samples]
-        tensor = preprocess_chunk(chunk, sr)
+        tensor = preprocess_chunk(chunk, sr, in_channels)
         t_sec = start / sr
         times.append(t_sec)
 
@@ -153,31 +153,24 @@ def file_showcase(audio_path, model, classes, threshold, model_type):
 
     all_probs = np.array(all_probs)
 
-    # --- KAGGLE TRICK: TEMPORALES SMOOTHING (1st Place BirdCLEF 2025 Strategy) ---
-    # Wir nutzen den exakten Smoothing-Kernel des Gewinners:[0.1, 0.2, 0.4, 0.2, 0.1]
     kernel = np.array([0.1, 0.2, 0.4, 0.2, 0.1])
     smoothed_probs = np.zeros_like(all_probs)
     
     for c in range(all_probs.shape[1]):
-        # Um Randeffekte (Absturz am Start/Ende) zu verhindern, füllen wir die Ränder mit dem ersten/letzten Wert auf
         pad_size = len(kernel) // 2
         padded_signal = np.pad(all_probs[:, c], (pad_size, pad_size), mode='edge')
         smoothed_probs[:, c] = np.convolve(padded_signal, kernel, mode='valid')
 
-    # --- DOKUMENTATIONS-GRAFIK GENERIEREN ---
     top_class_idx = np.argmax(np.max(smoothed_probs, axis=0))
     top_bird_name = classes[top_class_idx]
 
     plt.figure(figsize=(12, 5))
     sns.set_theme(style="whitegrid")
     
-    # Rohe Vorhersagen
     plt.plot(times, all_probs[:, top_class_idx], label="Rohdaten (Raw)", alpha=0.5, linestyle='--', color='gray')
-    # Smoothed Vorhersagen
-    plt.plot(times, smoothed_probs[:, top_class_idx], label="Mit Zeit-Glättung (Kaggle 1st Place Kernel)", linewidth=3, color='#d62728')
-    
+    plt.plot(times, smoothed_probs[:, top_class_idx], label="Mit Zeit-Glättung", linewidth=3, color='#d62728')
     plt.axhline(threshold, color='black', linestyle=':', linewidth=2, label=f"Schwellenwert ({threshold*100:.0f}%)")
-    plt.title(f"Effekt der temporalen Glättung (TTA) am Beispiel: {top_bird_name}", fontsize=15, fontweight='bold')
+    plt.title(f"Effekt der temporalen Glättung am Beispiel: {top_bird_name}", fontsize=15, fontweight='bold')
     plt.xlabel("Zeitachse (Sekunden)", fontsize=12)
     plt.ylabel("KI Konfidenz (0.0 - 1.0)", fontsize=12)
     plt.ylim(-0.05, 1.05)
@@ -186,14 +179,11 @@ def file_showcase(audio_path, model, classes, threshold, model_type):
     
     doc_out_path = os.path.join(VISUALS_DIR, "smoothing_comparison.png")
     plt.savefig(doc_out_path, dpi=300)
-    print(f"\n Vergleichsgrafik für die Dokumentation gespeichert unter: {doc_out_path}") 
 
-    # --- FINALE ERGEBNISSE EXTRAHIEREN ---
-    results =[]
+    results = []
     for i, t_sec in enumerate(times):
         conf = np.max(smoothed_probs[i])
         idx = np.argmax(smoothed_probs[i])
-        # Nur wenn das Fenster nicht komplett still war (sum > 0) und über dem Threshold liegt
         if conf >= threshold and np.sum(all_probs[i]) > 0:
             results.append({"Zeit (s)": t_sec, "Vogelart": classes[idx], "Konfidenz": conf})
 
@@ -205,7 +195,6 @@ def file_showcase(audio_path, model, classes, threshold, model_type):
     print("\n Gefundene Vögel (nach Glättung):")
     print(df['Vogelart'].value_counts().to_string())
 
-    # Standard Showcase Plot
     plt.figure(figsize=(14, 7))
     sns.scatterplot(data=df, x="Zeit (s)", y="Vogelart", size="Konfidenz", sizes=(50, 300), hue="Konfidenz", palette="viridis")
     plt.title(f"Aktivitäts-Timeline (Smoothed) | Datei: {os.path.basename(audio_path)}")
@@ -213,10 +202,9 @@ def file_showcase(audio_path, model, classes, threshold, model_type):
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
 
-    out_path = os.path.join(VISUALS_DIR, f"showcase_{model_type}.png")
+    out_path = os.path.join(VISUALS_DIR, f"showcase_{model_type}_ch{in_channels}.png")
     plt.savefig(out_path, dpi=300)
     print(f" Showcase-Grafik gespeichert unter: {out_path}")
-  
 
 def main():
     parser = argparse.ArgumentParser(description="Live-Radar oder Datei-Analyse für Vogelstimmen")
@@ -224,7 +212,8 @@ def main():
     parser.add_argument("--live", action="store_true", help="Startet das Live-Mikrofon Radar")
     parser.add_argument("--file", type=str, help="Analysiert eine Audio-Datei (.mp3/.wav)")
 
-    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet"], default="efficientnet")
+    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet", "mobilenet"], default="efficientnet")
+    parser.add_argument("--in-channels", type=int, choices=[1, 3], default=3)
     parser.add_argument("--use-attention", action="store_true")
     parser.add_argument("--cnn-layers", type=int, default=3)
     parser.add_argument("--threshold", type=float, default=0.60, help="Mindest-Sicherheit der KI")
@@ -235,24 +224,25 @@ def main():
         print(" Du musst entweder --live ODER --file [PFAD] angeben!")
         return
 
-    exp_name = f"{args.model}_task-species_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_attn-{args.use_attention}_layers-{args.cnn_layers}"
     json_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
 
     if not os.path.exists(json_path):
         print(f" Modell {exp_name} nicht gefunden. Hast du es trainiert?")
+        print(f" Trainiere es mit: python src/train.py --model {args.model} --in-channels {args.in_channels}")
         return
 
     with open(json_path, "r") as f:
         classes = json.load(f)['classes']
 
-    model = get_model(args.model, len(classes), args.use_attention, args.cnn_layers).to(DEVICE)
+    model = get_model(args.model, len(classes), args.use_attention, args.cnn_layers, args.in_channels).to(DEVICE)
     model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
     model.eval()
 
     if args.live:
-        live_showcase(model, classes, args.threshold, args.model)
+        live_showcase(model, classes, args.threshold, args.model, args.in_channels)
     else:
-        file_showcase(args.file, model, classes, args.threshold, args.model)
+        file_showcase(args.file, model, classes, args.threshold, args.model, args.in_channels)
 
 if __name__ == "__main__":
     main()

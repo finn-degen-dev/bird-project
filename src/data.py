@@ -8,9 +8,10 @@ from collections import Counter
 from config import *
 
 class SmartBirdDataset(Dataset):
-    def __init__(self, mode='train', task='species', filter_sex=None, min_samples=10):
+    def __init__(self, mode='train', task='species', filter_sex=None, min_samples=10, in_channels=3):
         self.mode = mode
         self.task = task
+        self.in_channels = in_channels
 
         if not os.path.exists(METADATA_FILE):
             raise FileNotFoundError(f"Die Datei {METADATA_FILE} fehlt. Bitte 'python src/data_prep.py' ausführen.")
@@ -41,7 +42,7 @@ class SmartBirdDataset(Dataset):
             self.classes = ['call', 'song']
 
         self.class_to_idx = {cls: i for i, cls in enumerate(self.classes)}
-        print(f"[{mode.upper()}] Dataset bereit: {len(self.df)} Samples, {len(self.classes)} Klassen.")
+        print(f"[{mode.upper()}] Dataset bereit: {len(self.df)} Samples, {len(self.classes)} Klassen (Kanäle: {self.in_channels}).")
 
     def __len__(self):
         return len(self.df)
@@ -54,35 +55,31 @@ class SmartBirdDataset(Dataset):
             return self.class_to_idx['song' if 'song' in desc else 'call']
 
     def get_all_labels(self):
-
-        return[self._get_label(row) for _, row in self.df.iterrows()]
+        return [self._get_label(row) for _, row in self.df.iterrows()]
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
 
         spec = torch.load(pt_path).float()
-
         current_width = spec.shape[1]
 
         if current_width > TARGET_WIDTH:
             if self.mode == 'train':
-
                 start = np.random.randint(0, current_width - TARGET_WIDTH)
             else:
-
                 start = (current_width - TARGET_WIDTH) // 2
-
             spec = spec[:, start : start + TARGET_WIDTH]
 
         elif current_width < TARGET_WIDTH:
-
             pad_amount = TARGET_WIDTH - current_width
             spec = torch.nn.functional.pad(spec, (0, pad_amount))
 
         tensor = spec.unsqueeze(0)
 
-        tensor = tensor.repeat(3, 1, 1)
+        # Modulares Kanal-Handling
+        if self.in_channels == 3:
+            tensor = tensor.repeat(3, 1, 1)
 
         tensor = torch.nn.functional.interpolate(
             tensor.unsqueeze(0), size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False
