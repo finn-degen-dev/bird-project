@@ -265,6 +265,18 @@ Als bessere Lösung erwies sich der Wechsel der Architektur: \textbf{MobileNetV3
     \caption{Vergleich der Inferenzgeschwindigkeit und Genauigkeit verschiedener Architekturen}
 \end{figure}
 
+\subsection{Spektrogramm-Auflösung (Trade-off Analyse)}
+Im Anschluss an die Architekturwahl analysierten wir, wie weit sich die Bildgröße (\texttt{IMG\_SIZE}) der Spektrogramme skalieren lässt, um weitere Inferenzzeit auf dem Pi Zero einzusparen. Wir trainierten das MobileNetV3 in vier Auflösungen: 224x224, 160x160, 128x128 und 96x96.
+
+Unsere Testergebnisse (siehe Abb. \ref{fig:imgsize}) zeigten, dass eine Verkleinerung des Inputs nur noch marginale Geschwindigkeitsvorteile bringt. Der Sprung von 224x224 auf extrem komprimierte 96x96 Pixel sparte auf unserer Test-Hardware lediglich knapp 1,8\,ms pro Inferenz. Gleichzeitig brach die Klassifikationsgenauigkeit jedoch massiv ein (von 94,0\,\% auf 75,6\,\%), da bei einer Y-Auflösung von unter 128 Pixeln die 128 Mel-Frequenzbänder zwangsläufig überlappen und feine Rufstrukturen der Vögel verloren gehen. Daraus schließen wir, dass die Standardauflösung von 224x224 in Kombination mit MobileNetV3 den optimalen \enquote{Sweet Spot} für unser System darstellt.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{../visuals/experiments/imgsize_speed_comparison.png}
+    \caption{Ergebnisse des Auflösungs-Experiments: Die Inferenzzeit verringert sich nur minimal, während die Accuracy bei kleinen Auflösungen aufgrund von Frequenzüberlappungen einbricht.}
+    \label{fig:imgsize}
+\end{figure}
+
 \subsection{Quantisierungs-Experimente (ONNX)}
 Wir wandelten das PyTorch-Modell in das optimierte ONNX-Format \cite{onnx} um und testeten eine 8-Bit Post-Training-Quantisierung. Obwohl die Modellgröße von 19,1\,MB auf kompakte 5,2\,MB sank, kollabierte die Genauigkeit bei der INT8-Rundung auf 25\% (Abb. \ref{fig:quantization}). Die Ursache liegt in der Architektur des EfficientNets: Es nutzt \textit{Squeeze-and-Excitation}-Blöcke, die mit extrem feinen Fließkommaskalierungen arbeiten. Da das FP32-Modell problemlos in den Arbeitsspeicher des Pi passt, verzichten wir zugunsten der Genauigkeit auf die Quantisierung, gewannen jedoch wertvolle hardwarenahe Erkenntnisse über architektonische Limits.
 

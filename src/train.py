@@ -17,17 +17,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", choices=["custom", "resnet", "efficientnet", "mobilenet", "embedding"], required=True)
     parser.add_argument("--task", choices=["species", "type"], default="species", help="'type' für Song vs Call Experiment")
-    parser.add_argument("--epochs", type=int, default=15)
+    parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--in-channels", type=int, choices=[1, 3], default=3, help="1 für Graustufen-Spektrogramm, 3 für RGB-Kopie")
+    parser.add_argument("--in-channels", type=int, choices=[1, 3], default=3, help="1 für Graustufen, 3 für RGB")
+    parser.add_argument("--img-size", type=int, default=224, help="Auflösung des Spektrogramms (für Latenz-Experimente)")
     parser.add_argument("--use-attention", action="store_true", help="Aktiviert Attention im Custom CNN")
     parser.add_argument("--cnn-layers", type=int, default=3, help="Anzahl Layers (nur Custom CNN)")
     args = parser.parse_args()
 
-    exp_name = f"{args.model}_task-{args.task}_ch-{args.in_channels}_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    exp_name = f"{args.model}_task-{args.task}_ch-{args.in_channels}_size-{args.img_size}_attn-{args.use_attention}_layers-{args.cnn_layers}"
     print(f" Starte Experiment: {exp_name}")
 
-    full_ds = SmartBirdDataset(mode='train', task=args.task, in_channels=args.in_channels)
+    full_ds = SmartBirdDataset(mode='train', task=args.task, in_channels=args.in_channels, img_size=args.img_size)
 
     with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "w") as f:
         json.dump({'classes': full_ds.classes}, f)
@@ -54,7 +55,7 @@ def main():
     model = get_model(args.model, len(full_ds.classes), args.use_attention, args.cnn_layers, args.in_channels).to(DEVICE)
 
     with torch.no_grad():
-        dummy_input = torch.randn(2, args.in_channels, IMG_SIZE, IMG_SIZE).to(DEVICE)
+        dummy_input = torch.randn(2, args.in_channels, args.img_size, args.img_size).to(DEVICE)
         model(dummy_input)
 
     if args.model == "embedding":

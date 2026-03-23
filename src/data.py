@@ -8,10 +8,11 @@ from collections import Counter
 from config import *
 
 class SmartBirdDataset(Dataset):
-    def __init__(self, mode='train', task='species', filter_sex=None, min_samples=10, in_channels=3):
+    def __init__(self, mode='train', task='species', filter_sex=None, min_samples=10, in_channels=3, img_size=224):
         self.mode = mode
         self.task = task
         self.in_channels = in_channels
+        self.img_size = img_size
 
         if not os.path.exists(METADATA_FILE):
             raise FileNotFoundError(f"Die Datei {METADATA_FILE} fehlt. Bitte 'python src/data_prep.py' ausführen.")
@@ -42,7 +43,7 @@ class SmartBirdDataset(Dataset):
             self.classes = ['call', 'song']
 
         self.class_to_idx = {cls: i for i, cls in enumerate(self.classes)}
-        print(f"[{mode.upper()}] Dataset bereit: {len(self.df)} Samples, {len(self.classes)} Klassen (Kanäle: {self.in_channels}).")
+        print(f"[{mode.upper()}] Dataset bereit: {len(self.df)} Samples, {len(self.classes)} Klassen (Auflösung: {self.img_size}x{self.img_size}).")
 
     def __len__(self):
         return len(self.df)
@@ -81,8 +82,9 @@ class SmartBirdDataset(Dataset):
         if self.in_channels == 3:
             tensor = tensor.repeat(3, 1, 1)
 
+        # Skalierung auf die gewünschte Auflösung (experimenteller Parameter)
         tensor = torch.nn.functional.interpolate(
-            tensor.unsqueeze(0), size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False
+            tensor.unsqueeze(0), size=(self.img_size, self.img_size), mode='bilinear', align_corners=False
         ).squeeze(0)
 
         return tensor, self._get_label(row)
