@@ -18,14 +18,22 @@ MODELS_DIR="data/models"
 
 # Map shortnames → filename patterns (partial match is fine)
 declare -A SHORTCUTS=(
-    ["efficientnet"]="efficientnet_task-species_attn-False_layers-3_best.pth"
-    ["efficientnet-type"]="efficientnet_task-type_attn-False_layers-3_best.pth"
-    ["resnet"]="resnet_task-species_attn-False_layers-3_best.pth"
-    ["custom-2"]="custom_task-species_attn-False_layers-2_best.pth"
-    ["custom-3"]="custom_task-species_attn-False_layers-3_best.pth"
-    ["custom-5"]="custom_task-species_attn-False_layers-5_best.pth"
-    ["custom-attn"]="custom_task-species_attn-True_layers-3_best.pth"
-    ["embedding"]="embedding_task-species_attn-False_layers-3_best.pth"
+    ["efficientnet"]="efficientnet_task-species_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["efficientnet-1ch"]="efficientnet_task-species_ch-1_size-224_attn-False_layers-3_best.pth"
+    ["efficientnet-type"]="efficientnet_task-type_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["resnet"]="resnet_task-species_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["custom-2"]="custom_task-species_ch-3_size-224_attn-False_layers-2_best.pth"
+    ["custom-3"]="custom_task-species_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["custom-5"]="custom_task-species_ch-3_size-224_attn-False_layers-5_best.pth"
+    ["custom-attn"]="custom_task-species_ch-3_size-224_attn-True_layers-3_best.pth"
+    ["embedding"]="embedding_task-species_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["mobilenet"]="mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["mobilenet-3ch"]="mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth"   # alias for clarity
+    ["mobilenet-1ch"]="mobilenet_task-species_ch-1_size-224_attn-False_layers-3_best.pth"
+    ["mobilenet-224"]="mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth"   # alias for clarity
+    ["mobilenet-160"]="mobilenet_task-species_ch-3_size-160_attn-False_layers-3_best.pth"
+    ["mobilenet-128"]="mobilenet_task-species_ch-3_size-128_attn-False_layers-3_best.pth"
+    ["mobilenet-96"]="mobilenet_task-species_ch-3_size-96_attn-False_layers-3_best.pth"
 )
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────
@@ -52,7 +60,11 @@ for arg in "$@"; do
             ;;
         *)
             if [[ -v SHORTCUTS["$arg"] ]]; then
-                SPECIFIC_FILES+=("${SHORTCUTS[$arg]}")
+                pth="${SHORTCUTS[$arg]}"
+                SPECIFIC_FILES+=("$pth")
+                # Also include the companion _classes.json
+                json="${pth/_best.pth/_classes.json}"
+                SPECIFIC_FILES+=("$json")
             else
                 echo "  ✗ Unknown shortname '$arg'. Valid options:"
                 for k in "${!SHORTCUTS[@]}"; do echo "    $k"; done
@@ -101,7 +113,7 @@ if specific:
             print(f"  ✗ File not found: {m}")
         raise SystemExit(1)
 else:
-    files = glob.glob(os.path.join(models_dir, "*.pth"))
+    files = glob.glob(os.path.join(models_dir, "*.pth")) + glob.glob(os.path.join(models_dir, "*_classes.json"))
 
 if not files:
     print("  ⚠ No .pth files found — nothing to upload.")
