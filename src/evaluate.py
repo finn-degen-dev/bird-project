@@ -106,7 +106,6 @@ def main():
     parser.add_argument("--cnn-layers", type=int, default=3)
     args = parser.parse_args()
 
-    # Wir belassen "task-species" als Standard für das evaluate-Skript
     exp_name = f"{args.model}_task-species_ch-{args.in_channels}_attn-{args.use_attention}_layers-{args.cnn_layers}"
     acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers, args.in_channels)
     print(f"\n {exp_name} Finale Accuracy: {acc:.2%}")

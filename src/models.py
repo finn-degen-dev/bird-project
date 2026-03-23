@@ -48,7 +48,7 @@ class EmbeddingNet(nn.Module):
     def __init__(self, num_classes, embedding_size=512, in_channels=3):
         super().__init__()
         self.backbone = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
-        
+
         if in_channels == 1:
             old_conv = self.backbone.features[0][0]
             new_conv = nn.Conv2d(1, old_conv.out_channels, kernel_size=old_conv.kernel_size, stride=old_conv.stride, padding=old_conv.padding, bias=False)
@@ -72,7 +72,7 @@ class EmbeddingNet(nn.Module):
 def get_model(model_name, num_classes, use_attention=False, num_layers=3, in_channels=3):
     if model_name == "custom":
         return CustomCNN(num_classes, use_attention, num_layers, in_channels)
-    
+
     elif model_name == "resnet":
         model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
         if in_channels == 1:
@@ -83,22 +83,22 @@ def get_model(model_name, num_classes, use_attention=False, num_layers=3, in_cha
             model.conv1 = new_conv
         model.fc = nn.Linear(model.fc.in_features, num_classes)
         return model
-    
+
     elif model_name == "efficientnet":
         model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
         if in_channels == 1:
-            # Transfer Learning Gewichte von 3 Kanälen auf 1 Kanal kondensieren
+
             old_conv = model.features[0][0]
             new_conv = nn.Conv2d(1, old_conv.out_channels, kernel_size=old_conv.kernel_size, stride=old_conv.stride, padding=old_conv.padding, bias=False)
             with torch.no_grad():
                 new_conv.weight[:] = old_conv.weight.sum(dim=1, keepdim=True)
             model.features[0][0] = new_conv
-            
+
         model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
         return model
 
     elif model_name == "mobilenet":
-        # MobileNetV3 Small ist extrem optimiert für schwache CPUs (Raspberry Pi Zero)
+
         model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.DEFAULT)
         if in_channels == 1:
             old_conv = model.features[0][0]
@@ -106,11 +106,11 @@ def get_model(model_name, num_classes, use_attention=False, num_layers=3, in_cha
             with torch.no_grad():
                 new_conv.weight[:] = old_conv.weight.sum(dim=1, keepdim=True)
             model.features[0][0] = new_conv
-            
+
         model.classifier[3] = nn.Linear(model.classifier[3].in_features, num_classes)
         return model
 
     elif model_name == "embedding":
         return EmbeddingNet(num_classes, in_channels=in_channels)
-        
+
     raise ValueError(f"Model {model_name} unbekannt.")

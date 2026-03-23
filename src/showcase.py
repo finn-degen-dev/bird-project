@@ -43,11 +43,11 @@ def preprocess_chunk(y_chunk, sr, in_channels=3):
     spec_norm = np.flipud(spec_norm).copy()
 
     tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0)
-    
+
     if in_channels == 3:
         tensor = tensor.repeat(3, 1, 1)
-        
-    tensor = tensor.unsqueeze(0) # Batch Dimension
+
+    tensor = tensor.unsqueeze(0)
     tensor = F.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False)
 
     return tensor
@@ -142,7 +142,7 @@ def file_showcase(audio_path, model, classes, threshold, model_type, in_channels
         t_sec = start / sr
         times.append(t_sec)
 
-        if tensor is None: 
+        if tensor is None:
             all_probs.append(np.zeros(len(classes)))
             continue
 
@@ -155,7 +155,7 @@ def file_showcase(audio_path, model, classes, threshold, model_type, in_channels
 
     kernel = np.array([0.1, 0.2, 0.4, 0.2, 0.1])
     smoothed_probs = np.zeros_like(all_probs)
-    
+
     for c in range(all_probs.shape[1]):
         pad_size = len(kernel) // 2
         padded_signal = np.pad(all_probs[:, c], (pad_size, pad_size), mode='edge')
@@ -166,7 +166,7 @@ def file_showcase(audio_path, model, classes, threshold, model_type, in_channels
 
     plt.figure(figsize=(12, 5))
     sns.set_theme(style="whitegrid")
-    
+
     plt.plot(times, all_probs[:, top_class_idx], label="Rohdaten (Raw)", alpha=0.5, linestyle='--', color='gray')
     plt.plot(times, smoothed_probs[:, top_class_idx], label="Mit Zeit-Glättung", linewidth=3, color='#d62728')
     plt.axhline(threshold, color='black', linestyle=':', linewidth=2, label=f"Schwellenwert ({threshold*100:.0f}%)")
@@ -176,7 +176,7 @@ def file_showcase(audio_path, model, classes, threshold, model_type, in_channels
     plt.ylim(-0.05, 1.05)
     plt.legend(loc="lower left")
     plt.tight_layout()
-    
+
     doc_out_path = os.path.join(VISUALS_DIR, "smoothing_comparison.png")
     plt.savefig(doc_out_path, dpi=300)
 

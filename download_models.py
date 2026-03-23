@@ -1,19 +1,12 @@
 
-"""
-Download pre-trained model weights from Hugging Face.
 
-Usage:
-    python download_models.py               # all models
-    python download_models.py --model efficientnet
-    python download_models.py --list
-    python download_models.py --force       # re-download existing
-"""
 import os, sys, argparse
 
 HF_REPO_ID = "BoredVoidAter/piepmatz-polizei"
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "data", "models")
 
 ALL_MODELS = [
+
     "efficientnet_task-species_attn-False_layers-3_best.pth",
     "efficientnet_task-type_attn-False_layers-3_best.pth",
     "resnet_task-species_attn-False_layers-3_best.pth",
@@ -22,9 +15,18 @@ ALL_MODELS = [
     "custom_task-species_attn-False_layers-5_best.pth",
     "custom_task-species_attn-True_layers-3_best.pth",
     "embedding_task-species_attn-False_layers-3_best.pth",
+
+    "efficientnet_task-species_ch-1_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-3_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-1_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-3_size-160_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-3_size-128_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-3_size-96_attn-False_layers-3_best.pth",
 ]
 
 SHORTCUTS = {
+
     "efficientnet":      "efficientnet_task-species_attn-False_layers-3_best.pth",
     "efficientnet-type": "efficientnet_task-type_attn-False_layers-3_best.pth",
     "resnet":            "resnet_task-species_attn-False_layers-3_best.pth",
@@ -33,6 +35,15 @@ SHORTCUTS = {
     "custom-5":          "custom_task-species_attn-False_layers-5_best.pth",
     "custom-attn":       "custom_task-species_attn-True_layers-3_best.pth",
     "embedding":         "embedding_task-species_attn-False_layers-3_best.pth",
+
+    "efficientnet-1ch":  "efficientnet_task-species_ch-1_attn-False_layers-3_best.pth",
+    "mobilenet":         "mobilenet_task-species_ch-3_attn-False_layers-3_best.pth",
+    "mobilenet-3ch":     "mobilenet_task-species_ch-3_attn-False_layers-3_best.pth",
+    "mobilenet-1ch":     "mobilenet_task-species_ch-1_attn-False_layers-3_best.pth",
+    "mobilenet-224":     "mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "mobilenet-160":     "mobilenet_task-species_ch-3_size-160_attn-False_layers-3_best.pth",
+    "mobilenet-128":     "mobilenet_task-species_ch-3_size-128_attn-False_layers-3_best.pth",
+    "mobilenet-96":      "mobilenet_task-species_ch-3_size-96_attn-False_layers-3_best.pth",
 }
 
 def get_hf():

@@ -11,7 +11,7 @@ from onnxruntime.quantization import quantize_static, QuantType, CalibrationData
 
 class BirdDataReader(CalibrationDataReader):
     def __init__(self, limit=150):
-        # Wir nutzen 'test' für saubere Daten ohne Zufalls-Rauschen
+
         dataset = SmartBirdDataset(mode='test', task='species')
         self.dataloader = iter(DataLoader(dataset, batch_size=1, shuffle=True))
         self.limit = limit
@@ -30,12 +30,11 @@ class BirdDataReader(CalibrationDataReader):
 def main():
     model_name = "efficientnet"
     exp_name = f"{model_name}_task-species_attn-False_layers-3"
-    
+
     onnx_fp32_path = os.path.join(MODELS_DIR, f"{model_name}_fp32.onnx")
     onnx_preprocessed_path = os.path.join(MODELS_DIR, f"{model_name}_preprocessed.onnx")
     onnx_int8_path = os.path.join(MODELS_DIR, f"{model_name}_quantized_int8_entropy.onnx")
 
-    # 1. Modell laden und exportieren (nur wenn nötig)
     if not os.path.exists(onnx_fp32_path):
         print("Lade PyTorch Modell...")
         with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
@@ -47,33 +46,31 @@ def main():
         del model
         gc.collect()
 
-    # 2. NEU: ONNX Pre-Processing (Optimiert den Graph für die Quantisierung)
     print("Führe ONNX Pre-Processing durch...")
     shape_inference.quant_pre_process(onnx_fp32_path, onnx_preprocessed_path, skip_symbolic_shape=False)
 
-    # 3. Optimierte Quantisierung
     print(f"Starte Quantisierung (Percentile Methode, 150 Samples)...")
     data_reader = BirdDataReader(limit=150)
-    
+
     quantize_static(
         model_input=onnx_preprocessed_path,
         model_output=onnx_int8_path,
         calibration_data_reader=data_reader,
-        quant_format=0, # QOperator Format ist oft stabiler für CNNs
-        activation_type=QuantType.QUInt8, 
+        quant_format=0,
+        activation_type=QuantType.QUInt8,
         weight_type=QuantType.QInt8,
-        calibrate_method=CalibrationMethod.Percentile, # Robuster gegen Ausreißer
+        calibrate_method=CalibrationMethod.Percentile,
         extra_options={
-            'ActivationSymmetry': False, # Swish ist nicht symmetrisch!
+            'ActivationSymmetry': False,
             'WeightSymmetry': True,
-            'Percentile': 99.99 # Behalte fast alle Daten
+            'Percentile': 99.99
         },
-        per_channel=False # Wichtig für die Geschwindigkeit (Inferenz-Zeit!)
+        per_channel=False
     )
 
     if os.path.exists(onnx_preprocessed_path):
         os.remove(onnx_preprocessed_path)
-    
+
     print("\nFertig! Bitte benchmark_quantization.py erneut ausführen.")
 
 if __name__ == "__main__":

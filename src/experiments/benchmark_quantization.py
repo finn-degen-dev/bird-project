@@ -32,23 +32,21 @@ def main():
         print("ONNX Modelle fehlen. Bitte zuerst ausführen: python src/quantize.py --model efficientnet")
         return
 
-    # Größen messen
     size_fp32 = get_dir_size(onnx_fp32_path)
     size_int8_minmax = get_dir_size(onnx_int8_minmax_path)
     size_int8_entropy = get_dir_size(onnx_int8_entropy_path)
 
     dummy_input = np.random.randn(1, 3, IMG_SIZE, IMG_SIZE).astype(np.float32)
 
-    # Sessions laden
     sess_fp32 = ort.InferenceSession(onnx_fp32_path, providers=['CPUExecutionProvider'])
     sess_int8_minmax = ort.InferenceSession(onnx_int8_minmax_path, providers=['CPUExecutionProvider'])
     sess_int8_entropy = ort.InferenceSession(onnx_int8_entropy_path, providers=['CPUExecutionProvider'])
 
     def measure_latency(session, input_data, runs=100):
         input_name = session.get_inputs()[0].name
-        # Warmup
+
         for _ in range(10): session.run(None, {input_name: input_data})
-        # Benchmark
+
         start = time.time()
         for _ in range(runs): session.run(None, {input_name: input_data})
         return ((time.time() - start) / runs) * 1000
@@ -84,34 +82,30 @@ def main():
     acc_int8_minmax = (correct_int8_minmax / len(loader)) * 100
     acc_int8_entropy = (correct_int8_entropy / len(loader)) * 100
 
-    # --- PLOTTING ---
     sns.set_theme(style="whitegrid")
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
     labels = ['32-Bit (FP32)', '8-Bit (MinMax)', '8-Bit (Entropie)']
-    # Farben: Blau für Basis, Rot für den Accuracy-Zusammenbruch, Grün für die Rettung
+
     colors = ['#1f77b4', '#d62728', '#2ca02c']
 
-    # 1. Dateigröße
     sns.barplot(x=labels, y=[size_fp32, size_int8_minmax, size_int8_entropy], ax=axes[0], palette=colors)
     axes[0].set_title("Modellgröße (MB) ", fontweight='bold')
     axes[0].set_ylabel("Megabyte (MB)")
-    for i, v in enumerate([size_fp32, size_int8_minmax, size_int8_entropy]): 
+    for i, v in enumerate([size_fp32, size_int8_minmax, size_int8_entropy]):
         axes[0].text(i, v+0.2, f"{v:.1f} MB", ha='center', fontweight='bold')
 
-    # 2. Latenz
     sns.barplot(x=labels, y=[lat_fp32, lat_int8_minmax, lat_int8_entropy], ax=axes[1], palette=colors)
     axes[1].set_title("Inferenzzeit pro Audio-Clip (ms) ", fontweight='bold')
     axes[1].set_ylabel("Millisekunden (ms)")
-    for i, v in enumerate([lat_fp32, lat_int8_minmax, lat_int8_entropy]): 
+    for i, v in enumerate([lat_fp32, lat_int8_minmax, lat_int8_entropy]):
         axes[1].text(i, v+0.2, f"{v:.1f} ms", ha='center', fontweight='bold')
 
-    # 3. Accuracy
     sns.barplot(x=labels, y=[acc_fp32, acc_int8_minmax, acc_int8_entropy], ax=axes[2], palette=colors)
     axes[2].set_title("Genauigkeit (Accuracy) ", fontweight='bold')
     axes[2].set_ylabel("Accuracy (%)")
     axes[2].set_ylim(0, 110)
-    for i, v in enumerate([acc_fp32, acc_int8_minmax, acc_int8_entropy]): 
+    for i, v in enumerate([acc_fp32, acc_int8_minmax, acc_int8_entropy]):
         axes[2].text(i, v+2, f"{v:.1f}%", ha='center', fontweight='bold')
 
     plt.suptitle("Auswirkungen der Quantisierungs-Methodik (MinMax vs. Entropie)", fontsize=16, fontweight='bold', y=1.05)

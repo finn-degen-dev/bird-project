@@ -78,11 +78,9 @@ class SmartBirdDataset(Dataset):
 
         tensor = spec.unsqueeze(0)
 
-        # Modulares Kanal-Handling
         if self.in_channels == 3:
             tensor = tensor.repeat(3, 1, 1)
 
-        # Skalierung auf die gewünschte Auflösung (experimenteller Parameter)
         tensor = torch.nn.functional.interpolate(
             tensor.unsqueeze(0), size=(self.img_size, self.img_size), mode='bilinear', align_corners=False
         ).squeeze(0)
