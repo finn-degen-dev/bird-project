@@ -45,7 +45,7 @@ def main():
     for cfg in configs:
         print(f"\n[{cfg['name'].replace(chr(10), ' ')}] Analysiere Modell...")
 
-        exp_name = f"{cfg['model_name']}_task-species_ch-{cfg['ch']}_attn-False_layers-3"
+        exp_name = f"{cfg['model_name']}_task-species_ch-{cfg['ch']}_size-{IMG_SIZE}_attn-False_layers-3"
         json_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
         pth_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
 

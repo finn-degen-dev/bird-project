@@ -16,14 +16,9 @@ from data import SmartBirdDataset
 from models import get_model
 
 def get_distractor_indices(classes):
-    non_bird_keywords =[
-        'cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper',
-        'katydid', 'roesel', 'mouse', 'mole', 'shrew', 'squirrel',
-        'deer', 'fox', 'wolf', 'marmot', 'locust', 'insect', 'bush-cricket'
-    ]
     bird_idx, distractor_idx = [],[]
     for i, c in enumerate(classes):
-        if any(kw in c.lower() for kw in non_bird_keywords):
+        if any(kw in c.lower() for kw in NON_BIRD_KEYWORDS):
             distractor_idx.append(i)
         else:
             bird_idx.append(i)
@@ -32,7 +27,7 @@ def get_distractor_indices(classes):
 def main():
     print("Lade Datensatz und Modell für Fehleranalyse...")
 
-    exp_name = "efficientnet_task-species_attn-False_layers-3"
+    exp_name = f"efficientnet_task-species_ch-3_size-{IMG_SIZE}_attn-False_layers-3"
     classes_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
 
     with open(classes_path, "r") as f:

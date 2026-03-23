@@ -27,7 +27,7 @@ def fetch_page(url, params, page):
                 time.sleep(5)
             else:
                 break
-        except:
+        except Exception:
             time.sleep(2)
     return[]
 
@@ -84,7 +84,7 @@ def step1_get_metadata():
                     break
                 elif r.status_code in [429, 503]:
                     time.sleep(5)
-            except:
+            except Exception:
                 time.sleep(2)
         return recs
 
@@ -140,7 +140,7 @@ def process_audio_pipeline(df):
 
             if os.path.exists(mp3_path):
                 try: os.remove(mp3_path)
-                except: pass
+                except OSError: pass
             return
 
         if not os.path.exists(mp3_path):
@@ -153,7 +153,7 @@ def process_audio_pipeline(df):
                                 f.write(chunk)
                     else:
                         return
-            except:
+            except Exception:
                 return
 
         if os.path.exists(mp3_path):
@@ -184,7 +184,7 @@ def process_audio_pipeline(df):
 
                 if os.path.exists(mp3_path):
                     try: os.remove(mp3_path)
-                    except: pass
+                    except OSError: pass
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         list(tqdm(executor.map(pipeline_worker, tasks), total=len(tasks), desc="Verarbeite Audios"))

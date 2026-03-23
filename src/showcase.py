@@ -15,8 +15,6 @@ import sounddevice as sd
 from config import *
 from models import get_model
 
-RMS_THRESHOLD = 0.005
-
 def preprocess_chunk(y_chunk, sr, in_channels=3):
     """Wandelt einen Audio-Ausschnitt in einen Tensor um."""
 
@@ -68,7 +66,7 @@ def live_showcase(model, classes, threshold, model_type, in_channels):
     def audio_callback(indata, frames, time_info, status):
         nonlocal audio_buffer
         if status:
-            pass
+            print(f"[Audio-Stream Warnung] {status}")
         new_data = indata[:, 0]
         audio_buffer = np.roll(audio_buffer, -len(new_data))
         audio_buffer[-len(new_data):] = new_data
@@ -96,7 +94,7 @@ def live_showcase(model, classes, threshold, model_type, in_channels):
                     current_time = time.time() - start_time
                     bird_name = classes[idx]
 
-                    non_birds = ['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper']
+                    non_birds = NON_BIRD_KEYWORDS
                     if any(x in bird_name.lower() for x in non_birds):
                         print(f"[{current_time:04.1f}s]  Ignoriere Insekt/Amphibie: {bird_name}")
                         continue
@@ -214,6 +212,7 @@ def main():
 
     parser.add_argument("--model", choices=["custom", "resnet", "efficientnet", "mobilenet"], default="efficientnet")
     parser.add_argument("--in-channels", type=int, choices=[1, 3], default=3)
+    parser.add_argument("--img-size", type=int, default=224, help="Auflösung des Spektrogramms (muss mit dem trainierten Modell übereinstimmen)")
     parser.add_argument("--use-attention", action="store_true")
     parser.add_argument("--cnn-layers", type=int, default=3)
     parser.add_argument("--threshold", type=float, default=0.60, help="Mindest-Sicherheit der KI")
@@ -224,7 +223,7 @@ def main():
         print(" Du musst entweder --live ODER --file [PFAD] angeben!")
         return
 
-    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_size-{args.img_size}_attn-{args.use_attention}_layers-{args.cnn_layers}"
     json_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
 
     if not os.path.exists(json_path):

@@ -1,5 +1,10 @@
 import json
 import glob
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from config import NON_BIRD_KEYWORDS
 
 def main():
 
@@ -15,11 +20,7 @@ def main():
     with open(file_to_read, 'r') as f:
         classes = json.load(f)['classes']
 
-    non_bird_keywords =[
-        'cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper',
-        'katydid', 'roesel', 'mouse', 'mole', 'shrew', 'squirrel',
-        'deer', 'fox', 'wolf', 'marmot', 'locust', 'insect', 'bush-cricket'
-    ]
+    non_bird_keywords = NON_BIRD_KEYWORDS
 
     birds = []
     distractors =[]
