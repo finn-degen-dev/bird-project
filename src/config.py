@@ -30,6 +30,14 @@ XC_QUALITIES =["A", "B", "C", "D"]
 XC_MIN_LENGTH = 5
 XC_MAX_LENGTH = 60
 
+NON_BIRD_KEYWORDS = [
+    'cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper',
+    'katydid', 'roesel', 'mouse', 'mole', 'shrew', 'squirrel',
+    'deer', 'fox', 'wolf', 'marmot', 'locust', 'insect', 'bush-cricket'
+]
+
+RMS_THRESHOLD = 0.005
+
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 os.makedirs(MODELS_DIR, exist_ok=True)

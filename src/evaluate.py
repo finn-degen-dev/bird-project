@@ -15,13 +15,13 @@ from config import *
 from data import SmartBirdDataset
 from models import get_model
 
-def evaluate_model(exp_name, model_type, use_attention, cnn_layers, in_channels):
+def evaluate_model(exp_name, model_type, use_attention, cnn_layers, in_channels, img_size=224):
     print(f"Evaluatiere {exp_name}...")
 
     with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
         classes = json.load(f)['classes']
 
-    val_ds = SmartBirdDataset(mode='test', task='species', in_channels=in_channels)
+    val_ds = SmartBirdDataset(mode='test', task='species', in_channels=in_channels, img_size=img_size)
     loader = DataLoader(val_ds, batch_size=32, shuffle=False, num_workers=4)
 
     model = get_model(model_type, len(classes), use_attention, cnn_layers, in_channels).to(DEVICE)
@@ -102,12 +102,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", choices=["custom", "resnet", "efficientnet", "mobilenet", "embedding"], required=True)
     parser.add_argument("--in-channels", type=int, choices=[1, 3], default=3)
+    parser.add_argument("--img-size", type=int, default=224, help="Auflösung des Spektrogramms (muss mit dem trainierten Modell übereinstimmen)")
     parser.add_argument("--use-attention", action="store_true")
     parser.add_argument("--cnn-layers", type=int, default=3)
     args = parser.parse_args()
 
-    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_attn-{args.use_attention}_layers-{args.cnn_layers}"
-    acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers, args.in_channels)
+    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_size-{args.img_size}_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers, args.in_channels, args.img_size)
     print(f"\n {exp_name} Finale Accuracy: {acc:.2%}")
 
     logs_dir = os.path.join(VISUALS_DIR, "logs")

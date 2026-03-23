@@ -29,7 +29,7 @@ class BirdDataReader(CalibrationDataReader):
 
 def main():
     model_name = "efficientnet"
-    exp_name = f"{model_name}_task-species_attn-False_layers-3"
+    exp_name = f"{model_name}_task-species_ch-3_size-{IMG_SIZE}_attn-False_layers-3"
 
     onnx_fp32_path = os.path.join(MODELS_DIR, f"{model_name}_fp32.onnx")
     onnx_preprocessed_path = os.path.join(MODELS_DIR, f"{model_name}_preprocessed.onnx")

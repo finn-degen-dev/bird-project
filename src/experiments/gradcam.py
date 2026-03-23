@@ -31,7 +31,7 @@ class GradCAM:
 def main():
     print("Lade Datensatz und Modell für hochauflösendes Grad-CAM...")
 
-    exp_name = "resnet_task-species_attn-False_layers-3"
+    exp_name = f"resnet_task-species_ch-3_size-{IMG_SIZE}_attn-False_layers-3"
     classes_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
 
     with open(classes_path, "r") as f:
@@ -51,7 +51,7 @@ def main():
     selected_indices =[]
     seen_classes = set()
 
-    non_birds =['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper', 'katydid', 'roesel', 'mouse']
+    non_birds = NON_BIRD_KEYWORDS
 
     for idx in all_indices:
         row = dataset.df.iloc[idx]
