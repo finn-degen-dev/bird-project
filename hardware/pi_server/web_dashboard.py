@@ -288,10 +288,9 @@ html_content = """
     <title>Piepmatz Polizei Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Add date adapter for absolute time X-Axis scaling -->
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <style>
-        :root { --primary: #2c3e50; --secondary: #00A2E8; --bg: #ecf0f1; --card: #ffffff; }
+        :root { --primary: #2c3e50; --secondary: #00A2E8; --bg: #ecf0f1; --card: #ffffff; --accent: #FF7F29;}
         body { font-family: 'Inter', sans-serif; background-color: var(--bg); margin: 0; padding: 0; }
         header { background-color: #ffffff; color: var(--primary); padding: 15px 30px; display: flex; align-items: center; gap: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-bottom: 3px solid var(--secondary); }
         .logo { height: 60px; object-fit: contain; }
@@ -303,15 +302,20 @@ html_content = """
         .tab-content.active { display: block; }
         .card { background: var(--card); padding: 20px; margin-bottom: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         .bar-container { width: 100%; background-color: #e0e0e0; border-radius: 6px; height: 20px; margin-top: 10px;}
-        .bar { height: 100%; background-color: var(--secondary); width: 0%; transition: width 0.1s ease; border-radius: 6px; }
-        .bar.active { background-color: #e74c3c; }
-        .prediction { font-size: 18px; color: #FF7F29; font-weight: 700; margin-top: 10px;}
+        .bar { height: 100%; background-color: var(--accent); width: 0%; transition: width 0.1s ease; border-radius: 6px; }
+        .bar.active { background-color: #e74c3c; } /* Turns red when actively triggered */
+        .prediction { font-size: 18px; color: var(--accent); font-weight: 700; margin-top: 10px;}
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
         th { background-color: var(--primary); color: white; font-weight: 600; }
         .chart-container { position: relative; height: 40vh; width: 100%; margin-top: 20px;}
         .config-row { margin-bottom: 20px; }
         .date-picker { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-family: 'Inter'; margin-bottom: 15px; font-size: 16px; }
+        
+        /* Color the sliders */
+        input[type="range"] {
+            accent-color: var(--accent);
+        }
     </style>
 </head>
 <body>
@@ -379,6 +383,8 @@ html_content = """
 
     <script>
         let configLoaded = false;
+        let currentHistoryLength = -1;
+        let currentRenderedDate = "";
         
         // Ensure default date is today
         const todayStr = new Date().toISOString().split('T')[0];
@@ -399,7 +405,7 @@ html_content = """
         var timelineChart = null;
         
         const colorPalette = ['#00A2E8', '#FF7F29', '#E74C3C', '#2ECC71', '#9B59B6', '#F1C40F', '#34495E', '#E67E22', '#16A085'];
-        let birdColorMap = {}; // Will persistently link bird names to colors
+        let birdColorMap = {};
 
         function getBirdColor(birdName, index) {
             if (!birdColorMap[birdName]) {
@@ -423,7 +429,7 @@ html_content = """
             const dateStr = document.getElementById('history-date').value;
             const res = await fetch('/api/history/' + dateStr);
             const data = await res.json();
-            renderDayData(data, dateStr);
+            renderDayData(data, dateStr, true); // Force full redraw
         }
 
         function updateStatsChart(statsData) {
@@ -436,17 +442,29 @@ html_content = """
                 chartInstance.data.labels = labels;
                 chartInstance.data.datasets[0].data = data;
                 chartInstance.data.datasets[0].backgroundColor = bgColors;
-                chartInstance.update();
+                chartInstance.update('none'); // Update without animation
             } else {
                 chartInstance = new Chart(ctx, {
                     type: 'bar',
                     data: { labels: labels, datasets: [{ label: 'Total Detections', data: data, backgroundColor: bgColors }] },
-                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: {stepSize: 1} } } }
+                    options: { 
+                        responsive: true, 
+                        maintainAspectRatio: false, 
+                        animation: false,
+                        scales: { y: { beginAtZero: true, ticks: {stepSize: 1} } } 
+                    }
                 });
             }
         }
 
-        function renderDayData(historyData, dateStr) {
+        function renderDayData(historyData, dateStr, forceRedraw = false) {
+            // Prevent chart from bugging/resetting if no new data was added
+            if (!forceRedraw && historyData.length === currentHistoryLength && dateStr === currentRenderedDate) {
+                return; 
+            }
+            currentHistoryLength = historyData.length;
+            currentRenderedDate = dateStr;
+
             var ctxT = document.getElementById('timelineChart').getContext('2d');
             var datasets = [];
             var labelsY = [];
@@ -468,11 +486,10 @@ html_content = """
                 hourlyCounts[hour]++;
             });
             
-            // Overall Activity Background Dataset
+            // Overall Activity Background Dataset (Rendered first so it stays in background)
             let activityData = [];
             for(let i=0; i<24; i++) {
                 let h = i.toString().padStart(2, '0');
-                // Place data points at the half-hour mark for a smooth curve
                 activityData.push({ x: `${dateStr}T${h}:30:00`, y: hourlyCounts[i] });
             }
 
@@ -497,9 +514,9 @@ html_content = """
                     yAxisID: 'y',
                     backgroundColor: getBirdColor(bird),
                     borderColor: getBirdColor(bird),
-                    showLine: true,       
-                    borderWidth: 6,       
-                    pointRadius: 0,       
+                    showLine: true,       // Connect points if they are close
+                    borderWidth: 4,       
+                    pointRadius: 5,       // Restore dot visibility
                     pointHoverRadius: 8
                 });
             }
@@ -509,13 +526,14 @@ html_content = """
                 timelineChart.options.scales.x.min = dateStr + 'T00:00:00';
                 timelineChart.options.scales.x.max = dateStr + 'T23:59:59';
                 timelineChart.options.scales.y.labels = labelsY;
-                timelineChart.update();
+                timelineChart.update('none'); // Crucial: update('none') prevents the bouncing animation glitch
             } else {
                 timelineChart = new Chart(ctxT, {
                     data: { datasets: datasets },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        animation: false, // Turn off global animations to fix bouncing
                         scales: {
                             x: { 
                                 type: 'time', 
@@ -535,7 +553,7 @@ html_content = """
                                 type: 'linear',
                                 position: 'right',
                                 beginAtZero: true,
-                                display: false // Hides the numbers on the right, only shows the curve
+                                display: false // Hides the numbers, only shows the curve
                             }
                         },
                         plugins: {
@@ -609,7 +627,7 @@ html_content = """
             // Only update live chart if user is actually viewing "today"
             let selectedDate = document.getElementById('history-date').value;
             if (selectedDate === new Date().toISOString().split('T')[0] && payload.today_data) {
-                renderDayData(payload.today_data, selectedDate);
+                renderDayData(payload.today_data, selectedDate, false);
             }
 
             if(Object.keys(payload.stats).length > 0) updateStatsChart(payload.stats);
