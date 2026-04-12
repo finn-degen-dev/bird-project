@@ -44,13 +44,32 @@ data/
   models/
     efficientnet_fp32.onnx.data
 docs/
+  hardware.tex
   main.pdf
   main.tex
   Makefile
+hardware/
+  esp32_mic/
+    include/
+      README
+    lib/
+      README
+    src/
+      main.cpp
+    test/
+      README
+    .gitignore
+    platformio.ini
+  pi_server/
+    lifetime_stats.json
+    record_esp32.py
+    requirements.txt
+    test_recording.wav
+    web_dashboard.py
 src/
   experiments/
-    beenchmark_imgsize.py
     benchmark_architecture.py
+    benchmark_imgsize.py
     benchmark_quantization.py
     gradcam.py
     plot_top_errors.py
@@ -102,7 +121,6 @@ visuals/
     comparison_species.png
     false_positive_suppression.png
     imgsize_speed_comparison.png
-    showcase_efficientnet.png
     smoothing_comparison.png
     wake_on_sound_energy.png
 .gitignore
@@ -122,140 +140,792 @@ USAGE.txt
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/experiments/beenchmark_imgsize.py">
-import os
-import sys
-import time
-import json
-import torch
+<file path="docs/hardware.tex">
+\documentclass[10pt, a4paper]{scrartcl}
+\usepackage[left=2.5cm, right=2.5cm, top=2.5cm, bottom=2cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[ngerman]{babel}
+
+\begin{document}
+
+\section*{Systemarchitektur}
+Um die Limitierungen batteriebetriebener Edge-Geräte zu umgehen, nutzt die Piepmatz Polizei eine verteilte Hardware-Architektur. Das System besteht aus einem energieeffizienten ESP32-WROOM-32U als autonomen akustischen Aufnahmeknoten und einem netzstrombetriebenen Raspberry Pi 5 als zentrale Basisstation für die KI-Inferenz.
+
+\subsection*{Base Station: Raspberry Pi 5}
+\subsubsection*{Hardware-Spezifikationen}
+\begin{itemize}
+    \item \textbf{Recheneinheit:} Raspberry Pi 5 (Model J2).
+    \item \textbf{Stromversorgung:} Offizielles 27W USB-C Netzteil.
+    \item \textbf{Kühlung:} Aktiver Kühler für den Dauerbetrieb der KI-Inferenz.
+\end{itemize}
+
+\subsubsection*{Netzwerk \& Software-Stack}
+Der Pi 5 fungiert als eigenständiger WLAN-Hotspot, um eine lokale Netzwerkabdeckung im Wald zu gewährleisten. Er hostet einen leichtgewichtigen Python-Server, der den eingehenden Audiostream des ESP32 empfängt. Das algorithmische Wake-on-Sound-Filtering (RMS-Energie) findet direkt hier statt, bevor die 5-Sekunden-Fenster an die ONNX/PyTorch-Pipeline übergeben werden.
+
+\subsection*{Edge Node: ESP32-WROOM-32U}
+\subsubsection*{Energieverwaltung (Off-Grid Solar)}
+Der Edge Node ist für den kontinuierlichen, autonomen Betrieb mit einem eigenen Stromkreis konzipiert:
+\begin{itemize}
+    \item \textbf{Energy Harvesting:} Zwei 6V 1W Solarzellen fangen Sonnenlicht ein.
+    \item \textbf{Laderegler:} Ein CN3791 MPPT-Laderegler lädt die Akkus sicher auf.
+    \item \textbf{Speicher:} Zwei 18650 Lithium-Ionen-Zellen für den Nachtbetrieb.
+    \item \textbf{Spannungswandler:} Ein Step-Wandler stabilisiert die Systemspannung für den ESP32 (3.3V).
+\end{itemize}
+
+\subsubsection*{Audio-Erfassung}
+Die Aufzeichnung erfolgt über ein INMP441 omnidirektionales MEMS-Mikrofon über den I2S-Bus. Das Mikrofon ist mit folgenden Pins des ESP32 verbunden: \texttt{3V3}, \texttt{GND}, \texttt{I2S\_SD} an GPIO 33, \texttt{I2S\_SCK} an GPIO 32 und \texttt{I2S\_WS} an GPIO 25.
+
+\subsubsection*{Verarbeitung \& Datenübertragung}
+Der ESP32 erfasst kontinuierlich Audiodaten mit 32 kHz. Um den Arbeitsspeicher zu schonen, streamt der Mikrocontroller die rohen PCM-Audiodaten direkt über eine TCP-Socket-Verbindung an den Access Point des Raspberry Pi 5, anstatt sie lokal zu puffern.
+
+\end{document}
+</file>
+
+<file path="hardware/esp32_mic/include/README">
+This directory is intended for project header files.
+
+A header file is a file containing C declarations and macro definitions
+to be shared between several project source files. You request the use of a
+header file in your project source file (C, C++, etc) located in `src` folder
+by including it, with the C preprocessing directive `#include'.
+
+```src/main.c
+
+#include "header.h"
+
+int main (void)
+{
+ ...
+}
+```
+
+Including a header file produces the same results as copying the header file
+into each source file that needs it. Such copying would be time-consuming
+and error-prone. With a header file, the related declarations appear
+in only one place. If they need to be changed, they can be changed in one
+place, and programs that include the header file will automatically use the
+new version when next recompiled. The header file eliminates the labor of
+finding and changing all the copies as well as the risk that a failure to
+find one copy will result in inconsistencies within a program.
+
+In C, the convention is to give header files names that end with `.h'.
+
+Read more about using header files in official GCC documentation:
+
+* Include Syntax
+* Include Operation
+* Once-Only Headers
+* Computed Includes
+
+https://gcc.gnu.org/onlinedocs/cpp/Header-Files.html
+</file>
+
+<file path="hardware/esp32_mic/lib/README">
+This directory is intended for project specific (private) libraries.
+PlatformIO will compile them to static libraries and link into the executable file.
+
+The source code of each library should be placed in a separate directory
+("lib/your_library_name/[Code]").
+
+For example, see the structure of the following example libraries `Foo` and `Bar`:
+
+|--lib
+|  |
+|  |--Bar
+|  |  |--docs
+|  |  |--examples
+|  |  |--src
+|  |     |- Bar.c
+|  |     |- Bar.h
+|  |  |- library.json (optional. for custom build options, etc) https://docs.platformio.org/page/librarymanager/config.html
+|  |
+|  |--Foo
+|  |  |- Foo.c
+|  |  |- Foo.h
+|  |
+|  |- README --> THIS FILE
+|
+|- platformio.ini
+|--src
+   |- main.c
+
+Example contents of `src/main.c` using Foo and Bar:
+```
+#include <Foo.h>
+#include <Bar.h>
+
+int main (void)
+{
+  ...
+}
+
+```
+
+The PlatformIO Library Dependency Finder will find automatically dependent
+libraries by scanning project source files.
+
+More information about PlatformIO Library Dependency Finder
+- https://docs.platformio.org/page/librarymanager/ldf.html
+</file>
+
+<file path="hardware/esp32_mic/src/main.cpp">
+#include <WiFi.h>
+#include <driver/i2s.h>
+
+//const char* ssid = "PiepmatzHotspot";
+//const char* password = "vogel1234";
+//const char* host = "10.42.0.1";
+const char* ssid = ":D";
+const char* password = "18511632005";
+const char* host = "192.168.1.104";
+const int port = 5000;
+
+#define I2S_WS 25
+#define I2S_SD 33
+#define I2S_SCK 32
+#define I2S_PORT I2S_NUM_0
+
+WiFiClient client;
+
+void setupI2S() {
+  i2s_config_t i2s_config = {
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+    .sample_rate = 32000,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+    .dma_buf_count = 8,
+    .dma_buf_len = 1024,
+    .use_apll = false,
+    .tx_desc_auto_clear = false,
+    .fixed_mclk = 0
+  };
+
+  i2s_pin_config_t pin_config = {
+    .bck_io_num = I2S_SCK,
+    .ws_io_num = I2S_WS,
+    .data_out_num = I2S_PIN_NO_CHANGE,
+    .data_in_num = I2S_SD
+  };
+
+  i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
+  i2s_set_pin(I2S_PORT, &pin_config);
+}
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) { delay(500); }
+  setupI2S();
+}
+
+void loop() {
+  if (!client.connected()) {
+    if (!client.connect(host, port)) {
+      delay(1000);
+      return;
+    }
+  }
+
+  size_t bytes_read;
+  int16_t i2s_data[1024];
+  i2s_read(I2S_PORT, &i2s_data, sizeof(i2s_data), &bytes_read, portMAX_DELAY);
+
+  if (bytes_read > 0) {
+    client.write((uint8_t*)i2s_data, bytes_read);
+  }
+}
+</file>
+
+<file path="hardware/esp32_mic/test/README">
+This directory is intended for PlatformIO Test Runner and project tests.
+
+Unit Testing is a software testing method by which individual units of
+source code, sets of one or more MCU program modules together with associated
+control data, usage procedures, and operating procedures, are tested to
+determine whether they are fit for use. Unit testing finds problems early
+in the development cycle.
+
+More information about PlatformIO Unit Testing:
+- https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+</file>
+
+<file path="hardware/esp32_mic/.gitignore">
+.pio
+</file>
+
+<file path="hardware/esp32_mic/platformio.ini">
+; PlatformIO Project Configuration File
+;
+;   Build options: build flags, source filter
+;   Upload options: custom upload port, speed and extra flags
+;   Library options: dependencies, extra library storages
+;   Advanced options: extra scripting
+;
+; Please visit documentation for the other options and examples
+; https://docs.platformio.org/page/projectconf.html
+
+[env:esp32dev]
+platform = espressif32
+board = esp32dev
+upload_speed = 115200
+framework = arduino
+</file>
+
+<file path="hardware/pi_server/lifetime_stats.json">
+{"Daubenton's Myotis": 3, "Common Crane": 8, "Eurasian Woodcock": 1, "Italian Sparrow": 10, "Cockatiel": 2, "Nathusius's Pipistrelle": 9}
+</file>
+
+<file path="hardware/pi_server/record_esp32.py">
+import socket
+import wave
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from torch.utils.data import DataLoader, Subset
+import scipy.signal
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import *
-from models import get_model
-from data import SmartBirdDataset
+HOST = '0.0.0.0'
+PORT = 5000
+SAMPLE_RATE = 32000
+DURATION = 10 
+CHANNELS = 1
+GAIN = 30.0  
 
-def measure_latency(model, dummy_input, runs=100):
-    model.eval()
+# Bandpass Filter: Lässt nur Töne zwischen 1kHz und 12kHz durch (Vögel!)
+# Schneidet Wind (unter 1kHz) und WLAN-Fiepen (über 12kHz) ab.
+b, a = scipy.signal.butter(4, [1000, 12000], btype='bandpass', fs=SAMPLE_RATE)
+
+def record_audio():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((HOST, PORT))
+    server.listen(1)
     
-    # Warmup
-    with torch.no_grad():
-        for _ in range(20):
-            _ = model(dummy_input)
+    print(f"[*] Warte auf ESP32 auf Port {PORT}...")
+    conn, addr = server.accept()
+    print(f"[+] ESP32 verbunden! Nehme {DURATION} Sekunden auf...")
 
-    # Benchmark CPU Latency
-    start_time = time.time()
-    with torch.no_grad():
-        for _ in range(runs):
-            _ = model(dummy_input)
-            
-    total_time = time.time() - start_time
-    return (total_time / runs) * 1000  # ms pro Inferenz
+    # Stereo: 32000 Samples * 2 Kanäle * 2 Bytes = 128.000 Bytes pro Sekunde
+    BYTES_PER_SECOND = SAMPLE_RATE * 2 * 2 
+    bytes_to_read = BYTES_PER_SECOND * DURATION  
+    audio_data = bytearray()
 
-def main():
-    print("Starte IMG_SIZE Benchmark (MobileNetV3 bei verschiedenen Auflösungen)...")
+    while len(audio_data) < bytes_to_read:
+        chunk = conn.recv(4096)
+        if not chunk: break
+        audio_data.extend(chunk)
+
+    conn.close()
+    server.close()
+    print("[*] Verarbeite Audiodaten (Filter & Gain)...")
     
-    # Wir testen die Auflösungen, die im Bash-Skript trainiert wurden
-    sizes = [224, 160, 128, 96]
-    results = []
-
-    # Fester Seed für fairen Accuracy-Vergleich
-    np.random.seed(42)
-
-    for size in sizes:
-        print(f"\n[Auflösung {size}x{size}] Analysiere Modell...")
-        
-        # Generiere den Dateinamen passend zum neuen train.py Format
-        exp_name = f"mobilenet_task-species_ch-3_size-{size}_attn-False_layers-3"
-        json_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
-        pth_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
-        
-        if not os.path.exists(pth_path) or not os.path.exists(json_path):
-            print(f" -> FEHLER: Modell {exp_name} nicht gefunden. Überspringe...")
-            continue
-            
-        # Klassenanzahl laden
-        with open(json_path, "r") as f:
-            classes = json.load(f)['classes']
-        num_classes = len(classes)
-        
-        # Modell laden
-        model = get_model("mobilenet", num_classes, in_channels=3).to('cpu')
-        model.load_state_dict(torch.load(pth_path, map_location='cpu'))
-        model.eval()
-        
-        # 1. LATENZ MESSEN
-        dummy_input = torch.randn(1, 3, size, size).to('cpu')
-        latency_ms = measure_latency(model, dummy_input, runs=100)
-        print(f" -> CPU Latenz: {latency_ms:.2f} ms")
-        
-        # 2. ACCURACY MESSEN
-        dataset = SmartBirdDataset(mode='test', task='species', in_channels=3, img_size=size)
-        subset_indices = np.random.choice(len(dataset), min(500, len(dataset)), replace=False)
-        subset = Subset(dataset, subset_indices)
-        
-        loader = DataLoader(subset, batch_size=32, shuffle=False)
-        
-        correct = 0
-        total = 0
-        with torch.no_grad():
-            for inputs, labels in loader:
-                inputs = inputs.to('cpu')
-                outputs = model(inputs)
-                _, preds = torch.max(outputs, 1)
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
-                
-        accuracy = (correct / total) * 100
-        print(f" -> Accuracy (auf {total} Samples): {accuracy:.1f}%")
-        
-        results.append({
-            "Auflösung": f"{size}x{size}",
-            "Latenz (ms)": latency_ms,
-            "Accuracy (%)": accuracy
-        })
-
-    if not results:
-        print("Es wurden keine Modelle gefunden. Bitte führe das Trainingsskript vorher aus.")
-        return
-
-    # --- PLOTTING ---
-    sns.set_theme(style="whitegrid")
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    # 1. Bytes einlesen (es ist jetzt Stereo-Audio)
+    raw_audio = np.frombuffer(bytes(audio_data[:bytes_to_read]), dtype=np.int16)
     
-    names = [r["Auflösung"] for r in results]
-    latencies = [r["Latenz (ms)"] for r in results]
-    accuracies = [r["Accuracy (%)"] for r in results]
+    # 2. Rechten (leeren) Kanal verwerfen -> Wir nehmen nur jedes zweite Sample [::2]
+    mono_audio = raw_audio[::2]
     
-    colors = sns.color_palette("flare", len(names))
+    # 3. In Float umwandeln und verstärken
+    audio_float = (mono_audio.astype(np.float32) / 32768.0) * GAIN
+    
+    # 4. Rauschen wegfiltern (Bandpass)
+    audio_float = scipy.signal.filtfilt(b, a, audio_float)
+    
+    # 5. Clipping verhindern und zurück in 16-Bit wandeln
+    audio_float = np.clip(audio_float, -1.0, 1.0)
+    audio_final = (audio_float * 32767.0).astype(np.int16)
 
-    # 1. CPU Inferenz-Zeit
-    sns.barplot(x=names, y=latencies, ax=axes[0], palette=colors)
-    axes[0].set_title("Inferenzzeit auf der CPU pro Spektrogramm", fontweight='bold')
-    axes[0].set_ylabel("Latenz (Millisekunden)")
-    for i, v in enumerate(latencies): 
-        axes[0].text(i, v + (max(latencies)*0.02), f"{v:.1f} ms", ha='center', fontweight='bold')
-
-    # 2. Accuracy
-    sns.barplot(x=names, y=accuracies, ax=axes[1], palette=colors)
-    axes[1].set_title("Genauigkeit (Accuracy auf 500 Test-Aufnahmen)", fontweight='bold')
-    axes[1].set_ylabel("Accuracy (%)")
-    axes[1].set_ylim(0, 110)
-    for i, v in enumerate(accuracies): 
-        axes[1].text(i, v + 2, f"{v:.1f}%", ha='center', fontweight='bold')
-
-    plt.suptitle("Optimierung für Edge-Hardware: Auswirkung der Spektrogramm-Auflösung (MobileNetV3)", fontsize=16, fontweight='bold', y=1.05)
-    plt.tight_layout()
-
-    out_path = os.path.join(VISUALS_DIR, "imgsize_speed_comparison.png")
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    print(f"\n✅ Benchmark Plot erfolgreich gespeichert unter: {out_path}")
+    with wave.open("test_recording.wav", "wb") as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(audio_final.tobytes())
+        
+    print("[+] Fertig! Hör dir test_recording.wav an. Pitch und Rauschen sollten behoben sein!")
 
 if __name__ == "__main__":
-    main()
+    record_audio()
+</file>
+
+<file path="hardware/pi_server/requirements.txt">
+# Datei: hardware/pi_server/requirements.txt
+
+# Webserver & API
+fastapi
+uvicorn
+websockets
+
+# Audio & Mathe
+numpy<2.0
+librosa
+scipy
+
+# KI Inferenz (Edge)
+onnxruntime
+torch --index-url https://download.pytorch.org/whl/cpu
+</file>
+
+<file path="hardware/pi_server/web_dashboard.py">
+import socket
+import threading
+import numpy as np
+import librosa
+import onnxruntime as ort
+import asyncio
+import os
+import json
+import time
+import torch
+import torch.nn.functional as F
+import scipy.signal
+from collections import deque, Counter
+from fastapi import FastAPI, WebSocket
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+import uvicorn
+
+# --- KONFIGURATION ---
+HOST = '0.0.0.0'
+PORT = 5000
+SAMPLE_RATE = 32000
+DURATION = 5
+GAIN = 30.0  
+
+# Bandpass Filter für Vögel (1kHz - 12kHz)
+b_filter, a_filter = scipy.signal.butter(4, [1000, 12000], btype='bandpass', fs=SAMPLE_RATE)
+
+# Pfade
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MODELS_DIR = os.path.join(BASE_DIR, "data", "models")
+
+current_config = {
+    "threshold": 0.05,
+    "always_on": False,
+    "smoothing": 0.5,
+    "model_file": "efficientnet_fp32.onnx",
+    "classes_file": "efficientnet_task-species_ch-3_attn-False_layers-3_classes.json"
+}
+
+# --- ZUSTAND & DATENBANK ---
+esp32_data = {}
+history_data = {}
+lifetime_stats = Counter()
+
+DB_FILE = "lifetime_stats.json"
+if os.path.exists(DB_FILE):
+    try:
+        with open(DB_FILE, "r") as f:
+            lifetime_stats.update(json.load(f))
+    except Exception: pass
+
+def save_lifetime_stats():
+    with open(DB_FILE, "w") as f:
+        json.dump(dict(lifetime_stats), f)
+
+# --- KI MODELL LADEN ---
+session = None
+input_name = None
+classes = []
+
+def load_ai_model():
+    global session, input_name, classes
+    model_path = os.path.join(MODELS_DIR, current_config["model_file"])
+    classes_path = os.path.join(MODELS_DIR, current_config["classes_file"])
+    try:
+        print(f"[*] Lade KI Modell: {model_path}...")
+        session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+        input_name = session.get_inputs()[0].name
+
+        with open(classes_path, "r") as f:
+            data = json.load(f)
+            classes = data["classes"] if isinstance(data, dict) and "classes" in data else data
+
+        print(f"[+] Modell erfolgreich geladen. ({len(classes)} Klassen)")
+    except Exception as e:
+        print(f"[-] Fehler beim Laden des Modells: {e}")
+
+load_ai_model()
+
+# --- AUDIO VORVERARBEITUNG ---
+def preprocess_audio(audio_float):
+    audio_float = audio_float - np.mean(audio_float)
+    melspec = librosa.feature.melspectrogram(
+        y=audio_float, sr=SAMPLE_RATE, n_mels=128, fmax=16000, hop_length=512
+    )
+    log_melspec = librosa.power_to_db(melspec, ref=np.max)
+    min_val, max_val = log_melspec.min(), log_melspec.max()
+    spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+
+    spec_norm = np.flipud(spec_norm).copy()
+    spec_tensor = torch.tensor(spec_norm, dtype=torch.float32)
+    tensor = spec_tensor.unsqueeze(0).repeat(3, 1, 1)
+    
+    tensor = F.interpolate(tensor.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False)
+    return tensor.numpy()
+
+# --- I2S SOCKET SERVER ---
+def handle_client(conn, addr):
+    ip = addr[0]
+    print(f"\n[+] ESP32 {ip} verbunden!")
+    esp32_data[ip] = {"rms": 0.0, "status": "Lauscht...", "prediction": "-"}
+    history_data[ip] = deque(maxlen=50)
+    
+    # Da wir nun Stereo senden, brauchen wir doppelt so viel Puffer-Speicher
+    BYTES_PER_SECOND = SAMPLE_RATE * 4 # 32000 * 2 Kanäle * 2 Bytes
+    BUFFER_MAX = BYTES_PER_SECOND * DURATION 
+    raw_buffer = bytearray()
+    last_preds = deque(maxlen=3)
+    
+    bytes_since_last_process = 0
+    PROCESS_EVERY_BYTES = BYTES_PER_SECOND # Inferenz alle 1 Sekunde
+
+    try:
+        while True:
+            data = conn.recv(4096)
+            if not data: break
+            
+            raw_buffer.extend(data)
+            bytes_since_last_process += len(data)
+
+            if len(raw_buffer) > BUFFER_MAX:
+                raw_buffer = raw_buffer[-BUFFER_MAX:]
+
+            # UI Update (RMS)
+            ui_chunk = BYTES_PER_SECOND
+            if len(raw_buffer) >= ui_chunk:
+                raw_audio = np.frombuffer(bytes(raw_buffer[-ui_chunk:]), dtype=np.int16)
+                mono_audio = raw_audio[::2] # Stereo zu Mono
+                
+                audio_float_ui = (mono_audio.astype(np.float32) / 32768.0) * GAIN
+                audio_float_ui = scipy.signal.filtfilt(b_filter, a_filter, audio_float_ui)
+                audio_float_ui = np.clip(audio_float_ui, -1.0, 1.0)
+                
+                rms = float(np.sqrt(np.mean(audio_float_ui**2)))
+                esp32_data[ip]["rms"] = rms
+
+                if rms > current_config["threshold"] or current_config["always_on"]:
+                    esp32_data[ip]["status"] = "Aufnahme & KI-Inferenz läuft..."
+                else:
+                    esp32_data[ip]["status"] = "Lauscht auf Geräusche..."
+
+            # KI Inferenz
+            if len(raw_buffer) == BUFFER_MAX and bytes_since_last_process >= PROCESS_EVERY_BYTES:
+                bytes_since_last_process = 0 
+                
+                raw_audio = np.frombuffer(bytes(raw_buffer), dtype=np.int16)
+                mono_audio = raw_audio[::2] # Stereo zu Mono
+                
+                audio_float = (mono_audio.astype(np.float32) / 32768.0) * GAIN
+                audio_float = scipy.signal.filtfilt(b_filter, a_filter, audio_float)
+                audio_float = np.clip(audio_float, -1.0, 1.0)
+                
+                window_rms = float(np.sqrt(np.mean(audio_float**2)))
+
+                if window_rms > current_config["threshold"] or current_config["always_on"]:
+                    try:
+                        input_tensor = preprocess_audio(audio_float)
+                        start_time = time.time()
+                        outputs = session.run(None, {input_name: input_tensor})
+
+                        logits = torch.tensor(outputs[0][0])
+                        probs = F.softmax(logits, dim=0).numpy()
+
+                        last_preds.append(probs)
+                        smoothed_preds = np.mean(last_preds, axis=0) * current_config["smoothing"] + probs * (1 - current_config["smoothing"])
+
+                        best_idx = int(np.argmax(smoothed_preds))
+                        confidence = float(smoothed_preds[best_idx])
+                        bird_name = classes[best_idx]
+
+                        duration = int((time.time() - start_time) * 1000)
+                        timestamp = time.strftime("%H:%M:%S")
+
+                        ignore_words = ['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper', 'insect', 'noise', 'locust', 'katydid', 'roesel', 'shrew', 'mouse']
+                        is_ignored = any(w in bird_name.lower() for w in ignore_words)
+
+                        if confidence > 0.5 and not is_ignored:
+                            pred_str = f"{bird_name} ({confidence*100:.1f}%)"
+                            esp32_data[ip]["prediction"] = pred_str
+
+                            history_data[ip].append({"time": timestamp, "bird": bird_name, "conf": confidence*100})
+                            lifetime_stats[bird_name] += 1
+                            save_lifetime_stats()
+
+                            print(f"[{ip}] {timestamp} | {pred_str} | {duration}ms")
+
+                    except Exception as ai_e:
+                        print(f"[{ip}] KI Fehler: {ai_e}")
+
+    except Exception as e:
+        print(f"[-] Verbindung {ip} getrennt: {e}")
+    finally:
+        if ip in esp32_data: del esp32_data[ip]
+        if ip in history_data: del history_data[ip]
+        conn.close()
+
+def start_socket_server():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((HOST, PORT))
+    server.listen(5)
+    print(f"[*] I2S Socket Server lauscht auf {HOST}:{PORT}")
+    while True:
+        conn, addr = server.accept()
+        threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
+
+# --- FASTAPI WEBSERVER ---
+os.makedirs("static", exist_ok=True)
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+html_content = """
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Piepmatz Polizei Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #2c3e50; --secondary: #18bc9c; --bg: #ecf0f1; --card: #ffffff; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: var(--bg); margin: 0; padding: 0; }
+        header { background-color: #ffffff; color: var(--primary); padding: 15px 30px; display: flex; align-items: center; gap: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-bottom: 3px solid var(--secondary); }
+        .logo { height: 60px; object-fit: contain; }
+        .tabs { display: flex; background: var(--primary); padding: 0 20px; }
+        .tab-btn { background: none; border: none; color: #bdc3c7; padding: 12px 24px; font-size: 16px; cursor: pointer; transition: 0.3s; }
+        .tab-btn:hover { color: white; }
+        .tab-btn.active { color: white; border-bottom: 3px solid var(--secondary); font-weight: bold; }
+        .tab-content { display: none; padding: 30px; max-width: 1200px; margin: 0 auto; }
+        .tab-content.active { display: block; }
+        .card { background: var(--card); padding: 20px; margin-bottom: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .bar-container { width: 100%; background-color: #e0e0e0; border-radius: 6px; height: 20px; margin-top: 10px;}
+        .bar { height: 100%; background-color: var(--secondary); width: 0%; transition: width 0.1s ease; }
+        .bar.active { background-color: #e74c3c; }
+        .prediction { font-size: 18px; color: #e67e22; font-weight: bold; margin-top: 10px;}
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: var(--primary); color: white; }
+        .chart-container { position: relative; height: 40vh; width: 100%; margin-top: 20px;}
+        .config-row { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <header>
+        <img src="/static/logo.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+        <h1>Piepmatz Polizei - KI Monitor</h1>
+    </header>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="openTab(event, 'Live')">Live-Radar</button>
+        <button class="tab-btn" onclick="openTab(event, 'History')">Aktivitäts-Timeline</button>
+        <button class="tab-btn" onclick="openTab(event, 'Stats')">Lebenszeit Analyse</button>
+        <button class="tab-btn" onclick="openTab(event, 'AI')">Einstellungen</button>
+    </div>
+
+    <div id="Live" class="tab-content active">
+        <h2>Aktuelle Audio-Streams</h2>
+        <div id="nodes"><i>Warte auf ESP32 Verbindungen...</i></div>
+    </div>
+
+    <div id="History" class="tab-content">
+        <h2>Zeitliche Erkennungs-Map</h2>
+        <div class="card">
+            <div class="chart-container" style="height: 50vh;">
+                <canvas id="timelineChart"></canvas>
+            </div>
+            <table>
+                <thead><tr><th>Uhrzeit</th><th>Spezies</th><th>Konfidenz</th></tr></thead>
+                <tbody id="history-table"><tr><td colspan='3'>Noch keine Daten</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="Stats" class="tab-content">
+        <h2>Gesamte Erkennungen (Lifetime)</h2>
+        <div class="card">
+            <div class="chart-container">
+                <canvas id="speciesChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div id="AI" class="tab-content">
+        <div class="card">
+            <h3>KI Einstellungen</h3>
+            <div class="config-row">
+                <label><b>Always-On Modus:</b></label><br>
+                <input type="checkbox" id="always_on" onchange="sendConfig()"> Aktivieren
+            </div>
+            <div class="config-row">
+                <label><b>RMS Schwellenwert (Audio-Lautstärke):</b> <span id="thresh-val">0.05</span></label><br>
+                <input type="range" id="threshold" min="0.001" max="0.3" step="0.005" value="0.05" style="width: 300px;" onchange="sendConfig()" oninput="document.getElementById('thresh-val').innerText=this.value">
+            </div>
+            <div class="config-row">
+                <label><b>Glättungs-Faktor (Smoothing):</b> <span id="smooth-val">0.5</span></label><br>
+                <input type="range" id="smoothing" min="0" max="1" step="0.1" value="0.5" style="width: 300px;" onchange="sendConfig()" oninput="document.getElementById('smooth-val').innerText=this.value">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openTab(evt, tabName) {
+            var i, tabcontent, tablinks;
+            tabcontent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabcontent.length; i++) tabcontent[i].style.display = "none";
+            tablinks = document.getElementsByClassName("tab-btn");
+            for (i = 0; i < tablinks.length; i++) tablinks[i].className = tablinks[i].className.replace(" active", "");
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+
+        var ws = new WebSocket("ws://" + location.host + "/ws");
+        var chartInstance = null;
+        var timelineChart = null;
+
+        function sendConfig() {
+            ws.send(JSON.stringify({
+                type: "config",
+                always_on: document.getElementById('always_on').checked,
+                threshold: parseFloat(document.getElementById('threshold').value),
+                smoothing: parseFloat(document.getElementById('smoothing').value)
+            }));
+        }
+
+        function updateStatsChart(statsData) {
+            var ctx = document.getElementById('speciesChart').getContext('2d');
+            var labels = Object.keys(statsData);
+            var data = Object.values(statsData);
+            if(chartInstance) {
+                chartInstance.data.labels = labels;
+                chartInstance.data.datasets[0].data = data;
+                chartInstance.update();
+            } else {
+                chartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: { labels: labels, datasets: [{ label: 'Anzahl Erkennungen', data: data, backgroundColor: '#18bc9c' }] },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: {stepSize: 1} } } }
+                });
+            }
+        }
+
+        function updateTimelineChart(historyData) {
+            var ctxT = document.getElementById('timelineChart').getContext('2d');
+            var dataPoints = [];
+            var labelsY = [];
+
+            for (var ip in historyData) {
+                historyData[ip].forEach(function(item) {
+                    if (!labelsY.includes(item.bird)) labelsY.push(item.bird);
+                    dataPoints.push({ x: item.time, y: item.bird });
+                });
+            }
+
+            if(timelineChart) {
+                timelineChart.data.datasets[0].data = dataPoints;
+                timelineChart.options.scales.y.labels = labelsY;
+                timelineChart.update();
+            } else {
+                timelineChart = new Chart(ctxT, {
+                    type: 'scatter',
+                    data: {
+                        datasets: [{
+                            label: 'Vogel-Sichtungen',
+                            data: dataPoints,
+                            backgroundColor: 'rgba(24, 188, 156, 0.8)',
+                            pointStyle: 'rectRounded',
+                            radius: 12,
+                            hitRadius: 15
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { type: 'category', title: {display: true, text: 'Uhrzeit'} },
+                            y: { type: 'category', labels: labelsY, title: {display: true, text: 'Spezies'} }
+                        },
+                        plugins: {
+                            tooltip: { callbacks: { label: function(context) { return context.raw.y + " um " + context.raw.x; } } }
+                        }
+                    }
+                });
+            }
+        }
+
+        ws.onmessage = function(event) {
+            var payload = JSON.parse(event.data);
+
+            var nodesDiv = document.getElementById("nodes");
+            if (Object.keys(payload.nodes).length === 0) nodesDiv.innerHTML = "<i>Warte auf ESP32...</i>";
+            else {
+                nodesDiv.innerHTML = "";
+                for (var ip in payload.nodes) {
+                    var node = payload.nodes[ip];
+                    var percent = Math.min(100, (node.rms / 0.2) * 100);
+                    var barClass = (node.rms > payload.config.threshold || payload.config.always_on) ? "bar active" : "bar";
+                    var card = document.createElement("div");
+                    card.className = "card";
+                    card.innerHTML = "<h3>Node IP: " + ip + "</h3>" +
+                                     "<p><b>Status:</b> " + node.status + " | <b>RMS:</b> " + node.rms.toFixed(3) + "</p>" +
+                                     "<div class='bar-container'><div class='" + barClass + "' style='width: " + percent + "%'></div></div>" +
+                                     "<div class='prediction'>Letzte Erkennung: " + node.prediction + "</div>";
+                    nodesDiv.appendChild(card);
+                }
+            }
+
+            var histTbody = document.getElementById("history-table");
+            histTbody.innerHTML = "";
+            var hasHistory = false;
+            for (var ip in payload.history) {
+                var items = [...payload.history[ip]].reverse();
+                items.forEach(function(item) {
+                    hasHistory = true;
+                    var tr = document.createElement("tr");
+                    tr.innerHTML = "<td>" + item.time + "</td><td>" + item.bird + "</td><td>" + item.conf.toFixed(1) + "%</td>";
+                    histTbody.appendChild(tr);
+                });
+            }
+            if(!hasHistory) histTbody.innerHTML = "<tr><td colspan='3'>Noch keine Daten</td></tr>";
+
+            updateTimelineChart(payload.history);
+            if(Object.keys(payload.stats).length > 0) updateStatsChart(payload.stats);
+        };
+    </script>
+</body>
+</html>
+"""
+
+@app.get("/")
+async def get():
+    return HTMLResponse(html_content)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=0.1)
+                if data.get("type") == "config":
+                    current_config["always_on"] = data.get("always_on", False)
+                    current_config["threshold"] = data.get("threshold", 0.05)
+                    current_config["smoothing"] = data.get("smoothing", 0.5)
+            except asyncio.TimeoutError:
+                pass
+
+            payload = {
+                "nodes": esp32_data,
+                "history": {ip: list(hist) for ip, hist in history_data.items()},
+                "config": current_config,
+                "stats": dict(lifetime_stats)
+            }
+            await websocket.send_json(payload)
+
+    except Exception:
+        pass
+
+if __name__ == "__main__":
+    threading.Thread(target=start_socket_server, daemon=True).start()
+    print("[*] Starte Web-Dashboard auf http://0.0.0.0:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="error")
 </file>
 
 <file path="docs/Makefile">
@@ -269,7 +939,7 @@ clean-all:
 	latexmk -C
 </file>
 
-<file path="src/experiments/benchmark_architecture.py">
+<file path="src/experiments/benchmark_imgsize.py">
 import os
 import sys
 import time
@@ -287,71 +957,56 @@ from data import SmartBirdDataset
 
 def measure_latency(model, dummy_input, runs=100):
     model.eval()
-    
-    # Warmup
+
     with torch.no_grad():
         for _ in range(20):
             _ = model(dummy_input)
 
-    # Benchmark CPU Latency
     start_time = time.time()
     with torch.no_grad():
         for _ in range(runs):
             _ = model(dummy_input)
-            
+
     total_time = time.time() - start_time
-    return (total_time / runs) * 1000  # ms pro Inferenz
+    return (total_time / runs) * 1000
 
 def main():
-    print("Starte Architektur-Benchmark (MobileNet vs EfficientNet / 1-Ch vs 3-Ch)...")
-    
-    configs = [
-        {"name": "EfficientNet\n(3-Kanal)", "model_name": "efficientnet", "ch": 3},
-        {"name": "EfficientNet\n(1-Kanal)", "model_name": "efficientnet", "ch": 1},
-        {"name": "MobileNetV3\n(3-Kanal)",  "model_name": "mobilenet",    "ch": 3},
-        {"name": "MobileNetV3\n(1-Kanal)",  "model_name": "mobilenet",    "ch": 1},
-    ]
+    print("Starte IMG_SIZE Benchmark (MobileNetV3 bei verschiedenen Auflösungen)...")
 
+    sizes = [224, 160, 128, 96]
     results = []
 
-    # Lege einen festen Seed fest, damit jedes Modell exakt dieselben 500 Testbilder prüfen muss (Faierer Vergleich)
     np.random.seed(42)
 
-    for cfg in configs:
-        print(f"\n[{cfg['name'].replace(chr(10), ' ')}] Analysiere Modell...")
-        
-        # Generiere den genauen Dateinamen des trainierten Modells
-        exp_name = f"{cfg['model_name']}_task-species_ch-{cfg['ch']}_attn-False_layers-3"
+    for size in sizes:
+        print(f"\n[Auflösung {size}x{size}] Analysiere Modell...")
+
+        exp_name = f"mobilenet_task-species_ch-3_size-{size}_attn-False_layers-3"
         json_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
         pth_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
-        
+
         if not os.path.exists(pth_path) or not os.path.exists(json_path):
             print(f" -> FEHLER: Modell {exp_name} nicht gefunden. Überspringe...")
             continue
-            
-        # Klassenanzahl laden
+
         with open(json_path, "r") as f:
             classes = json.load(f)['classes']
         num_classes = len(classes)
-        
-        # Modell laden
-        model = get_model(cfg["model_name"], num_classes, in_channels=cfg["ch"]).to('cpu')
+
+        model = get_model("mobilenet", num_classes, in_channels=3).to('cpu')
         model.load_state_dict(torch.load(pth_path, map_location='cpu'))
         model.eval()
-        
-        # 1. LATENZ MESSEN (Mit Batch-Size 1, da das dem Real-Einsatz auf dem Pi entspricht)
-        dummy_input = torch.randn(1, cfg["ch"], IMG_SIZE, IMG_SIZE).to('cpu')
+
+        dummy_input = torch.randn(1, 3, size, size).to('cpu')
         latency_ms = measure_latency(model, dummy_input, runs=100)
         print(f" -> CPU Latenz: {latency_ms:.2f} ms")
-        
-        # 2. ACCURACY MESSEN (Auf 500 Validierungs-Samples)
-        dataset = SmartBirdDataset(mode='test', task='species', in_channels=cfg["ch"])
+
+        dataset = SmartBirdDataset(mode='test', task='species', in_channels=3, img_size=size)
         subset_indices = np.random.choice(len(dataset), min(500, len(dataset)), replace=False)
         subset = Subset(dataset, subset_indices)
-        
-        # Batch-Size 32 für schnellere Evaluation auf dem PC
+
         loader = DataLoader(subset, batch_size=32, shuffle=False)
-        
+
         correct = 0
         total = 0
         with torch.no_grad():
@@ -361,12 +1016,12 @@ def main():
                 _, preds = torch.max(outputs, 1)
                 correct += (preds == labels).sum().item()
                 total += labels.size(0)
-                
+
         accuracy = (correct / total) * 100
         print(f" -> Accuracy (auf {total} Samples): {accuracy:.1f}%")
-        
+
         results.append({
-            "Modell": cfg["name"],
+            "Auflösung": f"{size}x{size}",
             "Latenz (ms)": latency_ms,
             "Accuracy (%)": accuracy
         })
@@ -375,371 +1030,34 @@ def main():
         print("Es wurden keine Modelle gefunden. Bitte führe das Trainingsskript vorher aus.")
         return
 
-    # --- PLOTTING ---
     sns.set_theme(style="whitegrid")
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    
-    names = [r["Modell"] for r in results]
+
+    names = [r["Auflösung"] for r in results]
     latencies = [r["Latenz (ms)"] for r in results]
     accuracies = [r["Accuracy (%)"] for r in results]
-    
-    # Farben: Dunkelblau/Hellblau für EfficientNet, Dunkelorange/Hellorange für MobileNet
-    colors = ['#1f77b4', '#72b7e6', '#ff7f0e', '#ffb366']
 
-    # 1. CPU Inferenz-Zeit
+    colors = sns.color_palette("flare", len(names))
+
     sns.barplot(x=names, y=latencies, ax=axes[0], palette=colors)
     axes[0].set_title("Inferenzzeit auf der CPU pro Spektrogramm", fontweight='bold')
     axes[0].set_ylabel("Latenz (Millisekunden)")
-    for i, v in enumerate(latencies): 
+    for i, v in enumerate(latencies):
         axes[0].text(i, v + (max(latencies)*0.02), f"{v:.1f} ms", ha='center', fontweight='bold')
 
-    # 2. Accuracy
     sns.barplot(x=names, y=accuracies, ax=axes[1], palette=colors)
     axes[1].set_title("Genauigkeit (Accuracy auf 500 Test-Aufnahmen)", fontweight='bold')
     axes[1].set_ylabel("Accuracy (%)")
-    axes[1].set_ylim(0, 110) # Etwas Luft nach oben für die Text-Label
-    for i, v in enumerate(accuracies): 
+    axes[1].set_ylim(0, 110)
+    for i, v in enumerate(accuracies):
         axes[1].text(i, v + 2, f"{v:.1f}%", ha='center', fontweight='bold')
 
-    plt.suptitle(f"Architektur-Experiment: MobileNetV3 vs. EfficientNet (Image Size: {IMG_SIZE}x{IMG_SIZE})", fontsize=16, fontweight='bold', y=1.05)
+    plt.suptitle("Optimierung für Edge-Hardware: Auswirkung der Spektrogramm-Auflösung (MobileNetV3)", fontsize=16, fontweight='bold', y=1.05)
     plt.tight_layout()
 
-    out_path = os.path.join(VISUALS_DIR, "architecture_speed_comparison.png")
+    out_path = os.path.join(VISUALS_DIR, "imgsize_speed_comparison.png")
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    print(f"\n✅ Benchmark Plot erfolgreich gespeichert unter: {out_path}")
-    print("Tipp: Führe dieses Skript auch auf dem Raspberry Pi aus, um die tatsächlichen Edge-Device Latenzen zu sehen!")
-
-if __name__ == "__main__":
-    main()
-</file>
-
-<file path="src/experiments/benchmark_quantization.py">
-import os
-import sys
-import time
-import torch
-import numpy as np
-import onnxruntime as ort
-import matplotlib.pyplot as plt
-import seaborn as sns
-from torch.utils.data import DataLoader, Subset
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import *
-from data import SmartBirdDataset
-from models import get_model
-
-def get_dir_size(path):
-    if not os.path.exists(path):
-        return 0
-    return os.path.getsize(path) / (1024 * 1024)
-
-def main():
-    print("Starte Quantisierungs-Benchmark (Größe, Latenz, Genauigkeit)...")
-
-    model_name = "efficientnet"
-    exp_name = f"{model_name}_task-species_attn-False_layers-3"
-
-    onnx_fp32_path = os.path.join(MODELS_DIR, f"{model_name}_fp32.onnx")
-    onnx_int8_minmax_path = os.path.join(MODELS_DIR, f"{model_name}_quantized_int8_minmax.onnx")
-    onnx_int8_entropy_path = os.path.join(MODELS_DIR, f"{model_name}_quantized_int8_entropy.onnx")
-
-    if not os.path.exists(onnx_int8_entropy_path):
-        print("ONNX Modelle fehlen. Bitte zuerst ausführen: python src/quantize.py --model efficientnet")
-        return
-
-    # Größen messen
-    size_fp32 = get_dir_size(onnx_fp32_path)
-    size_int8_minmax = get_dir_size(onnx_int8_minmax_path)
-    size_int8_entropy = get_dir_size(onnx_int8_entropy_path)
-
-    dummy_input = np.random.randn(1, 3, IMG_SIZE, IMG_SIZE).astype(np.float32)
-
-    # Sessions laden
-    sess_fp32 = ort.InferenceSession(onnx_fp32_path, providers=['CPUExecutionProvider'])
-    sess_int8_minmax = ort.InferenceSession(onnx_int8_minmax_path, providers=['CPUExecutionProvider'])
-    sess_int8_entropy = ort.InferenceSession(onnx_int8_entropy_path, providers=['CPUExecutionProvider'])
-
-    def measure_latency(session, input_data, runs=100):
-        input_name = session.get_inputs()[0].name
-        # Warmup
-        for _ in range(10): session.run(None, {input_name: input_data})
-        # Benchmark
-        start = time.time()
-        for _ in range(runs): session.run(None, {input_name: input_data})
-        return ((time.time() - start) / runs) * 1000
-
-    print("Messe Inferenzzeiten...")
-    lat_fp32 = measure_latency(sess_fp32, dummy_input)
-    lat_int8_minmax = measure_latency(sess_int8_minmax, dummy_input)
-    lat_int8_entropy = measure_latency(sess_int8_entropy, dummy_input)
-
-    print("Evaluiere Accuracy auf 500 Test-Samples (das kann einen Moment dauern)...")
-    dataset = SmartBirdDataset(mode='test', task='species')
-    subset = Subset(dataset, np.random.choice(len(dataset), min(500, len(dataset)), replace=False))
-    loader = DataLoader(subset, batch_size=1, shuffle=False)
-
-    correct_fp32, correct_int8_minmax, correct_int8_entropy = 0, 0, 0
-    input_name_fp32 = sess_fp32.get_inputs()[0].name
-    input_name_int8_minmax = sess_int8_minmax.get_inputs()[0].name
-    input_name_int8_entropy = sess_int8_entropy.get_inputs()[0].name
-
-    for img, label in loader:
-        img_np = img.numpy()
-        label_np = label.numpy()[0]
-
-        out_fp32 = sess_fp32.run(None, {input_name_fp32: img_np})[0]
-        out_int8_minmax = sess_int8_minmax.run(None, {input_name_int8_minmax: img_np})[0]
-        out_int8_entropy = sess_int8_entropy.run(None, {input_name_int8_entropy: img_np})[0]
-
-        if np.argmax(out_fp32) == label_np: correct_fp32 += 1
-        if np.argmax(out_int8_minmax) == label_np: correct_int8_minmax += 1
-        if np.argmax(out_int8_entropy) == label_np: correct_int8_entropy += 1
-
-    acc_fp32 = (correct_fp32 / len(loader)) * 100
-    acc_int8_minmax = (correct_int8_minmax / len(loader)) * 100
-    acc_int8_entropy = (correct_int8_entropy / len(loader)) * 100
-
-    # --- PLOTTING ---
-    sns.set_theme(style="whitegrid")
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-
-    labels = ['32-Bit (FP32)', '8-Bit (MinMax)', '8-Bit (Entropie)']
-    # Farben: Blau für Basis, Rot für den Accuracy-Zusammenbruch, Grün für die Rettung
-    colors = ['#1f77b4', '#d62728', '#2ca02c']
-
-    # 1. Dateigröße
-    sns.barplot(x=labels, y=[size_fp32, size_int8_minmax, size_int8_entropy], ax=axes[0], palette=colors)
-    axes[0].set_title("Modellgröße (MB) ", fontweight='bold')
-    axes[0].set_ylabel("Megabyte (MB)")
-    for i, v in enumerate([size_fp32, size_int8_minmax, size_int8_entropy]): 
-        axes[0].text(i, v+0.2, f"{v:.1f} MB", ha='center', fontweight='bold')
-
-    # 2. Latenz
-    sns.barplot(x=labels, y=[lat_fp32, lat_int8_minmax, lat_int8_entropy], ax=axes[1], palette=colors)
-    axes[1].set_title("Inferenzzeit pro Audio-Clip (ms) ", fontweight='bold')
-    axes[1].set_ylabel("Millisekunden (ms)")
-    for i, v in enumerate([lat_fp32, lat_int8_minmax, lat_int8_entropy]): 
-        axes[1].text(i, v+0.2, f"{v:.1f} ms", ha='center', fontweight='bold')
-
-    # 3. Accuracy
-    sns.barplot(x=labels, y=[acc_fp32, acc_int8_minmax, acc_int8_entropy], ax=axes[2], palette=colors)
-    axes[2].set_title("Genauigkeit (Accuracy) ", fontweight='bold')
-    axes[2].set_ylabel("Accuracy (%)")
-    axes[2].set_ylim(0, 110)
-    for i, v in enumerate([acc_fp32, acc_int8_minmax, acc_int8_entropy]): 
-        axes[2].text(i, v+2, f"{v:.1f}%", ha='center', fontweight='bold')
-
-    plt.suptitle("Auswirkungen der Quantisierungs-Methodik (MinMax vs. Entropie)", fontsize=16, fontweight='bold', y=1.05)
-    plt.tight_layout()
-
-    out_path = os.path.join(VISUALS_DIR, "comparison_quantization.png")
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    print(f"\n Erfolgreich gespeichert unter: {out_path}")
-
-if __name__ == "__main__":
-    main()
-</file>
-
-<file path="src/experiments/visualize_energy_saving.py">
-import os
-import sys
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from matplotlib.patches import Patch
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import VISUALS_DIR
-
-def main():
-    print("Generiere Visualisierung für Wake-on-Sound Energieeinsparung...")
-
-    # Simuliere 24 Stunden (in 5-Minuten-Intervallen -> 288 Datenpunkte)
-    time_hours = np.linspace(0, 24, 288)
-    
-    # Simuliere Wald-Aktivität (RMS Energie)
-    # Nachts: ruhig (Basisrauschen)
-    # 04:30 - 09:00: Morgenchor (sehr aktiv)
-    # 12:00 - 15:00: Mittagshitze (eher ruhig)
-    # 17:00 - 20:00: Abendchor (aktiv)
-    
-    energy = np.random.normal(0.02, 0.005, 288) # Grundrauschen (Wind, Blätter)
-    
-    # Morgenchor (Gauß-Glocke)
-    energy += 0.15 * np.exp(-((time_hours - 6.5) ** 2) / (2 * 1.5 ** 2))
-    # Abendchor
-    energy += 0.08 * np.exp(-((time_hours - 18.5) ** 2) / (2 * 1.0 ** 2))
-    
-    # Füge ein paar zufällige Spitzen hinzu (z.B. tagsüber mal ein lauter Ruf)
-    np.random.seed(42)
-    spikes = np.random.choice(288, 15, replace=False)
-    energy[spikes] += np.random.uniform(0.05, 0.12, 15)
-    
-    energy = np.clip(energy, 0, 1) # Begrenze auf 0 bis 1
-    
-    # Wake-on-Sound Schwellenwert (darunter schläft die KI)
-    rms_threshold = 0.04 
-
-    # Berechne Ersparnis
-    active_inferences = np.sum(energy > rms_threshold)
-    total_inferences = len(energy)
-    saved_percent = 100 * (1 - (active_inferences / total_inferences))
-
-    # --- PLOTTING ---
-    sns.set_theme(style="whitegrid")
-    plt.figure(figsize=(14, 6))
-    
-    # Plot der Energie-Kurve
-    plt.plot(time_hours, energy, color='black', linewidth=1.5, alpha=0.7, label="Akustische Signalenergie (RMS)")
-    
-    # Fülle Bereiche
-    plt.fill_between(time_hours, energy, rms_threshold, where=(energy > rms_threshold), 
-                     interpolate=True, color='#d62728', alpha=0.6, label="KI Aktiv (Inferenz wird berechnet)")
-    plt.fill_between(time_hours, 0, rms_threshold, 
-                     color='#1f77b4', alpha=0.3, label="Deep Sleep (KI pausiert, CPU spart Strom)")
-    
-    plt.axhline(rms_threshold, color='black', linestyle='--', linewidth=2, label="Wake-on-Sound Schwellenwert")
-    
-    plt.title("Energieeffizienz durch heuristische Vorfilterung (24h Simulation)", fontsize=16, fontweight='bold')
-    plt.xlabel("Uhrzeit (Stunden)", fontsize=13)
-    plt.ylabel("Signalamplitude (RMS Energie)", fontsize=13)
-    plt.xlim(0, 24)
-    plt.ylim(0, max(energy) + 0.05)
-    plt.xticks(np.arange(0, 25, 2),[f"{i:02d}:00" for i in range(0, 25, 2)])
-    
-    # Text-Annotation für die Ersparnis
-    plt.text(12, max(energy)*0.85, f"Eingesparte Rechenzeit/Akkuladung: {saved_percent:.1f}%", 
-             fontsize=14, fontweight='bold', color='green', 
-             bbox=dict(facecolor='white', edgecolor='green', boxstyle='round,pad=0.5'))
-    
-    plt.legend(loc="upper right")
-    plt.tight_layout()
-
-    os.makedirs(VISUALS_DIR, exist_ok=True)
-    out_path = os.path.join(VISUALS_DIR, "wake_on_sound_energy.png")
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    print(f"\n✅ Energie-Plot erfolgreich gespeichert unter: {out_path}")
-
-if __name__ == "__main__":
-    main()
-</file>
-
-<file path="src/experiments/visualize_fp_suppression.py">
-import os
-import sys
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import VISUALS_DIR
-
-def main():
-    print("Generiere Visualisierung für Root-Scaled Context Suppression...")
-
-    time_windows = np.arange(0, 60, 5)
-
-    # 1. Echter, aber etwas entfernterer Vogel (True Positive)
-    true_bird_raw = np.array([0.1, 0.1, 0.55, 0.70, 0.65, 0.40, 0.1, 0.1, 0.50, 0.1, 0.1, 0.1])
-    
-    # 2. Fehlalarm: Knackender Ast klingt kurz wie ein Specht (False Positive)
-    false_bird_raw = np.array([0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.55, 0.05, 0.05, 0.05, 0.05])
-
-    # --- OUR TWIST: ROOT-SCALED CONTEXT SUPPRESSION ---
-    # Formel: P_neu = P_alt * sqrt(P_max_im_file)
-    true_bird_max = np.max(true_bird_raw)
-    false_bird_max = np.max(false_bird_raw)
-
-    true_bird_scaled = true_bird_raw * np.sqrt(true_bird_max)
-    false_bird_scaled = false_bird_raw * np.sqrt(false_bird_max)
-
-    # --- PLOTTING ---
-    sns.set_theme(style="whitegrid")
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
-
-    threshold = 0.45 
-
-    # Plot 1: Rohdaten
-    axes[0].plot(time_windows, true_bird_raw, label="Echter Vogel (Distanziert)", color='#1f77b4', linewidth=3, marker='o')
-    axes[0].plot(time_windows, false_bird_raw, label="Isoliertes Störgeräusch", color='#d62728', linewidth=3, linestyle='--', marker='X', markersize=8)
-    axes[0].axhline(threshold, color='black', linestyle=':', linewidth=2, label=f"Schwellenwert ({threshold*100:.0f}%)")
-    axes[0].set_title("Vorher: Rohe KI-Konfidenz", fontsize=15, fontweight='bold')
-    axes[0].set_xlabel("Zeitachse (Sekunden)", fontsize=13)
-    axes[0].set_ylabel("Konfidenz (0.0 - 1.0)", fontsize=13)
-    axes[0].set_ylim(-0.05, 1.05)
-    axes[0].legend(loc="upper right")
-
-    # Plot 2: Nach unserem Root-Scaling
-    axes[1].plot(time_windows, true_bird_scaled, label="Echter Vogel (Erhalten)", color='#1f77b4', linewidth=3, marker='o')
-    axes[1].plot(time_windows, false_bird_scaled, label="Störgeräusch (Unterdrückt)", color='#d62728', linewidth=3, linestyle='--', marker='X', markersize=8)
-    axes[1].axhline(threshold, color='black', linestyle=':', linewidth=2, label=f"Schwellenwert ({threshold*100:.0f}%)")
-    axes[1].set_title("Nachher: Root-Scaled Context Suppression", fontsize=15, fontweight='bold')
-    axes[1].set_xlabel("Zeitachse (Sekunden)", fontsize=13)
-    
-    axes[0].annotate('Fehlalarm!', xy=(35, 0.57), xytext=(20, 0.8),
-                 arrowprops=dict(facecolor='red', shrink=0.05), fontsize=12, fontweight='bold', color='red')
-    axes[1].annotate('Erfolgreich\nunterdrückt', xy=(35, 0.40), xytext=(20, 0.6),
-                 arrowprops=dict(facecolor='green', shrink=0.05), fontsize=12, fontweight='bold', color='green')
-
-    plt.suptitle("Algorithmische Fehlalarm-Unterdrückung durch globale Kontext-Skalierung", fontsize=16, fontweight='bold', y=1.05)
-    plt.tight_layout()
-
-    out_path = os.path.join(VISUALS_DIR, "false_positive_suppression.png")
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    print(f"\n✅ Visualisierung gespeichert unter: {out_path}")
-
-if __name__ == "__main__":
-    main()
-</file>
-
-<file path="src/count_birds.py">
-import json
-import glob
-
-def main():
-
-    class_files = glob.glob("data/models/*task-species*_classes.json")
-
-    if not class_files:
-        print("Konnte keine classes.json finden. Hast du Modelle trainiert?")
-        return
-
-    file_to_read = class_files[0]
-    print(f"Lese Klassen aus: {file_to_read}\n")
-
-    with open(file_to_read, 'r') as f:
-        classes = json.load(f)['classes']
-
-    non_bird_keywords =[
-        'cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper',
-        'katydid', 'roesel', 'mouse', 'mole', 'shrew', 'squirrel',
-        'deer', 'fox', 'wolf', 'marmot', 'locust', 'insect', 'bush-cricket'
-    ]
-
-    birds = []
-    distractors =[]
-
-    for species in classes:
-
-        if any(keyword in species.lower() for keyword in non_bird_keywords):
-            distractors.append(species)
-        else:
-            birds.append(species)
-
-    print("="*50)
-    print("  PIEPMATZ POLIZEI - DATENSATZ ANALYSE")
-    print("="*50)
-    print(f"Gesamte Klassen im Modell:      {len(classes)}")
-    print(f"➔ Echte Vogelarten:             {len(birds)}")
-    print(f"➔ Insekten/Amphibien (Filter):  {len(distractors)}")
-    print("="*50)
-
-    print("\nBeispiele für herausgefilterte 'Distractor Classes':")
-    for d in distractors[:15]:
-        print(f" - {d}")
-
-    print("\nDiese Störgeräusche wird die KI im Wald nun erfolgreich ignorieren! ")
+    print(f"\n Benchmark Plot erfolgreich gespeichert unter: {out_path}")
 
 if __name__ == "__main__":
     main()
@@ -747,100 +1065,6 @@ if __name__ == "__main__":
 
 <file path="cap_data.py">
 import pandas as pd; df = pd.read_csv('data/metadata.csv'); print(f'Alte Größe: {len(df)}'); df['q_rank'] = df['quality'].map({'A':1, 'B':2, 'C':3, 'D':4}); df = df.sort_values(['species', 'q_rank']).groupby('species').head(150).drop(columns=['q_rank']); df.to_csv('data/metadata.csv', index=False); print(f'Neue Größe: {len(df)} (Max 150 beste Qualitäten pro Art!)')
-</file>
-
-<file path="download_models.py">
-"""
-Download pre-trained model weights from Hugging Face.
-
-Usage:
-    python download_models.py               # all models
-    python download_models.py --model efficientnet
-    python download_models.py --list
-    python download_models.py --force       # re-download existing
-"""
-import os, sys, argparse
-
-HF_REPO_ID = "BoredVoidAter/piepmatz-polizei"
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "data", "models")
-
-ALL_MODELS = [
-    "efficientnet_task-species_attn-False_layers-3_best.pth",
-    "efficientnet_task-type_attn-False_layers-3_best.pth",
-    "resnet_task-species_attn-False_layers-3_best.pth",
-    "custom_task-species_attn-False_layers-2_best.pth",
-    "custom_task-species_attn-False_layers-3_best.pth",
-    "custom_task-species_attn-False_layers-5_best.pth",
-    "custom_task-species_attn-True_layers-3_best.pth",
-    "embedding_task-species_attn-False_layers-3_best.pth",
-]
-
-SHORTCUTS = {
-    "efficientnet":      "efficientnet_task-species_attn-False_layers-3_best.pth",
-    "efficientnet-type": "efficientnet_task-type_attn-False_layers-3_best.pth",
-    "resnet":            "resnet_task-species_attn-False_layers-3_best.pth",
-    "custom-2":          "custom_task-species_attn-False_layers-2_best.pth",
-    "custom-3":          "custom_task-species_attn-False_layers-3_best.pth",
-    "custom-5":          "custom_task-species_attn-False_layers-5_best.pth",
-    "custom-attn":       "custom_task-species_attn-True_layers-3_best.pth",
-    "embedding":         "embedding_task-species_attn-False_layers-3_best.pth",
-}
-
-def get_hf():
-    try:
-        from huggingface_hub import hf_hub_download
-    except ImportError:
-        import subprocess
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub", "-q"])
-        from huggingface_hub import hf_hub_download
-    return hf_hub_download
-
-def download(hf_hub_download, filename, force=False):
-    dest = os.path.join(MODELS_DIR, filename)
-    if os.path.exists(dest) and not force:
-        mb = os.path.getsize(dest) / 1024 / 1024
-        print(f"  ✓ {filename} ({mb:.1f} MB) — already exists, skipping")
-        return True
-    print(f"  ↓ {filename}...")
-    try:
-        hf_hub_download(repo_id=HF_REPO_ID, filename=filename,
-                        repo_type="model", local_dir=MODELS_DIR)
-        mb = os.path.getsize(dest) / 1024 / 1024
-        print(f"    ✓ saved ({mb:.1f} MB)")
-        return True
-    except Exception as e:
-        print(f"    ✗ failed: {e}")
-        return False
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=list(SHORTCUTS.keys()))
-    parser.add_argument("--list",  action="store_true")
-    parser.add_argument("--force", action="store_true")
-    args = parser.parse_args()
-
-    if args.list:
-        print(f"\nModels at https://huggingface.co/{HF_REPO_ID}\n")
-        for k, v in SHORTCUTS.items():
-            exists = "✓" if os.path.exists(os.path.join(MODELS_DIR, v)) else " "
-            print(f"  [{exists}] --model {k:<20} → {v}")
-        return
-
-    print(f"\n Piepmatz Polizei — Model Downloader")
-    print(f"   {HF_REPO_ID}\n")
-    os.makedirs(MODELS_DIR, exist_ok=True)
-    hf = get_hf()
-
-    files = [SHORTCUTS[args.model]] if args.model else ALL_MODELS
-    ok = sum(download(hf, f, args.force) for f in files)
-    failed = len(files) - ok
-
-    print(f"\n {ok} downloaded, {failed} failed.")
-    if not failed:
-        print("   Ready to run: python src/showcase.py --model efficientnet --live")
-
-if __name__ == "__main__":
-    main()
 </file>
 
 <file path="USAGE.txt">
@@ -900,6 +1124,442 @@ Befehl:
 python src/quantize.py --model efficientnet
 </file>
 
+<file path="src/experiments/visualize_energy_saving.py">
+import os
+import sys
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.patches import Patch
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import VISUALS_DIR
+
+def main():
+    print("Generiere Visualisierung für Wake-on-Sound Energieeinsparung...")
+
+    time_hours = np.linspace(0, 24, 288)
+
+    energy = np.random.normal(0.02, 0.005, 288)
+
+    energy += 0.15 * np.exp(-((time_hours - 6.5) ** 2) / (2 * 1.5 ** 2))
+
+    energy += 0.08 * np.exp(-((time_hours - 18.5) ** 2) / (2 * 1.0 ** 2))
+
+    np.random.seed(42)
+    spikes = np.random.choice(288, 15, replace=False)
+    energy[spikes] += np.random.uniform(0.05, 0.12, 15)
+
+    energy = np.clip(energy, 0, 1)
+
+    rms_threshold = 0.04
+
+    active_inferences = np.sum(energy > rms_threshold)
+    total_inferences = len(energy)
+    saved_percent = 100 * (1 - (active_inferences / total_inferences))
+
+    sns.set_theme(style="whitegrid")
+    plt.figure(figsize=(14, 6))
+
+    plt.plot(time_hours, energy, color='black', linewidth=1.5, alpha=0.7, label="Akustische Signalenergie (RMS)")
+
+    plt.fill_between(time_hours, energy, rms_threshold, where=(energy > rms_threshold),
+                     interpolate=True, color='#d62728', alpha=0.6, label="KI Aktiv (Inferenz wird berechnet)")
+    plt.fill_between(time_hours, 0, rms_threshold,
+                     color='#1f77b4', alpha=0.3, label="Deep Sleep (KI pausiert, CPU spart Strom)")
+
+    plt.axhline(rms_threshold, color='black', linestyle='--', linewidth=2, label="Wake-on-Sound Schwellenwert")
+
+    plt.title("Energieeffizienz durch heuristische Vorfilterung (24h Simulation)", fontsize=16, fontweight='bold')
+    plt.xlabel("Uhrzeit (Stunden)", fontsize=13)
+    plt.ylabel("Signalamplitude (RMS Energie)", fontsize=13)
+    plt.xlim(0, 24)
+    plt.ylim(0, max(energy) + 0.05)
+    plt.xticks(np.arange(0, 25, 2),[f"{i:02d}:00" for i in range(0, 25, 2)])
+
+    plt.text(12, max(energy)*0.85, f"Eingesparte Rechenzeit/Akkuladung: {saved_percent:.1f}%",
+             fontsize=14, fontweight='bold', color='green',
+             bbox=dict(facecolor='white', edgecolor='green', boxstyle='round,pad=0.5'))
+
+    plt.legend(loc="upper right")
+    plt.tight_layout()
+
+    os.makedirs(VISUALS_DIR, exist_ok=True)
+    out_path = os.path.join(VISUALS_DIR, "wake_on_sound_energy.png")
+    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    print(f"\n Energie-Plot erfolgreich gespeichert unter: {out_path}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/experiments/visualize_fp_suppression.py">
+import os
+import sys
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import VISUALS_DIR
+
+def main():
+    print("Generiere Visualisierung für Root-Scaled Context Suppression...")
+
+    time_windows = np.arange(0, 60, 5)
+
+    true_bird_raw = np.array([0.1, 0.1, 0.55, 0.70, 0.65, 0.40, 0.1, 0.1, 0.50, 0.1, 0.1, 0.1])
+
+    false_bird_raw = np.array([0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.55, 0.05, 0.05, 0.05, 0.05])
+
+    true_bird_max = np.max(true_bird_raw)
+    false_bird_max = np.max(false_bird_raw)
+
+    true_bird_scaled = true_bird_raw * np.sqrt(true_bird_max)
+    false_bird_scaled = false_bird_raw * np.sqrt(false_bird_max)
+
+    sns.set_theme(style="whitegrid")
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
+
+    threshold = 0.45
+
+    axes[0].plot(time_windows, true_bird_raw, label="Echter Vogel (Distanziert)", color='#1f77b4', linewidth=3, marker='o')
+    axes[0].plot(time_windows, false_bird_raw, label="Isoliertes Störgeräusch", color='#d62728', linewidth=3, linestyle='--', marker='X', markersize=8)
+    axes[0].axhline(threshold, color='black', linestyle=':', linewidth=2, label=f"Schwellenwert ({threshold*100:.0f}%)")
+    axes[0].set_title("Vorher: Rohe KI-Konfidenz", fontsize=15, fontweight='bold')
+    axes[0].set_xlabel("Zeitachse (Sekunden)", fontsize=13)
+    axes[0].set_ylabel("Konfidenz (0.0 - 1.0)", fontsize=13)
+    axes[0].set_ylim(-0.05, 1.05)
+    axes[0].legend(loc="upper right")
+
+    axes[1].plot(time_windows, true_bird_scaled, label="Echter Vogel (Erhalten)", color='#1f77b4', linewidth=3, marker='o')
+    axes[1].plot(time_windows, false_bird_scaled, label="Störgeräusch (Unterdrückt)", color='#d62728', linewidth=3, linestyle='--', marker='X', markersize=8)
+    axes[1].axhline(threshold, color='black', linestyle=':', linewidth=2, label=f"Schwellenwert ({threshold*100:.0f}%)")
+    axes[1].set_title("Nachher: Root-Scaled Context Suppression", fontsize=15, fontweight='bold')
+    axes[1].set_xlabel("Zeitachse (Sekunden)", fontsize=13)
+
+    axes[0].annotate('Fehlalarm!', xy=(35, 0.57), xytext=(20, 0.8),
+                 arrowprops=dict(facecolor='red', shrink=0.05), fontsize=12, fontweight='bold', color='red')
+    axes[1].annotate('Erfolgreich\nunterdrückt', xy=(35, 0.40), xytext=(20, 0.6),
+                 arrowprops=dict(facecolor='green', shrink=0.05), fontsize=12, fontweight='bold', color='green')
+
+    plt.suptitle("Algorithmische Fehlalarm-Unterdrückung durch globale Kontext-Skalierung", fontsize=16, fontweight='bold', y=1.05)
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, "false_positive_suppression.png")
+    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    print(f"\n Visualisierung gespeichert unter: {out_path}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/count_birds.py">
+import json
+import glob
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from config import NON_BIRD_KEYWORDS
+
+def main():
+
+    class_files = glob.glob("data/models/*task-species*_classes.json")
+
+    if not class_files:
+        print("Konnte keine classes.json finden. Hast du Modelle trainiert?")
+        return
+
+    file_to_read = class_files[0]
+    print(f"Lese Klassen aus: {file_to_read}\n")
+
+    with open(file_to_read, 'r') as f:
+        classes = json.load(f)['classes']
+
+    non_bird_keywords = NON_BIRD_KEYWORDS
+
+    birds = []
+    distractors =[]
+
+    for species in classes:
+
+        if any(keyword in species.lower() for keyword in non_bird_keywords):
+            distractors.append(species)
+        else:
+            birds.append(species)
+
+    print("="*50)
+    print("  PIEPMATZ POLIZEI - DATENSATZ ANALYSE")
+    print("="*50)
+    print(f"Gesamte Klassen im Modell:      {len(classes)}")
+    print(f"➔ Echte Vogelarten:             {len(birds)}")
+    print(f"➔ Insekten/Amphibien (Filter):  {len(distractors)}")
+    print("="*50)
+
+    print("\nBeispiele für herausgefilterte 'Distractor Classes':")
+    for d in distractors[:15]:
+        print(f" - {d}")
+
+    print("\nDiese Störgeräusche wird die KI im Wald nun erfolgreich ignorieren! ")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/experiments/benchmark_architecture.py">
+import os
+import sys
+import time
+import json
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from torch.utils.data import DataLoader, Subset
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import *
+from models import get_model
+from data import SmartBirdDataset
+
+def measure_latency(model, dummy_input, runs=100):
+    model.eval()
+
+    with torch.no_grad():
+        for _ in range(20):
+            _ = model(dummy_input)
+
+    start_time = time.time()
+    with torch.no_grad():
+        for _ in range(runs):
+            _ = model(dummy_input)
+
+    total_time = time.time() - start_time
+    return (total_time / runs) * 1000
+
+def main():
+    print("Starte Architektur-Benchmark (MobileNet vs EfficientNet / 1-Ch vs 3-Ch)...")
+
+    configs = [
+        {"name": "EfficientNet\n(3-Kanal)", "model_name": "efficientnet", "ch": 3},
+        {"name": "EfficientNet\n(1-Kanal)", "model_name": "efficientnet", "ch": 1},
+        {"name": "MobileNetV3\n(3-Kanal)",  "model_name": "mobilenet",    "ch": 3},
+        {"name": "MobileNetV3\n(1-Kanal)",  "model_name": "mobilenet",    "ch": 1},
+    ]
+
+    results = []
+
+    np.random.seed(42)
+
+    for cfg in configs:
+        print(f"\n[{cfg['name'].replace(chr(10), ' ')}] Analysiere Modell...")
+
+        exp_name = f"{cfg['model_name']}_task-species_ch-{cfg['ch']}_size-{IMG_SIZE}_attn-False_layers-3"
+        json_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
+        pth_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+
+        if not os.path.exists(pth_path) or not os.path.exists(json_path):
+            print(f" -> FEHLER: Modell {exp_name} nicht gefunden. Überspringe...")
+            continue
+
+        with open(json_path, "r") as f:
+            classes = json.load(f)['classes']
+        num_classes = len(classes)
+
+        model = get_model(cfg["model_name"], num_classes, in_channels=cfg["ch"]).to('cpu')
+        model.load_state_dict(torch.load(pth_path, map_location='cpu'))
+        model.eval()
+
+        dummy_input = torch.randn(1, cfg["ch"], IMG_SIZE, IMG_SIZE).to('cpu')
+        latency_ms = measure_latency(model, dummy_input, runs=100)
+        print(f" -> CPU Latenz: {latency_ms:.2f} ms")
+
+        dataset = SmartBirdDataset(mode='test', task='species', in_channels=cfg["ch"])
+        subset_indices = np.random.choice(len(dataset), min(500, len(dataset)), replace=False)
+        subset = Subset(dataset, subset_indices)
+
+        loader = DataLoader(subset, batch_size=32, shuffle=False)
+
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for inputs, labels in loader:
+                inputs = inputs.to('cpu')
+                outputs = model(inputs)
+                _, preds = torch.max(outputs, 1)
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
+
+        accuracy = (correct / total) * 100
+        print(f" -> Accuracy (auf {total} Samples): {accuracy:.1f}%")
+
+        results.append({
+            "Modell": cfg["name"],
+            "Latenz (ms)": latency_ms,
+            "Accuracy (%)": accuracy
+        })
+
+    if not results:
+        print("Es wurden keine Modelle gefunden. Bitte führe das Trainingsskript vorher aus.")
+        return
+
+    sns.set_theme(style="whitegrid")
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    names = [r["Modell"] for r in results]
+    latencies = [r["Latenz (ms)"] for r in results]
+    accuracies = [r["Accuracy (%)"] for r in results]
+
+    colors = ['#1f77b4', '#72b7e6', '#ff7f0e', '#ffb366']
+
+    sns.barplot(x=names, y=latencies, ax=axes[0], palette=colors)
+    axes[0].set_title("Inferenzzeit auf der CPU pro Spektrogramm", fontweight='bold')
+    axes[0].set_ylabel("Latenz (Millisekunden)")
+    for i, v in enumerate(latencies):
+        axes[0].text(i, v + (max(latencies)*0.02), f"{v:.1f} ms", ha='center', fontweight='bold')
+
+    sns.barplot(x=names, y=accuracies, ax=axes[1], palette=colors)
+    axes[1].set_title("Genauigkeit (Accuracy auf 500 Test-Aufnahmen)", fontweight='bold')
+    axes[1].set_ylabel("Accuracy (%)")
+    axes[1].set_ylim(0, 110)
+    for i, v in enumerate(accuracies):
+        axes[1].text(i, v + 2, f"{v:.1f}%", ha='center', fontweight='bold')
+
+    plt.suptitle(f"Architektur-Experiment: MobileNetV3 vs. EfficientNet (Image Size: {IMG_SIZE}x{IMG_SIZE})", fontsize=16, fontweight='bold', y=1.05)
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, "architecture_speed_comparison.png")
+    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    print(f"\n Benchmark Plot erfolgreich gespeichert unter: {out_path}")
+    print("Tipp: Führe dieses Skript auch auf dem Raspberry Pi aus, um die tatsächlichen Edge-Device Latenzen zu sehen!")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/experiments/benchmark_quantization.py">
+import os
+import sys
+import time
+import torch
+import numpy as np
+import onnxruntime as ort
+import matplotlib.pyplot as plt
+import seaborn as sns
+from torch.utils.data import DataLoader, Subset
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import *
+from data import SmartBirdDataset
+from models import get_model
+
+def get_dir_size(path):
+    if not os.path.exists(path):
+        return 0
+    return os.path.getsize(path) / (1024 * 1024)
+
+def main():
+    print("Starte Quantisierungs-Benchmark (Größe, Latenz, Genauigkeit)...")
+
+    model_name = "efficientnet"
+    exp_name = f"{model_name}_task-species_ch-3_size-{IMG_SIZE}_attn-False_layers-3"
+
+    onnx_fp32_path = os.path.join(MODELS_DIR, f"{model_name}_fp32.onnx")
+    onnx_int8_minmax_path = os.path.join(MODELS_DIR, f"{model_name}_quantized_int8_minmax.onnx")
+    onnx_int8_entropy_path = os.path.join(MODELS_DIR, f"{model_name}_quantized_int8_entropy.onnx")
+
+    if not os.path.exists(onnx_int8_entropy_path):
+        print("ONNX Modelle fehlen. Bitte zuerst ausführen: python src/quantize.py --model efficientnet")
+        return
+
+    size_fp32 = get_dir_size(onnx_fp32_path)
+    size_int8_minmax = get_dir_size(onnx_int8_minmax_path)
+    size_int8_entropy = get_dir_size(onnx_int8_entropy_path)
+
+    dummy_input = np.random.randn(1, 3, IMG_SIZE, IMG_SIZE).astype(np.float32)
+
+    sess_fp32 = ort.InferenceSession(onnx_fp32_path, providers=['CPUExecutionProvider'])
+    sess_int8_minmax = ort.InferenceSession(onnx_int8_minmax_path, providers=['CPUExecutionProvider'])
+    sess_int8_entropy = ort.InferenceSession(onnx_int8_entropy_path, providers=['CPUExecutionProvider'])
+
+    def measure_latency(session, input_data, runs=100):
+        input_name = session.get_inputs()[0].name
+
+        for _ in range(10): session.run(None, {input_name: input_data})
+
+        start = time.time()
+        for _ in range(runs): session.run(None, {input_name: input_data})
+        return ((time.time() - start) / runs) * 1000
+
+    print("Messe Inferenzzeiten...")
+    lat_fp32 = measure_latency(sess_fp32, dummy_input)
+    lat_int8_minmax = measure_latency(sess_int8_minmax, dummy_input)
+    lat_int8_entropy = measure_latency(sess_int8_entropy, dummy_input)
+
+    print("Evaluiere Accuracy auf 500 Test-Samples (das kann einen Moment dauern)...")
+    dataset = SmartBirdDataset(mode='test', task='species')
+    subset = Subset(dataset, np.random.choice(len(dataset), min(500, len(dataset)), replace=False))
+    loader = DataLoader(subset, batch_size=1, shuffle=False)
+
+    correct_fp32, correct_int8_minmax, correct_int8_entropy = 0, 0, 0
+    input_name_fp32 = sess_fp32.get_inputs()[0].name
+    input_name_int8_minmax = sess_int8_minmax.get_inputs()[0].name
+    input_name_int8_entropy = sess_int8_entropy.get_inputs()[0].name
+
+    for img, label in loader:
+        img_np = img.numpy()
+        label_np = label.numpy()[0]
+
+        out_fp32 = sess_fp32.run(None, {input_name_fp32: img_np})[0]
+        out_int8_minmax = sess_int8_minmax.run(None, {input_name_int8_minmax: img_np})[0]
+        out_int8_entropy = sess_int8_entropy.run(None, {input_name_int8_entropy: img_np})[0]
+
+        if np.argmax(out_fp32) == label_np: correct_fp32 += 1
+        if np.argmax(out_int8_minmax) == label_np: correct_int8_minmax += 1
+        if np.argmax(out_int8_entropy) == label_np: correct_int8_entropy += 1
+
+    acc_fp32 = (correct_fp32 / len(loader)) * 100
+    acc_int8_minmax = (correct_int8_minmax / len(loader)) * 100
+    acc_int8_entropy = (correct_int8_entropy / len(loader)) * 100
+
+    sns.set_theme(style="whitegrid")
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+    labels = ['32-Bit (FP32)', '8-Bit (MinMax)', '8-Bit (Entropie)']
+
+    colors = ['#1f77b4', '#d62728', '#2ca02c']
+
+    sns.barplot(x=labels, y=[size_fp32, size_int8_minmax, size_int8_entropy], ax=axes[0], palette=colors)
+    axes[0].set_title("Modellgröße (MB) ", fontweight='bold')
+    axes[0].set_ylabel("Megabyte (MB)")
+    for i, v in enumerate([size_fp32, size_int8_minmax, size_int8_entropy]):
+        axes[0].text(i, v+0.2, f"{v:.1f} MB", ha='center', fontweight='bold')
+
+    sns.barplot(x=labels, y=[lat_fp32, lat_int8_minmax, lat_int8_entropy], ax=axes[1], palette=colors)
+    axes[1].set_title("Inferenzzeit pro Audio-Clip (ms) ", fontweight='bold')
+    axes[1].set_ylabel("Millisekunden (ms)")
+    for i, v in enumerate([lat_fp32, lat_int8_minmax, lat_int8_entropy]):
+        axes[1].text(i, v+0.2, f"{v:.1f} ms", ha='center', fontweight='bold')
+
+    sns.barplot(x=labels, y=[acc_fp32, acc_int8_minmax, acc_int8_entropy], ax=axes[2], palette=colors)
+    axes[2].set_title("Genauigkeit (Accuracy) ", fontweight='bold')
+    axes[2].set_ylabel("Accuracy (%)")
+    axes[2].set_ylim(0, 110)
+    for i, v in enumerate([acc_fp32, acc_int8_minmax, acc_int8_entropy]):
+        axes[2].text(i, v+2, f"{v:.1f}%", ha='center', fontweight='bold')
+
+    plt.suptitle("Auswirkungen der Quantisierungs-Methodik (MinMax vs. Entropie)", fontsize=16, fontweight='bold', y=1.05)
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, "comparison_quantization.png")
+    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    print(f"\n Erfolgreich gespeichert unter: {out_path}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
 <file path="src/experiments/plot_top_errors.py">
 import sys
 import os
@@ -919,14 +1579,9 @@ from data import SmartBirdDataset
 from models import get_model
 
 def get_distractor_indices(classes):
-    non_bird_keywords =[
-        'cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper',
-        'katydid', 'roesel', 'mouse', 'mole', 'shrew', 'squirrel',
-        'deer', 'fox', 'wolf', 'marmot', 'locust', 'insect', 'bush-cricket'
-    ]
     bird_idx, distractor_idx = [],[]
     for i, c in enumerate(classes):
-        if any(kw in c.lower() for kw in non_bird_keywords):
+        if any(kw in c.lower() for kw in NON_BIRD_KEYWORDS):
             distractor_idx.append(i)
         else:
             bird_idx.append(i)
@@ -935,7 +1590,7 @@ def get_distractor_indices(classes):
 def main():
     print("Lade Datensatz und Modell für Fehleranalyse...")
 
-    exp_name = "efficientnet_task-species_attn-False_layers-3"
+    exp_name = f"efficientnet_task-species_ch-3_size-{IMG_SIZE}_attn-False_layers-3"
     classes_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
 
     with open(classes_path, "r") as f:
@@ -1008,6 +1663,589 @@ if __name__ == "__main__":
     main()
 </file>
 
+<file path="src/experiments/song_vs_call.py">
+import sys
+import os
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.manifold import TSNE
+from torch.utils.data import DataLoader, Subset
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import *
+from models import get_model
+from data import SmartBirdDataset
+
+def main():
+    print(" T-SNE Visualisierung: Rufe vs. Gesänge...")
+
+    exp_name = "efficientnet_task-type_attn-False_layers-3"
+    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+
+    if not os.path.exists(model_path):
+        print(f" Bitte zuerst das Modell trainieren: python src/train.py --model efficientnet --task type")
+        return
+
+    ds = SmartBirdDataset(mode='test', task='type')
+    indices = np.random.choice(len(ds), min(1000, len(ds)), replace=False)
+    loader = DataLoader(Subset(ds, indices), batch_size=32, shuffle=False)
+
+    model = get_model("efficientnet", 2).to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+
+    features =[]
+    def hook(module, input, output):
+        features.append(input[0].cpu().numpy())
+    handle = model.classifier[1].register_forward_hook(hook)
+
+    labels_list =[]
+    with torch.no_grad():
+        for inputs, labels in loader:
+            _ = model(inputs.to(DEVICE))
+            labels_list.extend(labels.numpy())
+
+    handle.remove()
+    embeddings = np.concatenate(features)
+
+    print("Berechne T-SNE...")
+    tsne = TSNE(n_components=2, random_state=42)
+    features_2d = tsne.fit_transform(embeddings)
+
+    plt.figure(figsize=(10, 8))
+    class_names = [ds.classes[i] for i in labels_list]
+    sns.scatterplot(x=features_2d[:, 0], y=features_2d[:, 1], hue=class_names, palette={'song': '#1f77b4', 'call': '#ff7f0e'}, s=60)
+    plt.title("Internes KI-Verständnis: Ruf vs. Gesang")
+
+    out_path = os.path.join(VISUALS_DIR, "tsne_song_vs_call.png")
+    plt.savefig(out_path, dpi=300)
+    print(f" Gespeichert unter {out_path}")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="src/visuals/generate_figures.py">
+import os
+import glob
+import json
+import torch
+import torch.nn.functional as F
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from tqdm import tqdm
+from torch.utils.data import DataLoader
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import *
+from data import SmartBirdDataset
+from models import get_model
+
+LOGS_DIR = os.path.join(VISUALS_DIR, "logs")
+CACHE_FILE = os.path.join(LOGS_DIR, "evaluation_cache.json")
+
+def plot_training_curves():
+    print("\n--- Generating Figure: Training & Loss Curves ---")
+    log_files = glob.glob(os.path.join(LOGS_DIR, "*_history.json"))
+
+    if not log_files:
+        print("No JSON logs found. Train models first!")
+        return
+
+    plt.figure(figsize=(12, 7))
+    sns.set_theme(style="whitegrid")
+
+    for file in log_files:
+        exp_name = os.path.basename(file).replace("_history.json", "")
+        if "embedding" in exp_name or "task-type" in exp_name:
+            continue
+
+        with open(file, "r") as f:
+            data = json.load(f)
+
+        df = pd.DataFrame(data)
+        label_name = exp_name.split("_")[0].title()
+
+        if "custom" in exp_name:
+            attn_str = "Attn" if "attn-True" in exp_name else "NoAttn"
+            layer_str = "3"
+            for part in exp_name.split("_"):
+                if part.startswith("layers-"):
+                    layer_str = part.split("-")[1]
+            label_name = f"Custom CNN ({layer_str} Layers, {attn_str})"
+
+        max_acc = df['val_acc'].max()
+        plt.plot(df['epoch'], df['val_acc'], label=f"{label_name} (Max: {max_acc:.1f}%)", linewidth=2.5, marker='o', markersize=4)
+
+    plt.title("Training Progress: Validation Accuracy", fontsize=16, fontweight='bold')
+    plt.xlabel("Epoch", fontsize=14)
+    plt.ylabel("Validation Accuracy (%)", fontsize=14)
+    plt.ylim(0, 100)
+    plt.legend(title="Architectures")
+    plt.tight_layout()
+    plt.savefig(os.path.join(VISUALS_DIR, "comparison_model_performance.png"), dpi=300)
+
+    resnet_log = os.path.join(LOGS_DIR, "resnet_task-species_attn-False_layers-3_history.json")
+    if os.path.exists(resnet_log):
+        with open(resnet_log, "r") as f:
+            df = pd.DataFrame(json.load(f))
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(df['epoch'], df['train_loss'], label="Train Loss", color='#1f77b4', linewidth=2.5)
+        plt.plot(df['epoch'], df['val_loss'], label="Validation Loss", color='#ff7f0e', linewidth=2.5)
+        plt.title("ResNet18: Training vs Validation Loss (Impact of SpecAugment)", fontsize=16)
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(VISUALS_DIR, "loss_curve_15epoch_resnet18pre.png"), dpi=300)
+
+    print(" Training curves saved.")
+
+def evaluate_and_plot_bar_chart():
+    print("\n--- Generating Figure: Sliding Window Model Comparison ---")
+
+    cache = {}
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as f:
+            cache = json.load(f)
+
+    model_paths = glob.glob(os.path.join(MODELS_DIR, "*_best.pth"))
+    results =[]
+
+    for path in model_paths:
+        exp_name = os.path.basename(path).replace("_best.pth", "")
+        if "task-type" in exp_name: continue
+
+        if exp_name in cache:
+            results.append({"Model": exp_name, "Accuracy": cache[exp_name]})
+        else:
+            print(f" Model {exp_name} not in cache. You must evaluate it first via eval scripts! Defaulting to 0%.")
+            results.append({"Model": exp_name, "Accuracy": 0.0})
+
+    if not results: return
+
+    df = pd.DataFrame(results)
+    df['Display Name'] = df['Model'].str.replace('task-species_attn-', '').str.replace('False', 'NoAttn').str.replace('True', 'Attn').str.replace('layers-', 'L').str.replace('_', ' ').str.title()
+    df = df.sort_values(by='Accuracy', ascending=False)
+
+    plt.figure(figsize=(13, 7))
+    sns.set_theme(style="whitegrid")
+
+    colors =['#ff7f0e' if 'Embedding' in name else '#1f77b4' for name in df['Display Name']]
+    sns.barplot(data=df, x='Display Name', y='Accuracy', hue='Display Name', palette=colors, legend=False)
+
+    plt.title("Model Comparison: Accuracy (All Classes)", fontsize=16, fontweight='bold')
+    plt.xlabel("Model Architecture", fontsize=14)
+    plt.ylabel("Accuracy (%)", fontsize=14)
+    plt.ylim(0, 110)
+    plt.xticks(rotation=35, ha="right")
+
+    for i, val in enumerate(df['Accuracy']):
+        plt.text(i, val + 1.5, f"{val:.1f}%", ha='center', fontweight='bold', fontsize=11)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(VISUALS_DIR, "sliding_window_comparison_updated.png"), dpi=300)
+    print(" Bar chart saved.")
+
+def plot_quality_metrics():
+    print("\n--- Generating Figure: Audio Quality vs Accuracy ---")
+    exp_name = "efficientnet_task-species_attn-False_layers-3"
+    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+
+    if not os.path.exists(model_path):
+        print("EfficientNet not found. Train it first!")
+        return
+
+    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+        classes = json.load(f)['classes']
+
+    dataset = SmartBirdDataset(mode='test', task='species')
+    loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
+
+    model = get_model("efficientnet", len(classes), False, 3).to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+
+    qualities, correctness = [],[]
+
+    with torch.no_grad():
+        for i, (inputs, labels) in enumerate(tqdm(loader, desc="Scanning Dataset Qualities")):
+            outputs = model(inputs.to(DEVICE))
+            _, preds = torch.max(outputs, 1)
+
+            start_idx = i * 32
+            batch_qualities = dataset.df.iloc[start_idx:start_idx + len(labels)]['quality'].values
+
+            for p, l, q in zip(preds.cpu().numpy(), labels.numpy(), batch_qualities):
+                correctness.append(1 if p == l else 0)
+                qualities.append(q)
+
+    results_df = pd.DataFrame({'Quality': qualities, 'Correct': correctness})
+    results_df = results_df[results_df['Quality'].isin(['A', 'B', 'C', 'D'])]
+
+    acc_by_quality = results_df.groupby('Quality')['Correct'].mean() * 100
+    acc_by_quality = acc_by_quality.reindex(['A', 'B', 'C', 'D'])
+    counts = results_df['Quality'].value_counts().reindex(['A', 'B', 'C', 'D'])
+
+    plt.figure(figsize=(10, 6))
+    sns.set_theme(style="whitegrid")
+    sns.barplot(x=acc_by_quality.index, y=acc_by_quality.values, hue=acc_by_quality.index, palette="viridis", legend=False)
+
+    plt.title("Performance by Audio Quality (EfficientNet)", fontsize=16, fontweight='bold')
+    plt.xlabel("Xeno-Canto Audio Quality Rating", fontsize=14)
+    plt.ylabel("Accuracy (%)", fontsize=14)
+    plt.ylim(0, 110)
+
+    for i, (acc, count) in enumerate(zip(acc_by_quality.values, counts.values)):
+        plt.text(i, acc + 2, f"{acc:.1f}%\n(n={count})", ha='center', fontweight='bold', fontsize=12)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(VISUALS_DIR, "performance_by_quality.png"), dpi=300)
+    print(" Quality graph saved.")
+
+def plot_data_vs_accuracy_bubble():
+    print("\n--- Generating Figure: Data Volume vs Accuracy (Bubble Chart) ---")
+    exp_name = "efficientnet_task-species_attn-False_layers-3"
+    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+
+    if not os.path.exists(model_path):
+        print("  -> EfficientNet not found. Train it first! Skipping Bubble Chart...")
+        return
+
+    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
+        classes = json.load(f)['classes']
+
+    dataset = SmartBirdDataset(mode='test', task='species')
+    loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
+
+    model = get_model("efficientnet", len(classes), False, 3).to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+
+    class_correct = {c: 0 for c in classes}
+    class_total = {c: 0 for c in classes}
+
+    with torch.no_grad():
+        for inputs, labels in tqdm(loader, desc="Evaluating Accuracy per Species"):
+            outputs = model(inputs.to(DEVICE))
+            _, preds = torch.max(outputs, 1)
+
+            for p, l in zip(preds.cpu().numpy(), labels.numpy()):
+                class_name = classes[l]
+                class_total[class_name] += 1
+                if p == l:
+                    class_correct[class_name] += 1
+
+    df_meta = pd.read_csv(METADATA_FILE)
+    all_counts = df_meta['species'].value_counts().to_dict()
+
+    data = []
+    for c in classes:
+        acc = class_correct[c] / class_total[c] if class_total[c] > 0 else 0
+        total_recs = all_counts.get(c, 0)
+
+        if total_recs == 0:
+            continue
+
+        if total_recs < 50:
+            cat = "Rare"
+        elif total_recs < 100:
+            cat = "Medium"
+        else:
+            cat = "Common"
+
+        data.append({
+            "Species": c,
+            "Validation Accuracy (0.0 - 1.0)": acc,
+            "Total Recordings in Database (Log Scale)": total_recs,
+            "category": cat,
+            "total_data_count": total_recs
+        })
+
+    if not data:
+        print("  -> No data to plot.")
+        return
+
+    df_plot = pd.DataFrame(data)
+
+    plt.figure(figsize=(14, 9))
+    sns.set_theme(style="whitegrid", rc={"grid.linestyle": "--", "axes.grid": True, "grid.alpha": 0.5})
+
+    palette = {"Rare": "#ff4d4d", "Medium": "#ffbc47", "Common": "#4caf50"}
+
+    sns.regplot(
+        data=df_plot,
+        x="Total Recordings in Database (Log Scale)",
+        y="Validation Accuracy (0.0 - 1.0)",
+        scatter=False,
+        logx=True,
+        color="#444444",
+        line_kws={"linestyle": "--", "linewidth": 2.5, "alpha": 0.8}
+    )
+
+    ax = sns.scatterplot(
+        data=df_plot,
+        x="Total Recordings in Database (Log Scale)",
+        y="Validation Accuracy (0.0 - 1.0)",
+        size="total_data_count",
+        sizes=(50, 600),
+        hue="category",
+        hue_order=["Rare", "Medium", "Common"],
+        palette=palette,
+        alpha=0.8,
+        edgecolor="white"
+    )
+
+    plt.xscale('log')
+    plt.title("Impact of Training Data Volume on Species Accuracy", fontsize=18, fontweight="bold", pad=15)
+    plt.ylim(-0.05, 1.05)
+
+    top_species = df_plot.loc[df_plot["Total Recordings in Database (Log Scale)"].idxmax()]
+    plt.annotate(
+        top_species["Species"],
+        xy=(top_species["Total Recordings in Database (Log Scale)"], top_species["Validation Accuracy (0.0 - 1.0)"]),
+        xytext=(15, 0),
+        textcoords="offset points",
+        fontweight="bold",
+        va="center"
+    )
+
+    plt.legend(loc="lower left", frameon=True)
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, "scatter_data_vs_acc_bubble.png")
+    plt.savefig(out_path, dpi=300)
+    print(f" Bubble chart saved to: {out_path}")
+
+if __name__ == "__main__":
+    os.makedirs(LOGS_DIR, exist_ok=True)
+    plot_training_curves()
+    evaluate_and_plot_bar_chart()
+    plot_quality_metrics()
+    plot_data_vs_accuracy_bubble()
+</file>
+
+<file path="download_models.py">
+import os
+import sys
+import argparse
+import shutil
+
+HF_REPO_ID = "BoredVoidAter/piepmatz-polizei"
+MODELS_DIR = os.path.join(os.path.dirname(__file__), "data", "models")
+
+# Maps new local filename stem -> old remote filename stem on HuggingFace.
+# Needed because models were originally uploaded without the ch-N and size-N
+# segments that train.py now includes in every experiment name.
+LEGACY_STEM_MAP = {
+    "efficientnet_task-species_ch-3_size-224_attn-False_layers-3":
+        "efficientnet_task-species_attn-False_layers-3",
+    "efficientnet_task-type_ch-3_size-224_attn-False_layers-3":
+        "efficientnet_task-type_attn-False_layers-3",
+    "resnet_task-species_ch-3_size-224_attn-False_layers-3":
+        "resnet_task-species_attn-False_layers-3",
+    "custom_task-species_ch-3_size-224_attn-False_layers-2":
+        "custom_task-species_attn-False_layers-2",
+    "custom_task-species_ch-3_size-224_attn-False_layers-3":
+        "custom_task-species_attn-False_layers-3",
+    "custom_task-species_ch-3_size-224_attn-False_layers-5":
+        "custom_task-species_attn-False_layers-5",
+    "custom_task-species_ch-3_size-224_attn-True_layers-3":
+        "custom_task-species_attn-True_layers-3",
+    "embedding_task-species_ch-3_size-224_attn-False_layers-3":
+        "embedding_task-species_attn-False_layers-3",
+    "efficientnet_task-species_ch-1_size-224_attn-False_layers-3":
+        "efficientnet_task-species_ch-1_attn-False_layers-3",
+    "mobilenet_task-species_ch-1_size-224_attn-False_layers-3":
+        "mobilenet_task-species_ch-1_attn-False_layers-3",
+}
+
+ALL_MODELS = [
+    "efficientnet_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "efficientnet_task-species_ch-1_size-224_attn-False_layers-3_best.pth",
+    "efficientnet_task-type_ch-3_size-224_attn-False_layers-3_best.pth",
+    "resnet_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "custom_task-species_ch-3_size-224_attn-False_layers-2_best.pth",
+    "custom_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "custom_task-species_ch-3_size-224_attn-False_layers-5_best.pth",
+    "custom_task-species_ch-3_size-224_attn-True_layers-3_best.pth",
+    "embedding_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-1_size-224_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-3_size-160_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-3_size-128_attn-False_layers-3_best.pth",
+    "mobilenet_task-species_ch-3_size-96_attn-False_layers-3_best.pth",
+]
+
+SHORTCUTS = {
+    "efficientnet":      "efficientnet_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "efficientnet-1ch":  "efficientnet_task-species_ch-1_size-224_attn-False_layers-3_best.pth",
+    "efficientnet-type": "efficientnet_task-type_ch-3_size-224_attn-False_layers-3_best.pth",
+    "resnet":            "resnet_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "custom-2":          "custom_task-species_ch-3_size-224_attn-False_layers-2_best.pth",
+    "custom-3":          "custom_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "custom-5":          "custom_task-species_ch-3_size-224_attn-False_layers-5_best.pth",
+    "custom-attn":       "custom_task-species_ch-3_size-224_attn-True_layers-3_best.pth",
+    "embedding":         "embedding_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "mobilenet":         "mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth",
+    "mobilenet-3ch":     "mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth",  # alias for clarity
+    "mobilenet-1ch":     "mobilenet_task-species_ch-1_size-224_attn-False_layers-3_best.pth",
+    "mobilenet-224":     "mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth",  # alias for clarity
+    "mobilenet-160":     "mobilenet_task-species_ch-3_size-160_attn-False_layers-3_best.pth",
+    "mobilenet-128":     "mobilenet_task-species_ch-3_size-128_attn-False_layers-3_best.pth",
+    "mobilenet-96":      "mobilenet_task-species_ch-3_size-96_attn-False_layers-3_best.pth",
+}
+
+def get_hf():
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        import subprocess
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub", "-q"])
+        from huggingface_hub import hf_hub_download
+    return hf_hub_download
+
+def _stem_and_suffix(filename):
+    """Split a model filename into its experiment stem and file suffix."""
+    for suffix in ("_best.pth", "_classes.json", "_arcface.pth"):
+        if filename.endswith(suffix):
+            return filename[:-len(suffix)], suffix
+    return filename, ""
+
+def download(hf_hub_download, local_filename, force=False):
+    dest = os.path.join(MODELS_DIR, local_filename)
+    if os.path.exists(dest) and not force:
+        mb = os.path.getsize(dest) / 1024 / 1024
+        print(f"  ✓ {local_filename} ({mb:.1f} MB) — already exists, skipping")
+        return True
+
+    # Resolve the remote filename via the legacy-name mapping when needed
+    stem, suffix = _stem_and_suffix(local_filename)
+    remote_stem = LEGACY_STEM_MAP.get(stem, stem)
+    remote_filename = remote_stem + suffix
+
+    print(f"  ↓ {local_filename}...")
+    try:
+        downloaded_path = hf_hub_download(repo_id=HF_REPO_ID, filename=remote_filename,
+                                          repo_type="model", local_dir=MODELS_DIR)
+        # If the remote name differs from the desired local name, rename the file
+        if os.path.abspath(downloaded_path) != os.path.abspath(dest):
+            shutil.copy2(downloaded_path, dest)
+        mb = os.path.getsize(dest) / 1024 / 1024
+        print(f"    ✓ saved ({mb:.1f} MB)")
+        return True
+    except Exception as e:
+        print(f"    ✗ failed: {e}")
+        return False
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", choices=list(SHORTCUTS.keys()))
+    parser.add_argument("--list",  action="store_true")
+    parser.add_argument("--force", action="store_true")
+    args = parser.parse_args()
+
+    if args.list:
+        print(f"\nModels at https://huggingface.co/{HF_REPO_ID}\n")
+        for k, v in SHORTCUTS.items():
+            exists = "✓" if os.path.exists(os.path.join(MODELS_DIR, v)) else " "
+            print(f"  [{exists}] --model {k:<20} → {v}")
+        return
+
+    print(f"\n Piepmatz Polizei — Model Downloader")
+    print(f"   {HF_REPO_ID}\n")
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    hf = get_hf()
+
+    pth_files = [SHORTCUTS[args.model]] if args.model else ALL_MODELS
+
+    # Build the full download list: each .pth plus its companion _classes.json
+    files = []
+    for pth in pth_files:
+        files.append(pth)
+        stem, _ = _stem_and_suffix(pth)
+        files.append(stem + "_classes.json")
+
+    ok = sum(download(hf, f, args.force) for f in files)
+    failed = len(files) - ok
+
+    print(f"\n {ok} downloaded, {failed} failed.")
+    if not failed:
+        print("   Ready to run: python src/showcase.py --model efficientnet --live")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="flake.lock">
+{
+  "nodes": {
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1731533236,
+        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1771848320,
+        "narHash": "sha256-0MAd+0mun3K/Ns8JATeHT1sX28faLII5hVLq0L3BdZU=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "flake-utils": "flake-utils",
+        "nixpkgs": "nixpkgs"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
+</file>
+
 <file path="upload_models.sh">
 #!/usr/bin/env bash
 # =============================================================================
@@ -1029,14 +2267,22 @@ MODELS_DIR="data/models"
 
 # Map shortnames → filename patterns (partial match is fine)
 declare -A SHORTCUTS=(
-    ["efficientnet"]="efficientnet_task-species_attn-False_layers-3_best.pth"
-    ["efficientnet-type"]="efficientnet_task-type_attn-False_layers-3_best.pth"
-    ["resnet"]="resnet_task-species_attn-False_layers-3_best.pth"
-    ["custom-2"]="custom_task-species_attn-False_layers-2_best.pth"
-    ["custom-3"]="custom_task-species_attn-False_layers-3_best.pth"
-    ["custom-5"]="custom_task-species_attn-False_layers-5_best.pth"
-    ["custom-attn"]="custom_task-species_attn-True_layers-3_best.pth"
-    ["embedding"]="embedding_task-species_attn-False_layers-3_best.pth"
+    ["efficientnet"]="efficientnet_task-species_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["efficientnet-1ch"]="efficientnet_task-species_ch-1_size-224_attn-False_layers-3_best.pth"
+    ["efficientnet-type"]="efficientnet_task-type_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["resnet"]="resnet_task-species_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["custom-2"]="custom_task-species_ch-3_size-224_attn-False_layers-2_best.pth"
+    ["custom-3"]="custom_task-species_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["custom-5"]="custom_task-species_ch-3_size-224_attn-False_layers-5_best.pth"
+    ["custom-attn"]="custom_task-species_ch-3_size-224_attn-True_layers-3_best.pth"
+    ["embedding"]="embedding_task-species_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["mobilenet"]="mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth"
+    ["mobilenet-3ch"]="mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth"   # alias for clarity
+    ["mobilenet-1ch"]="mobilenet_task-species_ch-1_size-224_attn-False_layers-3_best.pth"
+    ["mobilenet-224"]="mobilenet_task-species_ch-3_size-224_attn-False_layers-3_best.pth"   # alias for clarity
+    ["mobilenet-160"]="mobilenet_task-species_ch-3_size-160_attn-False_layers-3_best.pth"
+    ["mobilenet-128"]="mobilenet_task-species_ch-3_size-128_attn-False_layers-3_best.pth"
+    ["mobilenet-96"]="mobilenet_task-species_ch-3_size-96_attn-False_layers-3_best.pth"
 )
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────
@@ -1063,7 +2309,11 @@ for arg in "$@"; do
             ;;
         *)
             if [[ -v SHORTCUTS["$arg"] ]]; then
-                SPECIFIC_FILES+=("${SHORTCUTS[$arg]}")
+                pth="${SHORTCUTS[$arg]}"
+                SPECIFIC_FILES+=("$pth")
+                # Also include the companion _classes.json
+                json="${pth/_best.pth/_classes.json}"
+                SPECIFIC_FILES+=("$json")
             else
                 echo "  ✗ Unknown shortname '$arg'. Valid options:"
                 for k in "${!SHORTCUTS[@]}"; do echo "    $k"; done
@@ -1112,7 +2362,7 @@ if specific:
             print(f"  ✗ File not found: {m}")
         raise SystemExit(1)
 else:
-    files = glob.glob(os.path.join(models_dir, "*.pth"))
+    files = glob.glob(os.path.join(models_dir, "*.pth")) + glob.glob(os.path.join(models_dir, "*_classes.json"))
 
 if not files:
     print("  ⚠ No .pth files found — nothing to upload.")
@@ -1565,7 +2815,7 @@ class GradCAM:
 def main():
     print("Lade Datensatz und Modell für hochauflösendes Grad-CAM...")
 
-    exp_name = "resnet_task-species_attn-False_layers-3"
+    exp_name = f"resnet_task-species_ch-3_size-{IMG_SIZE}_attn-False_layers-3"
     classes_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
 
     with open(classes_path, "r") as f:
@@ -1585,7 +2835,7 @@ def main():
     selected_indices =[]
     seen_classes = set()
 
-    non_birds =['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper', 'katydid', 'roesel', 'mouse']
+    non_birds = NON_BIRD_KEYWORDS
 
     for idx in all_indices:
         row = dataset.df.iloc[idx]
@@ -1704,435 +2954,231 @@ if __name__ == "__main__":
     main()
 </file>
 
-<file path="src/experiments/song_vs_call.py">
-import sys
-import os
+<file path="src/models.py">
 import torch
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.manifold import TSNE
-from torch.utils.data import DataLoader, Subset
+import torch.nn as nn
+from torchvision import models
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import *
-from models import get_model
-from data import SmartBirdDataset
+class ChannelAttention(nn.Module):
+    def __init__(self, channels, reduction=8):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels, bias=False),
+            nn.Sigmoid()
+        )
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.fc(self.avg_pool(x).view(b, c)).view(b, c, 1, 1)
+        return x * y.expand_as(x)
 
-def main():
-    print(" T-SNE Visualisierung: Rufe vs. Gesänge...")
+class CustomCNN(nn.Module):
+    def __init__(self, num_classes, use_attention=False, num_layers=3, in_channels=3):
+        super().__init__()
+        self.use_attention = use_attention
 
-    exp_name = "efficientnet_task-type_attn-False_layers-3"
-    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
+        layers = [nn.Conv2d(in_channels, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2)]
+        current_channels = 32
 
-    if not os.path.exists(model_path):
-        print(f" Bitte zuerst das Modell trainieren: python src/train.py --model efficientnet --task type")
-        return
+        for _ in range(1, num_layers):
+            out_channels = current_channels * 2
+            layers.extend([nn.Conv2d(current_channels, out_channels, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2)])
+            current_channels = out_channels
 
-    ds = SmartBirdDataset(mode='test', task='type')
-    indices = np.random.choice(len(ds), min(1000, len(ds)), replace=False)
-    loader = DataLoader(Subset(ds, indices), batch_size=32, shuffle=False)
+        self.features = nn.Sequential(*layers)
+        self.attention = ChannelAttention(current_channels) if use_attention else nn.Identity()
 
-    model = get_model("efficientnet", 2).to(DEVICE)
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-    model.eval()
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.LazyLinear(512), nn.ReLU(), nn.Dropout(0.5),
+            nn.Linear(512, num_classes)
+        )
 
-    features =[]
-    def hook(module, input, output):
-        features.append(input[0].cpu().numpy())
-    handle = model.classifier[1].register_forward_hook(hook)
+    def forward(self, x):
+        x = self.features(x)
+        x = self.attention(x)
+        return self.classifier(x)
 
-    labels_list =[]
-    with torch.no_grad():
-        for inputs, labels in loader:
-            _ = model(inputs.to(DEVICE))
-            labels_list.extend(labels.numpy())
+class EmbeddingNet(nn.Module):
+    def __init__(self, num_classes, embedding_size=512, in_channels=3):
+        super().__init__()
+        self.backbone = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
 
-    handle.remove()
-    embeddings = np.concatenate(features)
+        if in_channels == 1:
+            old_conv = self.backbone.features[0][0]
+            new_conv = nn.Conv2d(1, old_conv.out_channels, kernel_size=old_conv.kernel_size, stride=old_conv.stride, padding=old_conv.padding, bias=False)
+            with torch.no_grad():
+                new_conv.weight[:] = old_conv.weight.sum(dim=1, keepdim=True)
+            self.backbone.features[0][0] = new_conv
 
-    print("Berechne T-SNE...")
-    tsne = TSNE(n_components=2, random_state=42)
-    features_2d = tsne.fit_transform(embeddings)
+        in_features = self.backbone.classifier[1].in_features
+        self.backbone.classifier = nn.Identity()
 
-    plt.figure(figsize=(10, 8))
-    class_names = [ds.classes[i] for i in labels_list]
-    sns.scatterplot(x=features_2d[:, 0], y=features_2d[:, 1], hue=class_names, palette={'song': '#1f77b4', 'call': '#ff7f0e'}, s=60)
-    plt.title("Internes KI-Verständnis: Ruf vs. Gesang")
+        self.head = nn.Sequential(
+            nn.Linear(in_features, 1024),
+            nn.BatchNorm1d(1024),
+            nn.PReLU(),
+            nn.Linear(1024, embedding_size)
+        )
+    def forward(self, x):
+        emb = self.head(self.backbone(x))
+        return torch.nn.functional.normalize(emb, p=2, dim=1)
 
-    out_path = os.path.join(VISUALS_DIR, "tsne_song_vs_call.png")
-    plt.savefig(out_path, dpi=300)
-    print(f" Gespeichert unter {out_path}")
+def get_model(model_name, num_classes, use_attention=False, num_layers=3, in_channels=3):
+    if model_name == "custom":
+        return CustomCNN(num_classes, use_attention, num_layers, in_channels)
 
-if __name__ == "__main__":
-    main()
+    elif model_name == "resnet":
+        model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        if in_channels == 1:
+            old_conv = model.conv1
+            new_conv = nn.Conv2d(1, old_conv.out_channels, kernel_size=old_conv.kernel_size, stride=old_conv.stride, padding=old_conv.padding, bias=False)
+            with torch.no_grad():
+                new_conv.weight[:] = old_conv.weight.sum(dim=1, keepdim=True)
+            model.conv1 = new_conv
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
+        return model
+
+    elif model_name == "efficientnet":
+        model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
+        if in_channels == 1:
+
+            old_conv = model.features[0][0]
+            new_conv = nn.Conv2d(1, old_conv.out_channels, kernel_size=old_conv.kernel_size, stride=old_conv.stride, padding=old_conv.padding, bias=False)
+            with torch.no_grad():
+                new_conv.weight[:] = old_conv.weight.sum(dim=1, keepdim=True)
+            model.features[0][0] = new_conv
+
+        model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
+        return model
+
+    elif model_name == "mobilenet":
+
+        model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.DEFAULT)
+        if in_channels == 1:
+            old_conv = model.features[0][0]
+            new_conv = nn.Conv2d(1, old_conv.out_channels, kernel_size=old_conv.kernel_size, stride=old_conv.stride, padding=old_conv.padding, bias=False)
+            with torch.no_grad():
+                new_conv.weight[:] = old_conv.weight.sum(dim=1, keepdim=True)
+            model.features[0][0] = new_conv
+
+        model.classifier[3] = nn.Linear(model.classifier[3].in_features, num_classes)
+        return model
+
+    elif model_name == "embedding":
+        return EmbeddingNet(num_classes, in_channels=in_channels)
+
+    raise ValueError(f"Model {model_name} unbekannt.")
 </file>
 
-<file path="src/visuals/generate_figures.py">
-import os
-import glob
-import json
-import torch
-import torch.nn.functional as F
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from tqdm import tqdm
-from torch.utils.data import DataLoader
-import sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import *
-from data import SmartBirdDataset
-from models import get_model
-
-LOGS_DIR = os.path.join(VISUALS_DIR, "logs")
-CACHE_FILE = os.path.join(LOGS_DIR, "evaluation_cache.json")
-
-def plot_training_curves():
-    print("\n--- Generating Figure: Training & Loss Curves ---")
-    log_files = glob.glob(os.path.join(LOGS_DIR, "*_history.json"))
-
-    if not log_files:
-        print("No JSON logs found. Train models first!")
-        return
-
-    plt.figure(figsize=(12, 7))
-    sns.set_theme(style="whitegrid")
-
-    for file in log_files:
-        exp_name = os.path.basename(file).replace("_history.json", "")
-        if "embedding" in exp_name or "task-type" in exp_name:
-            continue
-
-        with open(file, "r") as f:
-            data = json.load(f)
-
-        df = pd.DataFrame(data)
-        label_name = exp_name.split("_")[0].title()
-
-        if "custom" in exp_name:
-            attn_str = "Attn" if "attn-True" in exp_name else "NoAttn"
-            layer_str = "3"
-            for part in exp_name.split("_"):
-                if part.startswith("layers-"):
-                    layer_str = part.split("-")[1]
-            label_name = f"Custom CNN ({layer_str} Layers, {attn_str})"
-
-        max_acc = df['val_acc'].max()
-        plt.plot(df['epoch'], df['val_acc'], label=f"{label_name} (Max: {max_acc:.1f}%)", linewidth=2.5, marker='o', markersize=4)
-
-    plt.title("Training Progress: Validation Accuracy", fontsize=16, fontweight='bold')
-    plt.xlabel("Epoch", fontsize=14)
-    plt.ylabel("Validation Accuracy (%)", fontsize=14)
-    plt.ylim(0, 100)
-    plt.legend(title="Architectures")
-    plt.tight_layout()
-    plt.savefig(os.path.join(VISUALS_DIR, "comparison_model_performance.png"), dpi=300)
-
-    resnet_log = os.path.join(LOGS_DIR, "resnet_task-species_attn-False_layers-3_history.json")
-    if os.path.exists(resnet_log):
-        with open(resnet_log, "r") as f:
-            df = pd.DataFrame(json.load(f))
-
-        plt.figure(figsize=(10, 6))
-        plt.plot(df['epoch'], df['train_loss'], label="Train Loss", color='#1f77b4', linewidth=2.5)
-        plt.plot(df['epoch'], df['val_loss'], label="Validation Loss", color='#ff7f0e', linewidth=2.5)
-        plt.title("ResNet18: Training vs Validation Loss (Impact of SpecAugment)", fontsize=16)
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(os.path.join(VISUALS_DIR, "loss_curve_15epoch_resnet18pre.png"), dpi=300)
-
-    print(" Training curves saved.")
-
-def evaluate_and_plot_bar_chart():
-    print("\n--- Generating Figure: Sliding Window Model Comparison ---")
-
-    cache = {}
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as f:
-            cache = json.load(f)
-
-    model_paths = glob.glob(os.path.join(MODELS_DIR, "*_best.pth"))
-    results =[]
-
-    for path in model_paths:
-        exp_name = os.path.basename(path).replace("_best.pth", "")
-        if "task-type" in exp_name: continue
-
-        if exp_name in cache:
-            results.append({"Model": exp_name, "Accuracy": cache[exp_name]})
-        else:
-            print(f" Model {exp_name} not in cache. You must evaluate it first via eval scripts! Defaulting to 0%.")
-            results.append({"Model": exp_name, "Accuracy": 0.0})
-
-    if not results: return
-
-    df = pd.DataFrame(results)
-    df['Display Name'] = df['Model'].str.replace('task-species_attn-', '').str.replace('False', 'NoAttn').str.replace('True', 'Attn').str.replace('layers-', 'L').str.replace('_', ' ').str.title()
-    df = df.sort_values(by='Accuracy', ascending=False)
-
-    plt.figure(figsize=(13, 7))
-    sns.set_theme(style="whitegrid")
-
-    colors =['#ff7f0e' if 'Embedding' in name else '#1f77b4' for name in df['Display Name']]
-    sns.barplot(data=df, x='Display Name', y='Accuracy', hue='Display Name', palette=colors, legend=False)
-
-    plt.title("Model Comparison: Accuracy (All Classes)", fontsize=16, fontweight='bold')
-    plt.xlabel("Model Architecture", fontsize=14)
-    plt.ylabel("Accuracy (%)", fontsize=14)
-    plt.ylim(0, 110)
-    plt.xticks(rotation=35, ha="right")
-
-    for i, val in enumerate(df['Accuracy']):
-        plt.text(i, val + 1.5, f"{val:.1f}%", ha='center', fontweight='bold', fontsize=11)
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(VISUALS_DIR, "sliding_window_comparison_updated.png"), dpi=300)
-    print(" Bar chart saved.")
-
-def plot_quality_metrics():
-    print("\n--- Generating Figure: Audio Quality vs Accuracy ---")
-    exp_name = "efficientnet_task-species_attn-False_layers-3"
-    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
-
-    if not os.path.exists(model_path):
-        print("EfficientNet not found. Train it first!")
-        return
-
-    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
-        classes = json.load(f)['classes']
-
-    dataset = SmartBirdDataset(mode='test', task='species')
-    loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
-
-    model = get_model("efficientnet", len(classes), False, 3).to(DEVICE)
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-    model.eval()
-
-    qualities, correctness = [],[]
-
-    with torch.no_grad():
-        for i, (inputs, labels) in enumerate(tqdm(loader, desc="Scanning Dataset Qualities")):
-            outputs = model(inputs.to(DEVICE))
-            _, preds = torch.max(outputs, 1)
-
-            start_idx = i * 32
-            batch_qualities = dataset.df.iloc[start_idx:start_idx + len(labels)]['quality'].values
-
-            for p, l, q in zip(preds.cpu().numpy(), labels.numpy(), batch_qualities):
-                correctness.append(1 if p == l else 0)
-                qualities.append(q)
-
-    results_df = pd.DataFrame({'Quality': qualities, 'Correct': correctness})
-    results_df = results_df[results_df['Quality'].isin(['A', 'B', 'C', 'D'])]
-
-    acc_by_quality = results_df.groupby('Quality')['Correct'].mean() * 100
-    acc_by_quality = acc_by_quality.reindex(['A', 'B', 'C', 'D'])
-    counts = results_df['Quality'].value_counts().reindex(['A', 'B', 'C', 'D'])
-
-    plt.figure(figsize=(10, 6))
-    sns.set_theme(style="whitegrid")
-    sns.barplot(x=acc_by_quality.index, y=acc_by_quality.values, hue=acc_by_quality.index, palette="viridis", legend=False)
-
-    plt.title("Performance by Audio Quality (EfficientNet)", fontsize=16, fontweight='bold')
-    plt.xlabel("Xeno-Canto Audio Quality Rating", fontsize=14)
-    plt.ylabel("Accuracy (%)", fontsize=14)
-    plt.ylim(0, 110)
-
-    for i, (acc, count) in enumerate(zip(acc_by_quality.values, counts.values)):
-        plt.text(i, acc + 2, f"{acc:.1f}%\n(n={count})", ha='center', fontweight='bold', fontsize=12)
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(VISUALS_DIR, "performance_by_quality.png"), dpi=300)
-    print(" Quality graph saved.")
-
-def plot_data_vs_accuracy_bubble():
-    print("\n--- Generating Figure: Data Volume vs Accuracy (Bubble Chart) ---")
-    exp_name = "efficientnet_task-species_attn-False_layers-3"
-    model_path = os.path.join(MODELS_DIR, f"{exp_name}_best.pth")
-
-    if not os.path.exists(model_path):
-        print("  -> EfficientNet not found. Train it first! Skipping Bubble Chart...")
-        return
-
-    with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
-        classes = json.load(f)['classes']
-
-    dataset = SmartBirdDataset(mode='test', task='species')
-    loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
-
-    model = get_model("efficientnet", len(classes), False, 3).to(DEVICE)
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-    model.eval()
-
-    class_correct = {c: 0 for c in classes}
-    class_total = {c: 0 for c in classes}
-
-    with torch.no_grad():
-        for inputs, labels in tqdm(loader, desc="Evaluating Accuracy per Species"):
-            outputs = model(inputs.to(DEVICE))
-            _, preds = torch.max(outputs, 1)
-
-            for p, l in zip(preds.cpu().numpy(), labels.numpy()):
-                class_name = classes[l]
-                class_total[class_name] += 1
-                if p == l:
-                    class_correct[class_name] += 1
-
-    df_meta = pd.read_csv(METADATA_FILE)
-    all_counts = df_meta['species'].value_counts().to_dict()
-
-    data = []
-    for c in classes:
-        acc = class_correct[c] / class_total[c] if class_total[c] > 0 else 0
-        total_recs = all_counts.get(c, 0)
-
-        if total_recs == 0:
-            continue
-
-        if total_recs < 50:
-            cat = "Rare"
-        elif total_recs < 100:
-            cat = "Medium"
-        else:
-            cat = "Common"
-
-        data.append({
-            "Species": c,
-            "Validation Accuracy (0.0 - 1.0)": acc,
-            "Total Recordings in Database (Log Scale)": total_recs,
-            "category": cat,
-            "total_data_count": total_recs
-        })
-
-    if not data:
-        print("  -> No data to plot.")
-        return
-
-    df_plot = pd.DataFrame(data)
-
-    plt.figure(figsize=(14, 9))
-    sns.set_theme(style="whitegrid", rc={"grid.linestyle": "--", "axes.grid": True, "grid.alpha": 0.5})
-
-    palette = {"Rare": "#ff4d4d", "Medium": "#ffbc47", "Common": "#4caf50"}
-
-    sns.regplot(
-        data=df_plot,
-        x="Total Recordings in Database (Log Scale)",
-        y="Validation Accuracy (0.0 - 1.0)",
-        scatter=False,
-        logx=True,
-        color="#444444",
-        line_kws={"linestyle": "--", "linewidth": 2.5, "alpha": 0.8}
-    )
-
-    ax = sns.scatterplot(
-        data=df_plot,
-        x="Total Recordings in Database (Log Scale)",
-        y="Validation Accuracy (0.0 - 1.0)",
-        size="total_data_count",
-        sizes=(50, 600),
-        hue="category",
-        hue_order=["Rare", "Medium", "Common"],
-        palette=palette,
-        alpha=0.8,
-        edgecolor="white"
-    )
-
-    plt.xscale('log')
-    plt.title("Impact of Training Data Volume on Species Accuracy", fontsize=18, fontweight="bold", pad=15)
-    plt.ylim(-0.05, 1.05)
-
-    top_species = df_plot.loc[df_plot["Total Recordings in Database (Log Scale)"].idxmax()]
-    plt.annotate(
-        top_species["Species"],
-        xy=(top_species["Total Recordings in Database (Log Scale)"], top_species["Validation Accuracy (0.0 - 1.0)"]),
-        xytext=(15, 0),
-        textcoords="offset points",
-        fontweight="bold",
-        va="center"
-    )
-
-    plt.legend(loc="lower left", frameon=True)
-    plt.tight_layout()
-
-    out_path = os.path.join(VISUALS_DIR, "scatter_data_vs_acc_bubble.png")
-    plt.savefig(out_path, dpi=300)
-    print(f" Bubble chart saved to: {out_path}")
-
-if __name__ == "__main__":
-    os.makedirs(LOGS_DIR, exist_ok=True)
-    plot_training_curves()
-    evaluate_and_plot_bar_chart()
-    plot_quality_metrics()
-    plot_data_vs_accuracy_bubble()
-</file>
-
-<file path="flake.lock">
+<file path="flake.nix">
 {
-  "nodes": {
-    "flake-utils": {
-      "inputs": {
-        "systems": "systems"
-      },
-      "locked": {
-        "lastModified": 1731533236,
-        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
-        "type": "github"
-      },
-      "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "type": "github"
+  description = "Piepmatz Polizei - Machine Learning & LaTeX Environment";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+        };
+        
+        # Python 3.12 ist aktuell der "Sweetspot" für Machine Learning auf NixOS
+        python = pkgs.python312;
+        
+        lib-path = with pkgs; lib.makeLibraryPath[
+          stdenv.cc.cc.lib
+          zlib
+          glib
+          libsndfile
+          ffmpeg
+          cudaPackages.cudatoolkit
+          cudaPackages.cudnn
+          libX11
+          libXext
+          libSM
+          libICE
+          libXrender
+	  portaudio
+        ];
+
+        tex = pkgs.texlive.combine {
+          inherit (pkgs.texlive) scheme-full;
+        };
+
+      in
+      {
+        devShells.default = pkgs.mkShell {
+          buildInputs =[
+            python
+            python.pkgs.pip         # Nutzt exakt die Pip-Version von Python 3.12
+            python.pkgs.virtualenv
+            pkgs.libsndfile
+            pkgs.ffmpeg
+            tex
+          ];
+
+          shellHook = ''
+            export LD_LIBRARY_PATH="${lib-path}:$LD_LIBRARY_PATH"
+            
+            if [ ! -d ".venv" ]; then
+              echo "🐣 Erstelle neue Python Virtual Environment (.venv)..."
+              ${python}/bin/python -m venv .venv
+            fi
+            
+            source .venv/bin/activate
+            
+            echo ""
+            echo "🐦 Piepmatz Polizei Nix-Environment geladen (Python 3.12)!"
+          '';
+        };
       }
-    },
-    "nixpkgs": {
-      "locked": {
-        "lastModified": 1771848320,
-        "narHash": "sha256-0MAd+0mun3K/Ns8JATeHT1sX28faLII5hVLq0L3BdZU=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixos-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "root": {
-      "inputs": {
-        "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
-      }
-    },
-    "systems": {
-      "locked": {
-        "lastModified": 1681028828,
-        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
-        "owner": "nix-systems",
-        "repo": "default",
-        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-systems",
-        "repo": "default",
-        "type": "github"
-      }
-    }
-  },
-  "root": "root",
-  "version": 7
+    );
 }
+</file>
+
+<file path="run_experiments.sh">
+#!/usr/bin/env bash
+# Stoppt das Skript sofort, falls ein Fehler auftritt
+set -e
+
+echo "============================================================"
+echo " 🐦 Image Size Experiment (MobileNetV3 Speed vs. Accuracy)"
+echo "============================================================"
+echo "Wir testen, wie klein wir die Spektrogramme skalieren können,"
+echo "bevor die KI die Vögel nicht mehr erkennt."
+echo "============================================================"
+
+# 1. Standard Auflösung (224x224)
+echo -e "\n>>> [1/4] Trainiere MobileNetV3 (Auflösung: 224x224) ..."
+python src/train.py --model mobilenet --in-channels 3 --img-size 224
+
+# 2. Mittlere Auflösung (160x160)
+echo -e "\n>>> [2/4] Trainiere MobileNetV3 (Auflösung: 160x160) ..."
+python src/train.py --model mobilenet --in-channels 3 --img-size 160
+
+# 3. Kleine Auflösung (128x128)
+echo -e "\n>>> [3/4] Trainiere MobileNetV3 (Auflösung: 128x128) ..."
+python src/train.py --model mobilenet --in-channels 3 --img-size 128
+
+# 4. Winzige Auflösung (96x96)
+echo -e "\n>>> [4/4] Trainiere MobileNetV3 (Auflösung: 96x96) ..."
+python src/train.py --model mobilenet --in-channels 3 --img-size 96
+
+echo -e "\n============================================================"
+echo " 📊 Starte Benchmark (Latenz und Accuracy messen)..."
+echo "============================================================"
+
+python src/experiments/benchmark_imgsize.py
+
+echo -e "\n🎉 Alles fertig! Schau dir den fertigen Graphen unter 'visuals/experiments/imgsize_speed_comparison.png' an!"
 </file>
 
 <file path="src/data.py">
@@ -2216,11 +3262,9 @@ class SmartBirdDataset(Dataset):
 
         tensor = spec.unsqueeze(0)
 
-        # Modulares Kanal-Handling
         if self.in_channels == 3:
             tensor = tensor.repeat(3, 1, 1)
 
-        # Skalierung auf die gewünschte Auflösung (experimenteller Parameter)
         tensor = torch.nn.functional.interpolate(
             tensor.unsqueeze(0), size=(self.img_size, self.img_size), mode='bilinear', align_corners=False
         ).squeeze(0)
@@ -2255,125 +3299,6 @@ def get_balanced_sampler(dataset):
     return WeightedRandomSampler(sample_weights, len(sample_weights))
 </file>
 
-<file path="src/models.py">
-import torch
-import torch.nn as nn
-from torchvision import models
-
-class ChannelAttention(nn.Module):
-    def __init__(self, channels, reduction=8):
-        super().__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Linear(channels, channels // reduction, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Linear(channels // reduction, channels, bias=False),
-            nn.Sigmoid()
-        )
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        y = self.fc(self.avg_pool(x).view(b, c)).view(b, c, 1, 1)
-        return x * y.expand_as(x)
-
-class CustomCNN(nn.Module):
-    def __init__(self, num_classes, use_attention=False, num_layers=3, in_channels=3):
-        super().__init__()
-        self.use_attention = use_attention
-
-        layers = [nn.Conv2d(in_channels, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2)]
-        current_channels = 32
-
-        for _ in range(1, num_layers):
-            out_channels = current_channels * 2
-            layers.extend([nn.Conv2d(current_channels, out_channels, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2)])
-            current_channels = out_channels
-
-        self.features = nn.Sequential(*layers)
-        self.attention = ChannelAttention(current_channels) if use_attention else nn.Identity()
-
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.LazyLinear(512), nn.ReLU(), nn.Dropout(0.5),
-            nn.Linear(512, num_classes)
-        )
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.attention(x)
-        return self.classifier(x)
-
-class EmbeddingNet(nn.Module):
-    def __init__(self, num_classes, embedding_size=512, in_channels=3):
-        super().__init__()
-        self.backbone = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
-        
-        if in_channels == 1:
-            old_conv = self.backbone.features[0][0]
-            new_conv = nn.Conv2d(1, old_conv.out_channels, kernel_size=old_conv.kernel_size, stride=old_conv.stride, padding=old_conv.padding, bias=False)
-            with torch.no_grad():
-                new_conv.weight[:] = old_conv.weight.sum(dim=1, keepdim=True)
-            self.backbone.features[0][0] = new_conv
-
-        in_features = self.backbone.classifier[1].in_features
-        self.backbone.classifier = nn.Identity()
-
-        self.head = nn.Sequential(
-            nn.Linear(in_features, 1024),
-            nn.BatchNorm1d(1024),
-            nn.PReLU(),
-            nn.Linear(1024, embedding_size)
-        )
-    def forward(self, x):
-        emb = self.head(self.backbone(x))
-        return torch.nn.functional.normalize(emb, p=2, dim=1)
-
-def get_model(model_name, num_classes, use_attention=False, num_layers=3, in_channels=3):
-    if model_name == "custom":
-        return CustomCNN(num_classes, use_attention, num_layers, in_channels)
-    
-    elif model_name == "resnet":
-        model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-        if in_channels == 1:
-            old_conv = model.conv1
-            new_conv = nn.Conv2d(1, old_conv.out_channels, kernel_size=old_conv.kernel_size, stride=old_conv.stride, padding=old_conv.padding, bias=False)
-            with torch.no_grad():
-                new_conv.weight[:] = old_conv.weight.sum(dim=1, keepdim=True)
-            model.conv1 = new_conv
-        model.fc = nn.Linear(model.fc.in_features, num_classes)
-        return model
-    
-    elif model_name == "efficientnet":
-        model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
-        if in_channels == 1:
-            # Transfer Learning Gewichte von 3 Kanälen auf 1 Kanal kondensieren
-            old_conv = model.features[0][0]
-            new_conv = nn.Conv2d(1, old_conv.out_channels, kernel_size=old_conv.kernel_size, stride=old_conv.stride, padding=old_conv.padding, bias=False)
-            with torch.no_grad():
-                new_conv.weight[:] = old_conv.weight.sum(dim=1, keepdim=True)
-            model.features[0][0] = new_conv
-            
-        model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
-        return model
-
-    elif model_name == "mobilenet":
-        # MobileNetV3 Small ist extrem optimiert für schwache CPUs (Raspberry Pi Zero)
-        model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.DEFAULT)
-        if in_channels == 1:
-            old_conv = model.features[0][0]
-            new_conv = nn.Conv2d(1, old_conv.out_channels, kernel_size=old_conv.kernel_size, stride=old_conv.stride, padding=old_conv.padding, bias=False)
-            with torch.no_grad():
-                new_conv.weight[:] = old_conv.weight.sum(dim=1, keepdim=True)
-            model.features[0][0] = new_conv
-            
-        model.classifier[3] = nn.Linear(model.classifier[3].in_features, num_classes)
-        return model
-
-    elif model_name == "embedding":
-        return EmbeddingNet(num_classes, in_channels=in_channels)
-        
-    raise ValueError(f"Model {model_name} unbekannt.")
-</file>
-
 <file path="src/quantize.py">
 import os
 import torch
@@ -2388,7 +3313,7 @@ from onnxruntime.quantization import quantize_static, QuantType, CalibrationData
 
 class BirdDataReader(CalibrationDataReader):
     def __init__(self, limit=150):
-        # Wir nutzen 'test' für saubere Daten ohne Zufalls-Rauschen
+
         dataset = SmartBirdDataset(mode='test', task='species')
         self.dataloader = iter(DataLoader(dataset, batch_size=1, shuffle=True))
         self.limit = limit
@@ -2406,13 +3331,12 @@ class BirdDataReader(CalibrationDataReader):
 
 def main():
     model_name = "efficientnet"
-    exp_name = f"{model_name}_task-species_attn-False_layers-3"
-    
+    exp_name = f"{model_name}_task-species_ch-3_size-{IMG_SIZE}_attn-False_layers-3"
+
     onnx_fp32_path = os.path.join(MODELS_DIR, f"{model_name}_fp32.onnx")
     onnx_preprocessed_path = os.path.join(MODELS_DIR, f"{model_name}_preprocessed.onnx")
     onnx_int8_path = os.path.join(MODELS_DIR, f"{model_name}_quantized_int8_entropy.onnx")
 
-    # 1. Modell laden und exportieren (nur wenn nötig)
     if not os.path.exists(onnx_fp32_path):
         print("Lade PyTorch Modell...")
         with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
@@ -2424,410 +3348,32 @@ def main():
         del model
         gc.collect()
 
-    # 2. NEU: ONNX Pre-Processing (Optimiert den Graph für die Quantisierung)
     print("Führe ONNX Pre-Processing durch...")
     shape_inference.quant_pre_process(onnx_fp32_path, onnx_preprocessed_path, skip_symbolic_shape=False)
 
-    # 3. Optimierte Quantisierung
     print(f"Starte Quantisierung (Percentile Methode, 150 Samples)...")
     data_reader = BirdDataReader(limit=150)
-    
+
     quantize_static(
         model_input=onnx_preprocessed_path,
         model_output=onnx_int8_path,
         calibration_data_reader=data_reader,
-        quant_format=0, # QOperator Format ist oft stabiler für CNNs
-        activation_type=QuantType.QUInt8, 
+        quant_format=0,
+        activation_type=QuantType.QUInt8,
         weight_type=QuantType.QInt8,
-        calibrate_method=CalibrationMethod.Percentile, # Robuster gegen Ausreißer
+        calibrate_method=CalibrationMethod.Percentile,
         extra_options={
-            'ActivationSymmetry': False, # Swish ist nicht symmetrisch!
+            'ActivationSymmetry': False,
             'WeightSymmetry': True,
-            'Percentile': 99.99 # Behalte fast alle Daten
+            'Percentile': 99.99
         },
-        per_channel=False # Wichtig für die Geschwindigkeit (Inferenz-Zeit!)
+        per_channel=False
     )
 
     if os.path.exists(onnx_preprocessed_path):
         os.remove(onnx_preprocessed_path)
-    
+
     print("\nFertig! Bitte benchmark_quantization.py erneut ausführen.")
-
-if __name__ == "__main__":
-    main()
-</file>
-
-<file path="run_experiments.sh">
-#!/usr/bin/env bash
-# Stoppt das Skript sofort, falls ein Fehler auftritt
-set -e
-
-echo "============================================================"
-echo " 🐦 Image Size Experiment (MobileNetV3 Speed vs. Accuracy)"
-echo "============================================================"
-echo "Wir testen, wie klein wir die Spektrogramme skalieren können,"
-echo "bevor die KI die Vögel nicht mehr erkennt."
-echo "============================================================"
-
-# 1. Standard Auflösung (224x224)
-echo -e "\n>>> [1/4] Trainiere MobileNetV3 (Auflösung: 224x224) ..."
-python src/train.py --model mobilenet --in-channels 3 --img-size 224
-
-# 2. Mittlere Auflösung (160x160)
-echo -e "\n>>> [2/4] Trainiere MobileNetV3 (Auflösung: 160x160) ..."
-python src/train.py --model mobilenet --in-channels 3 --img-size 160
-
-# 3. Kleine Auflösung (128x128)
-echo -e "\n>>> [3/4] Trainiere MobileNetV3 (Auflösung: 128x128) ..."
-python src/train.py --model mobilenet --in-channels 3 --img-size 128
-
-# 4. Winzige Auflösung (96x96)
-echo -e "\n>>> [4/4] Trainiere MobileNetV3 (Auflösung: 96x96) ..."
-python src/train.py --model mobilenet --in-channels 3 --img-size 96
-
-echo -e "\n============================================================"
-echo " 📊 Starte Benchmark (Latenz und Accuracy messen)..."
-echo "============================================================"
-
-python src/experiments/benchmark_imgsize.py
-
-echo -e "\n🎉 Alles fertig! Schau dir den fertigen Graphen unter 'visuals/experiments/imgsize_speed_comparison.png' an!"
-</file>
-
-<file path="flake.nix">
-{
-  description = "Piepmatz Polizei - Machine Learning & LaTeX Environment";
-
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
-  };
-
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          config.allowUnfree = true;
-        };
-        
-        # Python 3.12 ist aktuell der "Sweetspot" für Machine Learning auf NixOS
-        python = pkgs.python312;
-        
-        lib-path = with pkgs; lib.makeLibraryPath[
-          stdenv.cc.cc.lib
-          zlib
-          glib
-          libsndfile
-          ffmpeg
-          cudaPackages.cudatoolkit
-          cudaPackages.cudnn
-          libX11
-          libXext
-          libSM
-          libICE
-          libXrender
-	  portaudio
-        ];
-
-        tex = pkgs.texlive.combine {
-          inherit (pkgs.texlive) scheme-full;
-        };
-
-      in
-      {
-        devShells.default = pkgs.mkShell {
-          buildInputs =[
-            python
-            python.pkgs.pip         # Nutzt exakt die Pip-Version von Python 3.12
-            python.pkgs.virtualenv
-            pkgs.libsndfile
-            pkgs.ffmpeg
-            tex
-          ];
-
-          shellHook = ''
-            export LD_LIBRARY_PATH="${lib-path}:$LD_LIBRARY_PATH"
-            
-            if [ ! -d ".venv" ]; then
-              echo "🐣 Erstelle neue Python Virtual Environment (.venv)..."
-              ${python}/bin/python -m venv .venv
-            fi
-            
-            source .venv/bin/activate
-            
-            echo ""
-            echo "🐦 Piepmatz Polizei Nix-Environment geladen (Python 3.12)!"
-          '';
-        };
-      }
-    );
-}
-</file>
-
-<file path="README.md">
-# 🐦 Piepmatz Polizei
-> Jugend forscht 2026 — Finn Degen, Jonathan Ledwon
-
-## Schnellstart
-```bash
-git clone https://github.com/BoredVoidAter/bird-project
-cd bird-project
-pip install -r requirements.txt
-python download_models.py          # pull weights from Hugging Face
-python src/showcase.py --model efficientnet --live
-```
-
-## Vortrainierte Modelle
-Weights are hosted on 🤗 **[BoredVoidAter/piepmatz-polizei](https://huggingface.co/BoredVoidAter/piepmatz-polizei)**
-</file>
-
-<file path="src/showcase.py">
-import argparse
-import time
-import torch
-import torch.nn.functional as F
-import librosa
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import json
-import os
-from tqdm import tqdm
-import sounddevice as sd
-
-from config import *
-from models import get_model
-
-RMS_THRESHOLD = 0.005
-
-def preprocess_chunk(y_chunk, sr, in_channels=3):
-    """Wandelt einen Audio-Ausschnitt in einen Tensor um."""
-
-    rms = np.sqrt(np.mean(y_chunk**2))
-    if rms < RMS_THRESHOLD:
-        return None
-
-    target_len = int(sr * DURATION)
-    if len(y_chunk) < target_len:
-        y_chunk = np.pad(y_chunk, (0, target_len - len(y_chunk)))
-    else:
-        y_chunk = y_chunk[:target_len]
-
-    melspec = librosa.feature.melspectrogram(
-        y=y_chunk, sr=sr, n_mels=N_MELS, fmax=FMAX, hop_length=HOP_LENGTH
-    )
-    log_melspec = librosa.power_to_db(melspec, ref=np.max)
-
-    min_val, max_val = log_melspec.min(), log_melspec.max()
-    if max_val - min_val < 1e-6:
-        return None
-
-    spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
-    spec_norm = np.flipud(spec_norm).copy()
-
-    tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0)
-    
-    if in_channels == 3:
-        tensor = tensor.repeat(3, 1, 1)
-        
-    tensor = tensor.unsqueeze(0) # Batch Dimension
-    tensor = F.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False)
-
-    return tensor
-
-def live_showcase(model, classes, threshold, model_type, in_channels):
-    print("\n LIVE MIKROFON MODUS GESTARTET! (Beenden mit Strg+C)")
-
-    plt.ion()
-    fig, ax = plt.subplots(figsize=(12, 6))
-    fig.canvas.manager.set_window_title("Piepmatz Polizei - Live Radar")
-
-    buffer_size = int(SAMPLE_RATE * DURATION)
-    audio_buffer = np.zeros(buffer_size, dtype=np.float32)
-
-    results = []
-    start_time = time.time()
-
-    def audio_callback(indata, frames, time_info, status):
-        nonlocal audio_buffer
-        if status:
-            pass
-        new_data = indata[:, 0]
-        audio_buffer = np.roll(audio_buffer, -len(new_data))
-        audio_buffer[-len(new_data):] = new_data
-
-    try:
-        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, callback=audio_callback):
-            while True:
-                time.sleep(1.0)
-                chunk = audio_buffer.copy()
-                tensor = preprocess_chunk(chunk, SAMPLE_RATE, in_channels)
-
-                if tensor is None:
-                    continue
-
-                tensor = tensor.to(DEVICE)
-                with torch.no_grad():
-                    logits = model(tensor)
-                    probs = F.softmax(logits, dim=1)
-
-                conf, idx = torch.max(probs, 1)
-                conf = conf.item()
-                idx = idx.item()
-
-                if conf >= threshold:
-                    current_time = time.time() - start_time
-                    bird_name = classes[idx]
-
-                    non_birds = ['cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper']
-                    if any(x in bird_name.lower() for x in non_birds):
-                        print(f"[{current_time:04.1f}s]  Ignoriere Insekt/Amphibie: {bird_name}")
-                        continue
-
-                    results.append({"Zeit (s)": current_time, "Vogelart": bird_name, "Konfidenz": conf})
-                    print(f"[{current_time:04.1f}s]  {bird_name:<20} | Sicherheit: {conf:.1%}")
-
-                ax.clear()
-                if results:
-                    df = pd.DataFrame(results)
-                    sns.scatterplot(
-                        data=df, x="Zeit (s)", y="Vogelart", size="Konfidenz",
-                        sizes=(100, 400), hue="Vogelart", palette="Set1", ax=ax, legend=False
-                    )
-                    max_time = current_time
-                    min_time = max(0, max_time - 30)
-                    ax.set_xlim(min_time, max_time + 2)
-
-                ax.set_title(f"Live-Radar: Was hört die KI gerade? | {model_type.capitalize()} ({in_channels}ch)", fontsize=14)
-                ax.grid(True, linestyle='--', alpha=0.4)
-                plt.pause(0.01)
-
-    except KeyboardInterrupt:
-        print("\n Live-Modus beendet.")
-        plt.ioff()
-        plt.show()
-
-def file_showcase(audio_path, model, classes, threshold, model_type, in_channels):
-    print(f" Analysiere Datei: {audio_path}")
-    y, sr = librosa.load(audio_path, sr=SAMPLE_RATE)
-    print(f"Länge der Aufnahme: {len(y)/sr:.1f} Sekunden")
-
-    window_samples = int(DURATION * sr)
-    stride_samples = int((DURATION / 2.0) * sr)
-
-    times = []
-    all_probs = []
-
-    print(" Starte Sliding-Window Scan...")
-    for start in tqdm(range(0, len(y) - window_samples + 1, stride_samples)):
-        chunk = y[start : start + window_samples]
-        tensor = preprocess_chunk(chunk, sr, in_channels)
-        t_sec = start / sr
-        times.append(t_sec)
-
-        if tensor is None: 
-            all_probs.append(np.zeros(len(classes)))
-            continue
-
-        with torch.no_grad():
-            logits = model(tensor.to(DEVICE))
-            probs = F.softmax(logits, dim=1).cpu().numpy()[0]
-        all_probs.append(probs)
-
-    all_probs = np.array(all_probs)
-
-    kernel = np.array([0.1, 0.2, 0.4, 0.2, 0.1])
-    smoothed_probs = np.zeros_like(all_probs)
-    
-    for c in range(all_probs.shape[1]):
-        pad_size = len(kernel) // 2
-        padded_signal = np.pad(all_probs[:, c], (pad_size, pad_size), mode='edge')
-        smoothed_probs[:, c] = np.convolve(padded_signal, kernel, mode='valid')
-
-    top_class_idx = np.argmax(np.max(smoothed_probs, axis=0))
-    top_bird_name = classes[top_class_idx]
-
-    plt.figure(figsize=(12, 5))
-    sns.set_theme(style="whitegrid")
-    
-    plt.plot(times, all_probs[:, top_class_idx], label="Rohdaten (Raw)", alpha=0.5, linestyle='--', color='gray')
-    plt.plot(times, smoothed_probs[:, top_class_idx], label="Mit Zeit-Glättung", linewidth=3, color='#d62728')
-    plt.axhline(threshold, color='black', linestyle=':', linewidth=2, label=f"Schwellenwert ({threshold*100:.0f}%)")
-    plt.title(f"Effekt der temporalen Glättung am Beispiel: {top_bird_name}", fontsize=15, fontweight='bold')
-    plt.xlabel("Zeitachse (Sekunden)", fontsize=12)
-    plt.ylabel("KI Konfidenz (0.0 - 1.0)", fontsize=12)
-    plt.ylim(-0.05, 1.05)
-    plt.legend(loc="lower left")
-    plt.tight_layout()
-    
-    doc_out_path = os.path.join(VISUALS_DIR, "smoothing_comparison.png")
-    plt.savefig(doc_out_path, dpi=300)
-
-    results = []
-    for i, t_sec in enumerate(times):
-        conf = np.max(smoothed_probs[i])
-        idx = np.argmax(smoothed_probs[i])
-        if conf >= threshold and np.sum(all_probs[i]) > 0:
-            results.append({"Zeit (s)": t_sec, "Vogelart": classes[idx], "Konfidenz": conf})
-
-    if not results:
-        print(f" Keine Vögel gefunden (> {threshold*100:.0f}% Konfidenz).")
-        return
-
-    df = pd.DataFrame(results)
-    print("\n Gefundene Vögel (nach Glättung):")
-    print(df['Vogelart'].value_counts().to_string())
-
-    plt.figure(figsize=(14, 7))
-    sns.scatterplot(data=df, x="Zeit (s)", y="Vogelart", size="Konfidenz", sizes=(50, 300), hue="Konfidenz", palette="viridis")
-    plt.title(f"Aktivitäts-Timeline (Smoothed) | Datei: {os.path.basename(audio_path)}")
-    plt.grid(True, linestyle='--', alpha=0.4)
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.tight_layout()
-
-    out_path = os.path.join(VISUALS_DIR, f"showcase_{model_type}_ch{in_channels}.png")
-    plt.savefig(out_path, dpi=300)
-    print(f" Showcase-Grafik gespeichert unter: {out_path}")
-
-def main():
-    parser = argparse.ArgumentParser(description="Live-Radar oder Datei-Analyse für Vogelstimmen")
-
-    parser.add_argument("--live", action="store_true", help="Startet das Live-Mikrofon Radar")
-    parser.add_argument("--file", type=str, help="Analysiert eine Audio-Datei (.mp3/.wav)")
-
-    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet", "mobilenet"], default="efficientnet")
-    parser.add_argument("--in-channels", type=int, choices=[1, 3], default=3)
-    parser.add_argument("--use-attention", action="store_true")
-    parser.add_argument("--cnn-layers", type=int, default=3)
-    parser.add_argument("--threshold", type=float, default=0.60, help="Mindest-Sicherheit der KI")
-
-    args = parser.parse_args()
-
-    if not args.live and not args.file:
-        print(" Du musst entweder --live ODER --file [PFAD] angeben!")
-        return
-
-    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_attn-{args.use_attention}_layers-{args.cnn_layers}"
-    json_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
-
-    if not os.path.exists(json_path):
-        print(f" Modell {exp_name} nicht gefunden. Hast du es trainiert?")
-        print(f" Trainiere es mit: python src/train.py --model {args.model} --in-channels {args.in_channels}")
-        return
-
-    with open(json_path, "r") as f:
-        classes = json.load(f)['classes']
-
-    model = get_model(args.model, len(classes), args.use_attention, args.cnn_layers, args.in_channels).to(DEVICE)
-    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
-    model.eval()
-
-    if args.live:
-        live_showcase(model, classes, args.threshold, args.model, args.in_channels)
-    else:
-        file_showcase(args.file, model, classes, args.threshold, args.model, args.in_channels)
 
 if __name__ == "__main__":
     main()
@@ -2886,6 +3432,608 @@ data/models/*.pth
 data/models/*.onnx
 </file>
 
+<file path="README.md">
+# Piepmatz Polizei
+> Jugend forscht 2026 — Finn Degen, Jonathan Ledwon
+
+<p align="center">
+  <img src="bird_project_cover.png" width="450" alt="Piepmatz Polizei Project Logo">
+</p>
+
+This project develops an autonomous, AI-powered system for the acoustic monitoring of European bird species. It uses efficient deep learning models deployed on low-power hardware (Raspberry Pi) to classify bird calls in real-time from audio recordings.
+
+## Project Paper
+The full research paper detailing our methodology, experiments, and results is available in the `docs` folder.
+
+**[Read the full paper (PDF)](docs/main.pdf)**
+
+## Quick Start
+
+Follow these steps to get the main model running on your machine.
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/BoredVoidAter/bird-project
+cd bird-project
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Download the pre-trained models
+python download_models.py
+
+# 4. Run the live showcase with the best model!
+python src/showcase.py --model efficientnet --live
+```
+
+### Available Models
+
+You can download all models at once or select a specific one. The most important models are:
+
+*   `--model efficientnet`
+    *   **Description**: The best all-around model for **accuracy**. Uses an EfficientNet-B0 architecture with transfer learning. This is the recommended model for analysis on a PC or powerful hardware.
+    *   **Use Case**: High-precision classification, data analysis, generating figures.
+
+*   `--model mobilenet`
+    *   **Description**: The best model for **performance on edge devices**. Uses a MobileNetV3-Small architecture, which is highly optimized for CPUs with limited power, like the Raspberry Pi Zero.
+    *   **Use Case**: Real-time deployment on the Raspberry Pi, live monitoring where speed is critical.
+
+*   `--model resnet`
+    *   **Description**: A classic ResNet18 architecture that serves as a strong and reliable baseline for comparison.
+    *   **Use Case**: Benchmarking, comparison with other architectures.
+
+**To download all models (default):**
+```bash
+python download_models.py
+```
+
+**To download only a specific model:**
+```bash
+python download_models.py --model mobilenet
+```
+
+## Pre-trained Models
+All model weights are hosted on the Hugging Face Hub.
+
+[![View on Hugging Face](https://img.shields.io/badge/Hugging%20Face-Models-yellow)](https://huggingface.co/BoredVoidAter/piepmatz-polizei)
+</file>
+
+<file path="src/showcase.py">
+import argparse
+import time
+import torch
+import torch.nn.functional as F
+import librosa
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import json
+import os
+from tqdm import tqdm
+import sounddevice as sd
+
+from config import *
+from models import get_model
+
+def preprocess_chunk(y_chunk, sr, in_channels=3):
+    """Wandelt einen Audio-Ausschnitt in einen Tensor um."""
+
+    rms = np.sqrt(np.mean(y_chunk**2))
+    if rms < RMS_THRESHOLD:
+        return None
+
+    target_len = int(sr * DURATION)
+    if len(y_chunk) < target_len:
+        y_chunk = np.pad(y_chunk, (0, target_len - len(y_chunk)))
+    else:
+        y_chunk = y_chunk[:target_len]
+
+    melspec = librosa.feature.melspectrogram(
+        y=y_chunk, sr=sr, n_mels=N_MELS, fmax=FMAX, hop_length=HOP_LENGTH
+    )
+    log_melspec = librosa.power_to_db(melspec, ref=np.max)
+
+    min_val, max_val = log_melspec.min(), log_melspec.max()
+    if max_val - min_val < 1e-6:
+        return None
+
+    spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+    spec_norm = np.flipud(spec_norm).copy()
+
+    tensor = torch.tensor(spec_norm, dtype=torch.float32).unsqueeze(0)
+
+    if in_channels == 3:
+        tensor = tensor.repeat(3, 1, 1)
+
+    tensor = tensor.unsqueeze(0)
+    tensor = F.interpolate(tensor, size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=False)
+
+    return tensor
+
+def live_showcase(model, classes, threshold, model_type, in_channels):
+    print("\n LIVE MIKROFON MODUS GESTARTET! (Beenden mit Strg+C)")
+
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(12, 6))
+    fig.canvas.manager.set_window_title("Piepmatz Polizei - Live Radar")
+
+    buffer_size = int(SAMPLE_RATE * DURATION)
+    audio_buffer = np.zeros(buffer_size, dtype=np.float32)
+
+    results = []
+    start_time = time.time()
+
+    def audio_callback(indata, frames, time_info, status):
+        nonlocal audio_buffer
+        if status:
+            print(f"[Audio-Stream Warnung] {status}")
+        new_data = indata[:, 0]
+        audio_buffer = np.roll(audio_buffer, -len(new_data))
+        audio_buffer[-len(new_data):] = new_data
+
+    try:
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, callback=audio_callback):
+            while True:
+                time.sleep(1.0)
+                chunk = audio_buffer.copy()
+                tensor = preprocess_chunk(chunk, SAMPLE_RATE, in_channels)
+
+                if tensor is None:
+                    continue
+
+                tensor = tensor.to(DEVICE)
+                with torch.no_grad():
+                    logits = model(tensor)
+                    probs = F.softmax(logits, dim=1)
+
+                conf, idx = torch.max(probs, 1)
+                conf = conf.item()
+                idx = idx.item()
+
+                if conf >= threshold:
+                    current_time = time.time() - start_time
+                    bird_name = classes[idx]
+
+                    non_birds = NON_BIRD_KEYWORDS
+                    if any(x in bird_name.lower() for x in non_birds):
+                        print(f"[{current_time:04.1f}s]  Ignoriere Insekt/Amphibie: {bird_name}")
+                        continue
+
+                    results.append({"Zeit (s)": current_time, "Vogelart": bird_name, "Konfidenz": conf})
+                    print(f"[{current_time:04.1f}s]  {bird_name:<20} | Sicherheit: {conf:.1%}")
+
+                ax.clear()
+                if results:
+                    df = pd.DataFrame(results)
+                    sns.scatterplot(
+                        data=df, x="Zeit (s)", y="Vogelart", size="Konfidenz",
+                        sizes=(100, 400), hue="Vogelart", palette="Set1", ax=ax, legend=False
+                    )
+                    max_time = current_time
+                    min_time = max(0, max_time - 30)
+                    ax.set_xlim(min_time, max_time + 2)
+
+                ax.set_title(f"Live-Radar: Was hört die KI gerade? | {model_type.capitalize()} ({in_channels}ch)", fontsize=14)
+                ax.grid(True, linestyle='--', alpha=0.4)
+                plt.pause(0.01)
+
+    except KeyboardInterrupt:
+        print("\n Live-Modus beendet.")
+        plt.ioff()
+        plt.show()
+
+def file_showcase(audio_path, model, classes, threshold, model_type, in_channels):
+    print(f" Analysiere Datei: {audio_path}")
+    y, sr = librosa.load(audio_path, sr=SAMPLE_RATE)
+    print(f"Länge der Aufnahme: {len(y)/sr:.1f} Sekunden")
+
+    window_samples = int(DURATION * sr)
+    stride_samples = int((DURATION / 2.0) * sr)
+
+    times = []
+    all_probs = []
+
+    print(" Starte Sliding-Window Scan...")
+    for start in tqdm(range(0, len(y) - window_samples + 1, stride_samples)):
+        chunk = y[start : start + window_samples]
+        tensor = preprocess_chunk(chunk, sr, in_channels)
+        t_sec = start / sr
+        times.append(t_sec)
+
+        if tensor is None:
+            all_probs.append(np.zeros(len(classes)))
+            continue
+
+        with torch.no_grad():
+            logits = model(tensor.to(DEVICE))
+            probs = F.softmax(logits, dim=1).cpu().numpy()[0]
+        all_probs.append(probs)
+
+    all_probs = np.array(all_probs)
+
+    kernel = np.array([0.1, 0.2, 0.4, 0.2, 0.1])
+    smoothed_probs = np.zeros_like(all_probs)
+
+    for c in range(all_probs.shape[1]):
+        pad_size = len(kernel) // 2
+        padded_signal = np.pad(all_probs[:, c], (pad_size, pad_size), mode='edge')
+        smoothed_probs[:, c] = np.convolve(padded_signal, kernel, mode='valid')
+
+    top_class_idx = np.argmax(np.max(smoothed_probs, axis=0))
+    top_bird_name = classes[top_class_idx]
+
+    plt.figure(figsize=(12, 5))
+    sns.set_theme(style="whitegrid")
+
+    plt.plot(times, all_probs[:, top_class_idx], label="Rohdaten (Raw)", alpha=0.5, linestyle='--', color='gray')
+    plt.plot(times, smoothed_probs[:, top_class_idx], label="Mit Zeit-Glättung", linewidth=3, color='#d62728')
+    plt.axhline(threshold, color='black', linestyle=':', linewidth=2, label=f"Schwellenwert ({threshold*100:.0f}%)")
+    plt.title(f"Effekt der temporalen Glättung am Beispiel: {top_bird_name}", fontsize=15, fontweight='bold')
+    plt.xlabel("Zeitachse (Sekunden)", fontsize=12)
+    plt.ylabel("KI Konfidenz (0.0 - 1.0)", fontsize=12)
+    plt.ylim(-0.05, 1.05)
+    plt.legend(loc="lower left")
+    plt.tight_layout()
+
+    doc_out_path = os.path.join(VISUALS_DIR, "smoothing_comparison.png")
+    plt.savefig(doc_out_path, dpi=300)
+
+    results = []
+    for i, t_sec in enumerate(times):
+        conf = np.max(smoothed_probs[i])
+        idx = np.argmax(smoothed_probs[i])
+        if conf >= threshold and np.sum(all_probs[i]) > 0:
+            results.append({"Zeit (s)": t_sec, "Vogelart": classes[idx], "Konfidenz": conf})
+
+    if not results:
+        print(f" Keine Vögel gefunden (> {threshold*100:.0f}% Konfidenz).")
+        return
+
+    df = pd.DataFrame(results)
+    print("\n Gefundene Vögel (nach Glättung):")
+    print(df['Vogelart'].value_counts().to_string())
+
+    plt.figure(figsize=(14, 7))
+    sns.scatterplot(data=df, x="Zeit (s)", y="Vogelart", size="Konfidenz", sizes=(50, 300), hue="Konfidenz", palette="viridis")
+    plt.title(f"Aktivitäts-Timeline (Smoothed) | Datei: {os.path.basename(audio_path)}")
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+
+    out_path = os.path.join(VISUALS_DIR, f"showcase_{model_type}_ch{in_channels}.png")
+    plt.savefig(out_path, dpi=300)
+    print(f" Showcase-Grafik gespeichert unter: {out_path}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Live-Radar oder Datei-Analyse für Vogelstimmen")
+
+    parser.add_argument("--live", action="store_true", help="Startet das Live-Mikrofon Radar")
+    parser.add_argument("--file", type=str, help="Analysiert eine Audio-Datei (.mp3/.wav)")
+
+    parser.add_argument("--model", choices=["custom", "resnet", "efficientnet", "mobilenet"], default="efficientnet")
+    parser.add_argument("--in-channels", type=int, choices=[1, 3], default=3)
+    parser.add_argument("--img-size", type=int, default=224, help="Auflösung des Spektrogramms (muss mit dem trainierten Modell übereinstimmen)")
+    parser.add_argument("--use-attention", action="store_true")
+    parser.add_argument("--cnn-layers", type=int, default=3)
+    parser.add_argument("--threshold", type=float, default=0.60, help="Mindest-Sicherheit der KI")
+
+    args = parser.parse_args()
+
+    if not args.live and not args.file:
+        print(" Du musst entweder --live ODER --file [PFAD] angeben!")
+        return
+
+    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_size-{args.img_size}_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    json_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
+
+    if not os.path.exists(json_path):
+        print(f" Modell {exp_name} nicht gefunden. Hast du es trainiert?")
+        print(f" Trainiere es mit: python src/train.py --model {args.model} --in-channels {args.in_channels}")
+        return
+
+    with open(json_path, "r") as f:
+        classes = json.load(f)['classes']
+
+    model = get_model(args.model, len(classes), args.use_attention, args.cnn_layers, args.in_channels).to(DEVICE)
+    model.load_state_dict(torch.load(os.path.join(MODELS_DIR, f"{exp_name}_best.pth"), map_location=DEVICE))
+    model.eval()
+
+    if args.live:
+        live_showcase(model, classes, args.threshold, args.model, args.in_channels)
+    else:
+        file_showcase(args.file, model, classes, args.threshold, args.model, args.in_channels)
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="requirements.txt">
+# KI & Mathe
+torch
+torchaudio
+torchvision
+numpy<2.0
+pandas
+scikit-learn
+
+# Neue Algorithmen & Experimente
+pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
+umap-learn                # Für Clustering Visualisierungen
+onnx                      # Für den Export auf den Raspberry Pi
+onnxruntime               # Für lokale Inferenz-Tests
+onnxscript
+
+# Audio Verarbeitung
+librosa
+soundfile
+audiomentations
+sounddevice
+
+# Visualisierung
+matplotlib
+seaborn
+opencv-python-headless<4.10
+
+# Datenbeschaffung (Xeno-Canto)
+aiohttp
+tqdm
+
+python-dotenv
+
+huggingface_hub
+</file>
+
+<file path="src/config.py">
+import os
+import torch
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+METADATA_FILE = os.path.join(DATA_DIR, "metadata.csv")
+RAW_AUDIO_DIR = os.path.join(DATA_DIR, "raw_audio")
+PROCESSED_DIR = os.path.join(DATA_DIR, "processed_tensors")
+MODELS_DIR = os.path.join(DATA_DIR, "models")
+VISUALS_DIR = os.path.join(BASE_DIR, "visuals", "experiments")
+
+SAMPLE_RATE = 32000
+DURATION = 5
+N_MELS = 128
+FMAX = 16000
+IMG_SIZE = 224
+HOP_LENGTH = 512
+
+TARGET_WIDTH = int((SAMPLE_RATE * DURATION) / HOP_LENGTH) + 1
+
+XC_SPECIES_LOCATION = "area:europe"
+
+XC_RECORDING_LOCATION = "area:europe"
+
+XC_QUALITIES =["A", "B", "C", "D"]
+
+XC_MIN_LENGTH = 5
+XC_MAX_LENGTH = 60
+
+NON_BIRD_KEYWORDS = [
+    'cricket', 'frog', 'toad', 'cicada', 'bat', 'grasshopper',
+    'katydid', 'roesel', 'mouse', 'mole', 'shrew', 'squirrel',
+    'deer', 'fox', 'wolf', 'marmot', 'locust', 'insect', 'bush-cricket'
+]
+
+RMS_THRESHOLD = 0.005
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(VISUALS_DIR, exist_ok=True)
+</file>
+
+<file path="src/data_prep.py">
+import pandas as pd
+import requests
+import os
+import time
+import concurrent.futures
+from tqdm import tqdm
+import torch
+import librosa
+import numpy as np
+import warnings
+import threading
+
+warnings.filterwarnings("ignore")
+
+from config import *
+
+API_KEY = os.getenv("XENOCANTO_API_KEY", "")
+
+def fetch_page(url, params, page):
+    params['page'] = page
+    for attempt in range(3):
+        try:
+            r = requests.get(url, params=params, timeout=15)
+            if r.status_code == 200:
+                return r.json().get('recordings',[])
+            elif r.status_code in [429, 503]:
+                time.sleep(5)
+            else:
+                break
+        except Exception:
+            time.sleep(2)
+    return[]
+
+def step1_get_metadata():
+    print(f" Schritt 1: Erfasse Metadaten (Vögel aus {XC_SPECIES_LOCATION}, Audio aus {XC_RECORDING_LOCATION})...")
+
+    if os.path.exists(METADATA_FILE):
+        print(" Metadaten existieren bereits. (Lösche die metadata.csv, falls du Filter geändert hast!)")
+        return pd.read_csv(METADATA_FILE)
+
+    url = "https://xeno-canto.org/api/3/recordings"
+
+    params_species = {'query': XC_SPECIES_LOCATION, 'key': API_KEY, 'per_page': 500}
+    try:
+        r = requests.get(url, params=params_species, timeout=15)
+        r.raise_for_status()
+        num_pages = r.json()['numPages']
+    except Exception as e:
+        print(f" API Error bei Xeno-Canto (Schritt 1): {e}")
+        return None
+
+    target_species = set()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        futures =[executor.submit(fetch_page, url, params_species.copy(), p) for p in range(1, num_pages + 1)]
+        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages, desc="Scanne Arten"):
+            for rec in future.result():
+                if 'en' in rec and rec['en']:
+                    target_species.add(rec['en'])
+
+    print(f" Gefundene Ziel-Arten: {len(target_species)}")
+
+    valid_recordings =[]
+
+    def fetch_species_recordings(species):
+        query_str = f'en:"{species}" {XC_RECORDING_LOCATION} len:{XC_MIN_LENGTH}-{XC_MAX_LENGTH}'
+        params_rec = {'query': query_str, 'key': API_KEY, 'per_page': 500}
+
+        recs =[]
+        for attempt in range(3):
+            try:
+                r = requests.get(url, params=params_rec, timeout=15)
+                if r.status_code == 200:
+                    data = r.json()
+                    pages = data.get('numPages', 0)
+                    recs = data.get('recordings',[])
+
+                    if pages > 1:
+                        for p in range(2, min(pages + 1, 4)):
+                            time.sleep(1)
+                            r_page = requests.get(url, params={**params_rec, 'page': p}, timeout=15)
+                            if r_page.status_code == 200:
+                                recs.extend(r_page.json().get('recordings',[]))
+                    break
+                elif r.status_code in [429, 503]:
+                    time.sleep(5)
+            except Exception:
+                time.sleep(2)
+        return recs
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {executor.submit(fetch_species_recordings, sp): sp for sp in target_species}
+        for future in tqdm(concurrent.futures.as_completed(futures), total=len(target_species), desc="Lade Datensätze (Art für Art)"):
+            time.sleep(0.5)
+            for rec in future.result():
+                if rec.get('q') in XC_QUALITIES:
+                    valid_recordings.append({
+                        'id': rec['id'], 'species': rec['en'], 'scientific': f"{rec['gen']} {rec['sp']}",
+                        'sex': rec['sex'], 'type': rec['type'], 'quality': rec['q'],
+                        'url': rec['file'], 'length': rec['length'], 'filename': f"XC{rec['id']}.mp3"
+                    })
+
+    df = pd.DataFrame(valid_recordings)
+
+    if len(df) == 0:
+        print(" Keine Aufnahmen gefunden, die auf die Filter passen! (Wahrscheinlich API Rate-Limit)")
+        return None
+
+    counts = df['species'].value_counts()
+    valid_counts = counts[counts >= 10].index
+    df = df[df['species'].isin(valid_counts)]
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    df.to_csv(METADATA_FILE, index=False)
+    print(f" {len(df)} Aufnahmen in metadata.csv gespeichert (Qualitäten: {XC_QUALITIES}).")
+    return df
+
+def process_audio_pipeline(df):
+    print(f"\n Schritt 2: Intelligente Download & Umwandlungs-Pipeline (Fenster {DURATION}s)...")
+    os.makedirs(RAW_AUDIO_DIR, exist_ok=True)
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
+
+    tasks =[]
+    for _, row in df.iterrows():
+        mp3_path = os.path.join(RAW_AUDIO_DIR, row['filename'])
+        pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
+        tasks.append((row['url'], mp3_path, pt_path))
+
+    thread_local = threading.local()
+
+    def get_session():
+        if not hasattr(thread_local, "session"):
+            thread_local.session = requests.Session()
+        return thread_local.session
+
+    def pipeline_worker(task):
+        url, mp3_path, pt_path = task
+
+        if os.path.exists(pt_path):
+
+            if os.path.exists(mp3_path):
+                try: os.remove(mp3_path)
+                except OSError: pass
+            return
+
+        if not os.path.exists(mp3_path):
+            session = get_session()
+            try:
+                with session.get(url, timeout=10, stream=True) as r:
+                    if r.status_code == 200:
+                        with open(mp3_path, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                    else:
+                        return
+            except Exception:
+                return
+
+        if os.path.exists(mp3_path):
+            try:
+
+                load_duration = max(15, DURATION * 2)
+                y, sr = librosa.load(mp3_path, sr=SAMPLE_RATE, duration=load_duration)
+
+                target_len_samples = SAMPLE_RATE * DURATION
+                if len(y) < target_len_samples:
+                    y = np.pad(y, (0, target_len_samples - len(y)), mode='constant')
+
+                melspec = librosa.feature.melspectrogram(
+                    y=y, sr=sr, n_mels=N_MELS, fmax=FMAX, hop_length=HOP_LENGTH
+                )
+                log_melspec = librosa.power_to_db(melspec, ref=np.max)
+
+                min_val, max_val = log_melspec.min(), log_melspec.max()
+                spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
+                spec_norm = np.flipud(spec_norm).copy()
+
+                tensor = torch.tensor(spec_norm, dtype=torch.float16)
+                torch.save(tensor, pt_path)
+            except Exception as e:
+
+                pass
+            finally:
+
+                if os.path.exists(mp3_path):
+                    try: os.remove(mp3_path)
+                    except OSError: pass
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        list(tqdm(executor.map(pipeline_worker, tasks), total=len(tasks), desc="Verarbeite Audios"))
+
+def main():
+    df = step1_get_metadata()
+    if df is not None:
+        process_audio_pipeline(df)
+    print("\n Datenpipeline abgeschlossen. Rohe Daten wurden automatisch aufgeräumt!")
+    print(" Du kannst jetzt das Training starten!")
+
+if __name__ == "__main__":
+    main()
+</file>
+
 <file path="src/evaluate.py">
 import argparse
 import json
@@ -2904,13 +4052,13 @@ from config import *
 from data import SmartBirdDataset
 from models import get_model
 
-def evaluate_model(exp_name, model_type, use_attention, cnn_layers, in_channels):
+def evaluate_model(exp_name, model_type, use_attention, cnn_layers, in_channels, img_size=224):
     print(f"Evaluatiere {exp_name}...")
 
     with open(os.path.join(MODELS_DIR, f"{exp_name}_classes.json"), "r") as f:
         classes = json.load(f)['classes']
 
-    val_ds = SmartBirdDataset(mode='test', task='species', in_channels=in_channels)
+    val_ds = SmartBirdDataset(mode='test', task='species', in_channels=in_channels, img_size=img_size)
     loader = DataLoader(val_ds, batch_size=32, shuffle=False, num_workers=4)
 
     model = get_model(model_type, len(classes), use_attention, cnn_layers, in_channels).to(DEVICE)
@@ -2991,13 +4139,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", choices=["custom", "resnet", "efficientnet", "mobilenet", "embedding"], required=True)
     parser.add_argument("--in-channels", type=int, choices=[1, 3], default=3)
+    parser.add_argument("--img-size", type=int, default=224, help="Auflösung des Spektrogramms (muss mit dem trainierten Modell übereinstimmen)")
     parser.add_argument("--use-attention", action="store_true")
     parser.add_argument("--cnn-layers", type=int, default=3)
     args = parser.parse_args()
 
-    # Wir belassen "task-species" als Standard für das evaluate-Skript
-    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_attn-{args.use_attention}_layers-{args.cnn_layers}"
-    acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers, args.in_channels)
+    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_size-{args.img_size}_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    acc = evaluate_model(exp_name, args.model, args.use_attention, args.cnn_layers, args.in_channels, args.img_size)
     print(f"\n {exp_name} Finale Accuracy: {acc:.2%}")
 
     logs_dir = os.path.join(VISUALS_DIR, "logs")
@@ -3016,284 +4164,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-</file>
-
-<file path="src/config.py">
-import os
-import torch
-from dotenv import load_dotenv
-
-load_dotenv()
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-METADATA_FILE = os.path.join(DATA_DIR, "metadata.csv")
-RAW_AUDIO_DIR = os.path.join(DATA_DIR, "raw_audio")
-PROCESSED_DIR = os.path.join(DATA_DIR, "processed_tensors")
-MODELS_DIR = os.path.join(DATA_DIR, "models")
-VISUALS_DIR = os.path.join(BASE_DIR, "visuals", "experiments")
-
-SAMPLE_RATE = 32000
-DURATION = 5
-N_MELS = 128
-FMAX = 16000
-IMG_SIZE = 224
-HOP_LENGTH = 512
-
-TARGET_WIDTH = int((SAMPLE_RATE * DURATION) / HOP_LENGTH) + 1
-
-XC_SPECIES_LOCATION = "area:europe"
-
-XC_RECORDING_LOCATION = "area:europe"
-
-XC_QUALITIES =["A", "B", "C", "D"]
-
-XC_MIN_LENGTH = 5
-XC_MAX_LENGTH = 60
-
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-os.makedirs(MODELS_DIR, exist_ok=True)
-os.makedirs(VISUALS_DIR, exist_ok=True)
-</file>
-
-<file path="src/data_prep.py">
-import pandas as pd
-import requests
-import os
-import time
-import concurrent.futures
-from tqdm import tqdm
-import torch
-import librosa
-import numpy as np
-import warnings
-import threading
-
-warnings.filterwarnings("ignore")
-
-from config import *
-
-API_KEY = os.getenv("XENOCANTO_API_KEY", "")
-
-def fetch_page(url, params, page):
-    params['page'] = page
-    for attempt in range(3):
-        try:
-            r = requests.get(url, params=params, timeout=15)
-            if r.status_code == 200:
-                return r.json().get('recordings',[])
-            elif r.status_code in [429, 503]:
-                time.sleep(5)
-            else:
-                break
-        except:
-            time.sleep(2)
-    return[]
-
-def step1_get_metadata():
-    print(f" Schritt 1: Erfasse Metadaten (Vögel aus {XC_SPECIES_LOCATION}, Audio aus {XC_RECORDING_LOCATION})...")
-
-    if os.path.exists(METADATA_FILE):
-        print(" Metadaten existieren bereits. (Lösche die metadata.csv, falls du Filter geändert hast!)")
-        return pd.read_csv(METADATA_FILE)
-
-    url = "https://xeno-canto.org/api/3/recordings"
-
-    params_species = {'query': XC_SPECIES_LOCATION, 'key': API_KEY, 'per_page': 500}
-    try:
-        r = requests.get(url, params=params_species, timeout=15)
-        r.raise_for_status()
-        num_pages = r.json()['numPages']
-    except Exception as e:
-        print(f" API Error bei Xeno-Canto (Schritt 1): {e}")
-        return None
-
-    target_species = set()
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        futures =[executor.submit(fetch_page, url, params_species.copy(), p) for p in range(1, num_pages + 1)]
-        for future in tqdm(concurrent.futures.as_completed(futures), total=num_pages, desc="Scanne Arten"):
-            for rec in future.result():
-                if 'en' in rec and rec['en']:
-                    target_species.add(rec['en'])
-
-    print(f" Gefundene Ziel-Arten: {len(target_species)}")
-
-    valid_recordings =[]
-
-    def fetch_species_recordings(species):
-        query_str = f'en:"{species}" {XC_RECORDING_LOCATION} len:{XC_MIN_LENGTH}-{XC_MAX_LENGTH}'
-        params_rec = {'query': query_str, 'key': API_KEY, 'per_page': 500}
-
-        recs =[]
-        for attempt in range(3):
-            try:
-                r = requests.get(url, params=params_rec, timeout=15)
-                if r.status_code == 200:
-                    data = r.json()
-                    pages = data.get('numPages', 0)
-                    recs = data.get('recordings',[])
-
-                    if pages > 1:
-                        for p in range(2, min(pages + 1, 4)):
-                            time.sleep(1)
-                            r_page = requests.get(url, params={**params_rec, 'page': p}, timeout=15)
-                            if r_page.status_code == 200:
-                                recs.extend(r_page.json().get('recordings',[]))
-                    break
-                elif r.status_code in [429, 503]:
-                    time.sleep(5)
-            except:
-                time.sleep(2)
-        return recs
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {executor.submit(fetch_species_recordings, sp): sp for sp in target_species}
-        for future in tqdm(concurrent.futures.as_completed(futures), total=len(target_species), desc="Lade Datensätze (Art für Art)"):
-            time.sleep(0.5)
-            for rec in future.result():
-                if rec.get('q') in XC_QUALITIES:
-                    valid_recordings.append({
-                        'id': rec['id'], 'species': rec['en'], 'scientific': f"{rec['gen']} {rec['sp']}",
-                        'sex': rec['sex'], 'type': rec['type'], 'quality': rec['q'],
-                        'url': rec['file'], 'length': rec['length'], 'filename': f"XC{rec['id']}.mp3"
-                    })
-
-    df = pd.DataFrame(valid_recordings)
-
-    if len(df) == 0:
-        print(" Keine Aufnahmen gefunden, die auf die Filter passen! (Wahrscheinlich API Rate-Limit)")
-        return None
-
-    counts = df['species'].value_counts()
-    valid_counts = counts[counts >= 10].index
-    df = df[df['species'].isin(valid_counts)]
-
-    os.makedirs(DATA_DIR, exist_ok=True)
-    df.to_csv(METADATA_FILE, index=False)
-    print(f" {len(df)} Aufnahmen in metadata.csv gespeichert (Qualitäten: {XC_QUALITIES}).")
-    return df
-
-def process_audio_pipeline(df):
-    print(f"\n Schritt 2: Intelligente Download & Umwandlungs-Pipeline (Fenster {DURATION}s)...")
-    os.makedirs(RAW_AUDIO_DIR, exist_ok=True)
-    os.makedirs(PROCESSED_DIR, exist_ok=True)
-
-    tasks =[]
-    for _, row in df.iterrows():
-        mp3_path = os.path.join(RAW_AUDIO_DIR, row['filename'])
-        pt_path = os.path.join(PROCESSED_DIR, row['filename'].replace('.mp3', '.pt'))
-        tasks.append((row['url'], mp3_path, pt_path))
-
-    thread_local = threading.local()
-
-    def get_session():
-        if not hasattr(thread_local, "session"):
-            thread_local.session = requests.Session()
-        return thread_local.session
-
-    def pipeline_worker(task):
-        url, mp3_path, pt_path = task
-
-        if os.path.exists(pt_path):
-
-            if os.path.exists(mp3_path):
-                try: os.remove(mp3_path)
-                except: pass
-            return
-
-        if not os.path.exists(mp3_path):
-            session = get_session()
-            try:
-                with session.get(url, timeout=10, stream=True) as r:
-                    if r.status_code == 200:
-                        with open(mp3_path, 'wb') as f:
-                            for chunk in r.iter_content(chunk_size=8192):
-                                f.write(chunk)
-                    else:
-                        return
-            except:
-                return
-
-        if os.path.exists(mp3_path):
-            try:
-
-                load_duration = max(15, DURATION * 2)
-                y, sr = librosa.load(mp3_path, sr=SAMPLE_RATE, duration=load_duration)
-
-                target_len_samples = SAMPLE_RATE * DURATION
-                if len(y) < target_len_samples:
-                    y = np.pad(y, (0, target_len_samples - len(y)), mode='constant')
-
-                melspec = librosa.feature.melspectrogram(
-                    y=y, sr=sr, n_mels=N_MELS, fmax=FMAX, hop_length=HOP_LENGTH
-                )
-                log_melspec = librosa.power_to_db(melspec, ref=np.max)
-
-                min_val, max_val = log_melspec.min(), log_melspec.max()
-                spec_norm = (log_melspec - min_val) / (max_val - min_val + 1e-6)
-                spec_norm = np.flipud(spec_norm).copy()
-
-                tensor = torch.tensor(spec_norm, dtype=torch.float16)
-                torch.save(tensor, pt_path)
-            except Exception as e:
-
-                pass
-            finally:
-
-                if os.path.exists(mp3_path):
-                    try: os.remove(mp3_path)
-                    except: pass
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        list(tqdm(executor.map(pipeline_worker, tasks), total=len(tasks), desc="Verarbeite Audios"))
-
-def main():
-    df = step1_get_metadata()
-    if df is not None:
-        process_audio_pipeline(df)
-    print("\n Datenpipeline abgeschlossen. Rohe Daten wurden automatisch aufgeräumt!")
-    print(" Du kannst jetzt das Training starten!")
-
-if __name__ == "__main__":
-    main()
-</file>
-
-<file path="requirements.txt">
-# KI & Mathe
-torch
-torchaudio
-torchvision
-numpy<2.0
-pandas
-scikit-learn
-
-# Neue Algorithmen & Experimente
-pytorch-metric-learning   # Für euer Embedding-Modell (ArcFace)
-umap-learn                # Für Clustering Visualisierungen
-onnx                      # Für den Export auf den Raspberry Pi
-onnxruntime               # Für lokale Inferenz-Tests
-onnxscript
-
-# Audio Verarbeitung
-librosa
-soundfile
-audiomentations
-sounddevice
-
-# Visualisierung
-matplotlib
-seaborn
-opencv-python-headless<4.10
-
-# Datenbeschaffung (Xeno-Canto)
-aiohttp
-tqdm
-
-python-dotenv
-
-huggingface_hub
 </file>
 
 <file path="src/train.py">
@@ -3348,8 +4218,8 @@ def main():
     sample_weights = torch.tensor([weights[l] for l in train_labels])
 
     sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=0, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=True)
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     model = get_model(args.model, len(full_ds.classes), args.use_attention, args.cnn_layers, args.in_channels).to(DEVICE)
 

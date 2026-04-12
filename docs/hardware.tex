@@ -1,0 +1,38 @@
+\documentclass[10pt, a4paper]{scrartcl}
+\usepackage[left=2.5cm, right=2.5cm, top=2.5cm, bottom=2cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[ngerman]{babel}
+
+\begin{document}
+
+\section*{Systemarchitektur}
+Um die Limitierungen batteriebetriebener Edge-Geräte zu umgehen, nutzt die Piepmatz Polizei eine verteilte Hardware-Architektur. Das System besteht aus einem energieeffizienten ESP32-WROOM-32U als autonomen akustischen Aufnahmeknoten und einem netzstrombetriebenen Raspberry Pi 5 als zentrale Basisstation für die KI-Inferenz.
+
+\subsection*{Base Station: Raspberry Pi 5}
+\subsubsection*{Hardware-Spezifikationen}
+\begin{itemize}
+    \item \textbf{Recheneinheit:} Raspberry Pi 5 (Model J2).
+    \item \textbf{Stromversorgung:} Offizielles 27W USB-C Netzteil.
+    \item \textbf{Kühlung:} Aktiver Kühler für den Dauerbetrieb der KI-Inferenz.
+\end{itemize}
+
+\subsubsection*{Netzwerk \& Software-Stack}
+Der Pi 5 fungiert als eigenständiger WLAN-Hotspot, um eine lokale Netzwerkabdeckung im Wald zu gewährleisten. Er hostet einen leichtgewichtigen Python-Server, der den eingehenden Audiostream des ESP32 empfängt. Das algorithmische Wake-on-Sound-Filtering (RMS-Energie) findet direkt hier statt, bevor die 5-Sekunden-Fenster an die ONNX/PyTorch-Pipeline übergeben werden.
+
+\subsection*{Edge Node: ESP32-WROOM-32U}
+\subsubsection*{Energieverwaltung (Off-Grid Solar)}
+Der Edge Node ist für den kontinuierlichen, autonomen Betrieb mit einem eigenen Stromkreis konzipiert:
+\begin{itemize}
+    \item \textbf{Energy Harvesting:} Zwei 6V 1W Solarzellen fangen Sonnenlicht ein.
+    \item \textbf{Laderegler:} Ein CN3791 MPPT-Laderegler lädt die Akkus sicher auf.
+    \item \textbf{Speicher:} Zwei 18650 Lithium-Ionen-Zellen für den Nachtbetrieb.
+    \item \textbf{Spannungswandler:} Ein Step-Wandler stabilisiert die Systemspannung für den ESP32 (3.3V).
+\end{itemize}
+
+\subsubsection*{Audio-Erfassung}
+Die Aufzeichnung erfolgt über ein INMP441 omnidirektionales MEMS-Mikrofon über den I2S-Bus. Das Mikrofon ist mit folgenden Pins des ESP32 verbunden: \texttt{3V3}, \texttt{GND}, \texttt{I2S\_SD} an GPIO 33, \texttt{I2S\_SCK} an GPIO 32 und \texttt{I2S\_WS} an GPIO 25.
+
+\subsubsection*{Verarbeitung \& Datenübertragung}
+Der ESP32 erfasst kontinuierlich Audiodaten mit 32 kHz. Um den Arbeitsspeicher zu schonen, streamt der Mikrocontroller die rohen PCM-Audiodaten direkt über eine TCP-Socket-Verbindung an den Access Point des Raspberry Pi 5, anstatt sie lokal zu puffern.
+
+\end{document}

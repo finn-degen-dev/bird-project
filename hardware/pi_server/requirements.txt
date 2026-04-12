@@ -1,0 +1,15 @@
+# Datei: hardware/pi_server/requirements.txt
+
+# Webserver & API
+fastapi
+uvicorn
+websockets
+
+# Audio & Mathe
+numpy<2.0
+librosa
+scipy
+
+# KI Inferenz (Edge)
+onnxruntime
+torch --index-url https://download.pytorch.org/whl/cpu
