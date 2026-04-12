@@ -1,1 +1,1 @@
-{"threshold": 0.006, "always_on": false, "smoothing": 0.2, "model_file": "efficientnet_fp32.onnx", "classes_file": "efficientnet_task-species_ch-3_attn-False_layers-3_classes.json"}
+{"threshold": 0.006, "alwayson": true, "smoothing": 0, "retentiondays": 7, "latitude": 49.4521, "longitude": 11.0767, "modelfile": "efficientnet_fp32.onnx", "classesfile": "efficientnet_task-species_ch-3_attn-False_layers-3_classes.json", "always_on": false, "model_file": "efficientnet_fp32.onnx", "classes_file": "efficientnet_task-species_ch-3_attn-False_layers-3_classes.json"}
