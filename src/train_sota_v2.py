@@ -1,3 +1,12 @@
+import os
+import sys
+
+# 1. Tell Python to look in the 'src' folder specifically
+# This prevents it from getting confused by the 'data' folder
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
+
 import torch
 import torch.optim as optim
 from pytorch_metric_learning import losses, miners
@@ -6,16 +15,16 @@ from torch.amp import autocast, GradScaler
 from tqdm import tqdm
 import numpy as np
 from collections import Counter
-import os
-import sys
-
-# Making sure we can find your other files
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.data import SmartBirdDataset 
 from torchvision import models
 
+# 2. Now import directly from the file in the same folder
+import data  
+from data import SmartBirdDataset
+import config
+
 # --- UPGRADED CONFIG ---
-# EfficientNet-B2 is a good balance for an RTX 3050
+MODEL_NAME = "efficientnet_b2"
+# ... (the rest of your code stays the same)
 MODEL_NAME = "efficientnet_b2" 
 EMBEDDING_SIZE = 512
 EPOCHS = 50 # We start with 50; if it's still improving, we can do more
