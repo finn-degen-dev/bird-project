@@ -17,10 +17,14 @@ import numpy as np
 from collections import Counter
 from torchvision import models
 
-# 2. Now import directly from the file in the same folder
-import data  
-from data import SmartBirdDataset
-import config
+try:
+    # This tells Python: Look specifically inside the 'src' package for 'data.py'
+    from src.data import SmartBirdDataset
+    from src import config
+except ImportError:
+    # This is a fallback in case the above fails
+    from data import SmartBirdDataset
+    import config
 
 # --- UPGRADED CONFIG ---
 MODEL_NAME = "efficientnet_b2"
