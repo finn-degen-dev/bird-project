@@ -1,11 +1,12 @@
 import os
 import sys
 
-# 1. Tell Python to look in the 'src' folder specifically
-# This prevents it from getting confused by the 'data' folder
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
+# THE POWER MOVE: 
+# This tells Python: "Look in the 'src' folder BEFORE you look anywhere else."
+# This stops Python from getting confused by the 'data' folder in the root.
+src_path = os.path.dirname(os.path.abspath(__file__))
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
 
 import torch
 import torch.optim as optim
@@ -17,18 +18,19 @@ import numpy as np
 from collections import Counter
 from torchvision import models
 
+# Now we import directly from the files in the same 'src' folder
 try:
-    # This tells Python: Look specifically inside the 'src' package for 'data.py'
-    from src.data import SmartBirdDataset
-    from src import config
-except ImportError:
-    # This is a fallback in case the above fails
+    import data
     from data import SmartBirdDataset
     import config
+except ImportError as e:
+    print(f"Critial Import Error: {e}")
+    print(f"Current System Path: {sys.path}")
+    sys.exit(1)
 
-# --- UPGRADED CONFIG ---
+# --- CONFIGURATION ---
 MODEL_NAME = "efficientnet_b2"
-# ... (the rest of your code stays the same)
+# ... rest of your code starts here ...
 MODEL_NAME = "efficientnet_b2" 
 EMBEDDING_SIZE = 512
 EPOCHS = 50 # We start with 50; if it's still improving, we can do more
