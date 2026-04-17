@@ -1,13 +1,5 @@
 import os
 import sys
-
-# THE POWER MOVE: 
-# This tells Python: "Look in the 'src' folder BEFORE you look anywhere else."
-# This stops Python from getting confused by the 'data' folder in the root.
-src_path = os.path.dirname(os.path.abspath(__file__))
-if src_path not in sys.path:
-    sys.path.insert(0, src_path)
-
 import torch
 import torch.optim as optim
 from pytorch_metric_learning import losses, miners
@@ -18,21 +10,14 @@ import numpy as np
 from collections import Counter
 from torchvision import models
 
-# Now we import directly from the files in the same 'src' folder
-try:
-    import data
-    from data import SmartBirdDataset
-    import config
-except ImportError as e:
-    print(f"Critial Import Error: {e}")
-    print(f"Current System Path: {sys.path}")
-    sys.exit(1)
+# Since we moved the file to the root, we now look inside the 'src' folder
+from src.data import SmartBirdDataset
+from src import config
 
 # --- CONFIGURATION ---
 MODEL_NAME = "efficientnet_b2"
-# ... rest of your code starts here ...
-MODEL_NAME = "efficientnet_b2" 
 EMBEDDING_SIZE = 512
+
 EPOCHS = 50 # We start with 50; if it's still improving, we can do more
 BATCH_SIZE = 16 # B2 is heavier, so we lower the batch size to fit in your 3050 memory
 LR = 0.0001 # Slightly lower learning rate for more stability
