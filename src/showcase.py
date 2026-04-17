@@ -223,7 +223,8 @@ def main():
         print(" Du musst entweder --live ODER --file [PFAD] angeben!")
         return
 
-    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_size-{args.img_size}_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    #exp_name = f"{args.model}_task-species_ch-{args.in_channels}_size-{args.img_size}_attn-{args.use_attention}_layers-{args.cnn_layers}"
+    exp_name = f"{args.model}_task-species_ch-{args.in_channels}_attn-{args.use_attention}_layers-{args.cnn_layers}"
     json_path = os.path.join(MODELS_DIR, f"{exp_name}_classes.json")
 
     if not os.path.exists(json_path):

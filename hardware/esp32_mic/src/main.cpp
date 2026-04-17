@@ -1,9 +1,9 @@
 #include <WiFi.h>
 #include <driver/i2s.h>
 
-const char* ssid = ":D";
-const char* password = "18511632005";
-const char* host = "192.168.1.104";
+const char* ssid = "PiepmatzHotspot";
+const char* password = "vogel1234";
+const char* host = "10.42.0.1";
 const int port = 5000;
 
 #define I2S_WS 25

@@ -52,6 +52,8 @@ current_config = {
     "longitude": 11.0767,
     "modelfile": "efficientnet_fp32.onnx",
     "classesfile": "efficientnet_task-species_ch-3_attn-False_layers-3_classes.json",
+    "typemodelfile": "efficientnet_type_fp32.onnx", # Add this ONNX file later for the feature to activate
+    "typeclassesfile": "efficientnet_task-type_ch-3_size-224_attn-False_layers-3_classes.json",
 }
 
 esp32_data = {}
@@ -60,9 +62,15 @@ lifetime_stats = Counter()
 active_date = datetime.datetime.now().strftime("%Y-%m-%d")
 active_day_data = []
 
-session = None
-input_name = None
-classes = []
+# Species Model Globals
+session_species = None
+input_name_species = None
+classes_species = []
+
+# Type Model Globals (Song vs Call)
+session_type = None
+input_name_type = None
+classes_type = []
 
 
 def save_lifetime_stats():
@@ -111,7 +119,7 @@ def clean_old_history():
             pass
 
 
-def log_detection(ip, bird, conf, audio_filename=None):
+def log_detection(ip, bird, conf, vocal_type="-", audio_filename=None):
     global active_date, active_day_data
 
     now = datetime.datetime.now()
@@ -126,6 +134,7 @@ def log_detection(ip, bird, conf, audio_filename=None):
     entry = {
         "time": now.strftime("%H:%M:%S"),
         "bird": bird,
+        "vocal_type": vocal_type,
         "conf": conf,
         "ip": ip,
     }
@@ -139,26 +148,54 @@ def log_detection(ip, bird, conf, audio_filename=None):
 
 
 def load_ai_model():
-    global session, input_name, classes
+    global session_species, input_name_species, classes_species
+    global session_type, input_name_type, classes_type
 
-    model_path = os.path.join(MODELS_DIR, current_config["modelfile"])
-    classes_path = os.path.join(MODELS_DIR, current_config["classesfile"])
+    # 1. Load Species Model
+    model_path_species = os.path.join(MODELS_DIR, current_config.get("modelfile", ""))
+    classes_path_species = os.path.join(MODELS_DIR, current_config.get("classesfile", ""))
 
     try:
-        print(f"[*] Loading AI Model: {model_path}...")
-        session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-        input_name = session.get_inputs()[0].name
+        print(f"[*] Loading AI Model (Species): {model_path_species}...")
+        session_species = ort.InferenceSession(model_path_species, providers=["CPUExecutionProvider"])
+        input_name_species = session_species.get_inputs()[0].name
 
-        with open(classes_path, "r") as f:
+        with open(classes_path_species, "r") as f:
             data = json.load(f)
 
-        classes = data["classes"] if isinstance(data, dict) and "classes" in data else data
-        print(f"[+] Model loaded. ({len(classes)} classes)")
+        classes_species = data["classes"] if isinstance(data, dict) and "classes" in data else data
+        print(f"[+] Species Model loaded. ({len(classes_species)} classes)")
     except Exception as e:
-        print(f"[-] Error loading model: {e}")
-        session = None
-        input_name = None
-        classes = []
+        print(f"[-] Error loading species model: {e}")
+        session_species = None
+        input_name_species = None
+        classes_species = []
+
+    # 2. Load Type Model (Song vs Call)
+    model_path_type = os.path.join(MODELS_DIR, current_config.get("typemodelfile", ""))
+    classes_path_type = os.path.join(MODELS_DIR, current_config.get("typeclassesfile", ""))
+    
+    try:
+        if os.path.exists(model_path_type) and os.path.exists(classes_path_type):
+            print(f"[*] Loading AI Model (Type): {model_path_type}...")
+            session_type = ort.InferenceSession(model_path_type, providers=["CPUExecutionProvider"])
+            input_name_type = session_type.get_inputs()[0].name
+
+            with open(classes_path_type, "r") as f:
+                data = json.load(f)
+
+            classes_type = data["classes"] if isinstance(data, dict) and "classes" in data else data
+            print(f"[+] Type Model loaded. ({len(classes_type)} classes)")
+        else:
+            print("[-] Type model ONNX/classes not found. Skipping song/call detection feature.")
+            session_type = None
+            input_name_type = None
+            classes_type = []
+    except Exception as e:
+        print(f"[-] Error loading type model: {e}")
+        session_type = None
+        input_name_type = None
+        classes_type = []
 
 
 def preprocess_audio(audio_float):
@@ -212,22 +249,12 @@ def handle_client(conn, addr):
     raw_buffer = bytearray()
     bytes_since_last_process = 0
     last_preds = deque(maxlen=3)
+    last_preds_type = deque(maxlen=3)
     last_seen_state = {"bird": None, "time": 0.0}
 
     ignore_words = [
-        "cricket",
-        "frog",
-        "toad",
-        "cicada",
-        "bat",
-        "grasshopper",
-        "insect",
-        "noise",
-        "locust",
-        "katydid",
-        "roesel",
-        "shrew",
-        "mouse",
+        "cricket", "frog", "toad", "cicada", "bat", "grasshopper",
+        "insect", "noise", "locust", "katydid", "roesel", "shrew", "mouse",
     ]
 
     try:
@@ -262,7 +289,7 @@ def handle_client(conn, addr):
             if len(raw_buffer) >= buffer_max and bytes_since_last_process >= process_every_bytes:
                 bytes_since_last_process = 0
 
-                if session is None or input_name is None or not classes:
+                if session_species is None or input_name_species is None or not classes_species:
                     continue
 
                 mono_audio = np.frombuffer(bytes(raw_buffer), dtype=np.int16)
@@ -278,20 +305,36 @@ def handle_client(conn, addr):
 
                     start_time = time.time()
                     input_tensor = preprocess_audio(audio_float)
-                    outputs = session.run(None, {input_name: input_tensor})
-                    logits = torch.tensor(outputs[0][0])
-                    probs = F.softmax(logits, dim=0).numpy()
+                    
+                    # 1. Inference: Species Model
+                    outputs_species = session_species.run(None, {input_name_species: input_tensor})
+                    logits_species = torch.tensor(outputs_species[0][0])
+                    probs_species = F.softmax(logits_species, dim=0).numpy()
 
-                    last_preds.append(probs)
+                    last_preds.append(probs_species)
                     avg_preds = np.mean(last_preds, axis=0)
 
                     smoothing = float(current_config.get("smoothing", 0.5))
-                    smoothed_preds = avg_preds * smoothing + probs * (1.0 - smoothing)
+                    smoothed_preds = avg_preds * smoothing + probs_species * (1.0 - smoothing)
 
                     best_idx = int(np.argmax(smoothed_preds))
                     confidence = float(smoothed_preds[best_idx])
-                    bird_name = classes[best_idx]
+                    bird_name = classes_species[best_idx]
                     is_ignored = any(word in bird_name.lower() for word in ignore_words)
+                    
+                    # 2. Inference: Type Model (Song vs Call)
+                    vocal_type_str = "-"
+                    if session_type is not None and input_name_type is not None:
+                        outputs_type = session_type.run(None, {input_name_type: input_tensor})
+                        logits_type = torch.tensor(outputs_type[0][0])
+                        probs_type = F.softmax(logits_type, dim=0).numpy()
+                        
+                        last_preds_type.append(probs_type)
+                        avg_preds_type = np.mean(last_preds_type, axis=0)
+                        smoothed_preds_type = avg_preds_type * smoothing + probs_type * (1.0 - smoothing)
+                        
+                        best_type_idx = int(np.argmax(smoothed_preds_type))
+                        vocal_type_str = classes_type[best_type_idx].capitalize()
 
                     duration_ms = int((time.time() - start_time) * 1000)
 
@@ -308,7 +351,11 @@ def handle_client(conn, addr):
                         last_seen_state["bird"] = bird_name
                         last_seen_state["time"] = current_time
 
-                        pred_str = f"{bird_name} ({confidence * 100:.1f}%)"
+                        if vocal_type_str != "-":
+                            pred_str = f"{bird_name} ({vocal_type_str}) - {confidence * 100:.1f}%"
+                        else:
+                            pred_str = f"{bird_name} ({confidence * 100:.1f}%)"
+                            
                         esp32_data[ip]["prediction"] = pred_str
 
                         audio_filename = None
@@ -320,7 +367,7 @@ def handle_client(conn, addr):
                             audio_final_int16 = (audio_float * 32767.0).astype(np.int16)
                             wavfile.write(audio_path, SAMPLE_RATE, audio_final_int16)
 
-                        log_detection(ip, bird_name, confidence * 100, audio_filename)
+                        log_detection(ip, bird_name, confidence * 100, vocal_type_str, audio_filename)
                         print(f"[{ip}] {pred_str} | {duration_ms} ms")
 
                         if is_new_encounter:
@@ -602,12 +649,13 @@ html_content = """
                     <tr>
                         <th>Time</th>
                         <th>Species</th>
+                        <th>Type</th>
                         <th>Confidence</th>
                         <th>Audio Replay</th>
                     </tr>
                 </thead>
                 <tbody id="history-table">
-                    <tr><td colspan="4">No data available</td></tr>
+                    <tr><td colspan="5">No data available</td></tr>
                 </tbody>
             </table>
         </div>
@@ -981,7 +1029,7 @@ html_content = """
                         tempMax = Math.ceil(tMax + 1);
 
                         if (statsDiv) {
-                            statsDiv.innerHTML += `<span>🌡️ Temp min/max: <b>${tMin.toFixed(1)}°C</b> / <b>${tMax.toFixed(1)}°C</b></span>`;
+                            statsDiv.innerHTML += `<span>Temp min/max: <b>${tMin.toFixed(1)}°C</b> / <b>${tMax.toFixed(1)}°C</b></span>`;
                         }
                     }
                 }
@@ -1011,7 +1059,7 @@ html_content = """
                         rainMax = Math.max(1, Math.ceil(rMax + 1));
 
                         if (statsDiv) {
-                            statsDiv.innerHTML += `<span>🌧️ Rain min/max: <b>${rMin.toFixed(1)} mm</b> / <b>${rMax.toFixed(1)} mm</b></span>`;
+                            statsDiv.innerHTML += `<span>Rain min/max: <b>${rMin.toFixed(1)} mm</b> / <b>${rMax.toFixed(1)} mm</b></span>`;
                         }
                     }
                 }
@@ -1142,7 +1190,7 @@ html_content = """
             histTbody.innerHTML = "";
 
             if (historyData.length === 0) {
-                histTbody.innerHTML = "<tr><td colspan='4'>No data available</td></tr>";
+                histTbody.innerHTML = "<tr><td colspan='5'>No data available</td></tr>";
             } else {
                 const reverseData = [...historyData].reverse();
                 reverseData.forEach(item => {
@@ -1150,10 +1198,13 @@ html_content = """
                     const audioHtml = item.audio
                         ? `<audio controls src="${item.audio}"></audio>`
                         : `<span style="color:#aaa;">---</span>`;
+                    
+                    const typeStr = item.vocal_type ? item.vocal_type : "-";
 
                     tr.innerHTML = `
                         <td>${item.time}</td>
                         <td>${item.bird}</td>
+                        <td>${typeStr}</td>
                         <td>${Number(item.conf).toFixed(1)}</td>
                         <td>${audioHtml}</td>
                     `;
@@ -1235,7 +1286,7 @@ async def get_history(date_str: str):
 async def export_data(range: str = "today"):
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Date", "Time", "Bird Species", "Confidence", "Audio Link"])
+    writer.writerow(["Date", "Time", "Bird Species", "Vocalization Type", "Confidence", "Audio Link"])
 
     files_to_read = []
 
@@ -1264,6 +1315,7 @@ async def export_data(range: str = "today"):
                     date_str,
                     item.get("time", ""),
                     item.get("bird", ""),
+                    item.get("vocal_type", "-"),
                     item.get("conf", ""),
                     item.get("audio", ""),
                 ])

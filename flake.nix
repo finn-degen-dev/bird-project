@@ -44,6 +44,7 @@
             python
             python.pkgs.pip         # Nutzt exakt die Pip-Version von Python 3.12
             python.pkgs.virtualenv
+            python.pkgs.tkinter  # Add this line for Matplotlib GUI support
             pkgs.libsndfile
             pkgs.ffmpeg
             tex
