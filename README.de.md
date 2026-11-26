@@ -1,5 +1,5 @@
 <div align="right">
-  <a href="README.md">English</a> · <b>Deutsch</b>
+  <a href="https://github.com/finn-degen-dev/bird-project">English</a> · <b>Deutsch</b>
 </div>
 
 <div align="center">
